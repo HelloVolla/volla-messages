@@ -24,7 +24,7 @@ jobs:
       - name: Install packages
         run: |
           apt-get update
-          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git
+          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git cmake
 
       - name: Install nix
         uses: cachix/install-nix-action@v27

@@ -40,7 +40,7 @@ jobs:
       - name: Install packages
         run: |
           apt-get update
-          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git
+          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git cmake
 
       - name: setup node
         uses: actions/setup-node@v1
@@ -134,7 +134,7 @@ jobs:
       - name: Install packages
         run: |
           apt-get update
-          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git
+          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git cmake
 
       - name: Install nix
         uses: cachix/install-nix-action@v27
@@ -225,7 +225,6 @@ jobs:
         shell: powershell
         run: |
           if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-              Set-ExecutionPolicy Bypass -Scope Process -Force
               [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
               Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
           }
