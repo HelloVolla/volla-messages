@@ -33,7 +33,7 @@ jobs:
     environment: Relay Release
     runs-on: [self-hosted, yolo]
     container:
-      image: ubuntu:24.04
+      image: ubuntu:22.04
     steps:
       - uses: actions/checkout@v3
 
@@ -119,7 +119,7 @@ jobs:
       - create-release
     runs-on: [self-hosted, yolo]
     container:
-      image: ubuntu:24.04
+      image: ubuntu:22.04
     strategy:
       fail-fast: false
       matrix:
@@ -219,8 +219,6 @@ jobs:
     permissions: write-all
     environment: Relay Release
     runs-on: self-hosted-win-x64
-    container:
-      image: mcr.microsoft.com/windows/servercore:ltsc2022
     steps:
       # Step 1: Install Chocolatey (if not already installed)
       - name: Install Chocolatey
