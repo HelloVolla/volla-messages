@@ -244,8 +244,8 @@ jobs:
         shell: powershell
         run: |
           choco install git cmake -y
-          shimgen -p="C:\Program Files\CMake\bin\cmake.exe" -o=C:\ProgramData\chocolatey\bin\cmake.exe
-          shimgen -p="C:\Program Files\Git\cmd\git.exe" -o=C:\ProgramData\chocolatey\bin\git.exe
+          C:\ProgramData\chocolatey\tools\shimgen.exe -p="C:\Program Files\CMake\bin\cmake.exe" -o=C:\ProgramData\chocolatey\bin\cmake.exe
+          C:\ProgramData\chocolatey\tools\shimgen.exe -p="C:\Program Files\Git\cmd\git.exe" -o=C:\ProgramData\chocolatey\bin\git.exe
 
       - run: git config --system core.longpaths true
 
