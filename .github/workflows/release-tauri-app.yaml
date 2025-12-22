@@ -40,7 +40,7 @@ jobs:
       - name: Install packages
         run: |
           apt-get update
-          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git cmake
+          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git cmake clang libclang-dev
 
       - name: setup node
         uses: actions/setup-node@v1
@@ -134,7 +134,7 @@ jobs:
       - name: Install packages
         run: |
           apt-get update
-          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git cmake
+          apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git cmake clang libclang-dev
 
       - name: Install nix
         uses: cachix/install-nix-action@v27
