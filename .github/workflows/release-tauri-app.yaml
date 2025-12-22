@@ -252,7 +252,7 @@ jobs:
           node-version: 20
 
       - name: install Rust stable
-        uses: actions-rs/toolchain@v1
+        uses: lionel-faber/toolchain@038230242ab440f3b34fc2fbd7ae4111add9e690
         with:
           override: true
           toolchain: 1.85.0
