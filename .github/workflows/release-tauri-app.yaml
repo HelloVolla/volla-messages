@@ -242,12 +242,6 @@ jobs:
 
       - run: choco install git -y
 
-      - name: Set PATH
-        shell: cmd
-        run: |
-          call refreshenv
-          echo ::set-env name=PATH::%PATH%
-
       - run: git config --system core.longpaths true
 
       - uses: actions/checkout@v3
