@@ -1,5 +1,8 @@
 buildscript {
     repositories {
+        maven {
+            url = uri("https://nexus.volla.tech/repository/maven-releases/")
+        }
         google()
         mavenCentral()
     }
@@ -11,6 +14,9 @@ buildscript {
 
 allprojects {
     repositories {
+        maven {
+            url = uri("https://nexus.volla.tech/repository/maven-releases/")
+        }
         google()
         mavenCentral()
     }
