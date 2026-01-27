@@ -36,7 +36,7 @@
     <span class="hidden truncate sm:inline">{copyLabel}</span>
   </ButtonInline>
 
-  {#if !isMobile()}
+  {#if isMobile()}
     <ButtonInline
       on:click={share}
       icon="share"
