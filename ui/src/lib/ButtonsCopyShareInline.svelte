@@ -26,22 +26,24 @@
   }
 </script>
 
-<div class="flex items-center justify-center space-x-2">
+<div class="flex shrink-0 items-center justify-center gap-1 sm:gap-2">
   <ButtonInline
     on:click={copy}
     icon="copy"
-    moreClassesButton="h-8 px-1 sm:px-3 text-xs !space-x-1 sm:space-x-4"
+    iconSize="h-[18px] w-[18px] sm:h-[24px] sm:w-[24px]"
+    moreClassesButton="h-7 sm:h-8 px-2 sm:px-3 text-xs !space-x-1 sm:!space-x-2"
   >
-    {copyLabel}
+    <span class="hidden truncate sm:inline">{copyLabel}</span>
   </ButtonInline>
 
-  {#if isMobile()}
+  {#if !isMobile()}
     <ButtonInline
       on:click={share}
       icon="share"
-      moreClassesButton="h-8 px-1 sm:px-3 text-xs !space-x-0 sm:space-x-4"
+      iconSize="h-[18px] w-[18px] sm:h-[24px] sm:w-[24px]"
+      moreClassesButton="h-7 sm:h-8 px-2 sm:px-3 text-xs !space-x-1 sm:!space-x-2"
     >
-      {shareLabel}
+      <span class="hidden truncate sm:inline">{shareLabel}</span>
     </ButtonInline>
   {/if}
 </div>
