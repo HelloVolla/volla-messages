@@ -3,9 +3,7 @@
   import type { ActionHashB64 } from "@holochain/client";
   import type { MessageExtended, CellIdB64 } from "$lib/types";
   import BaseMessage from "./Message.svelte";
-  import ConversationHeader from "./ConversationHeader.svelte";
-  import { createVirtualizer } from "@tanstack/svelte-virtual";
-  import { afterUpdate, beforeUpdate, createEventDispatcher, onMount, tick } from "svelte";
+  import { createEventDispatcher, onMount } from "svelte";
 
   const dispatch = createEventDispatcher<{
     scrollAtTop: null;
@@ -18,160 +16,110 @@
 
   let selected: ActionHashB64 | undefined;
   let containerEl: HTMLDivElement | null = null;
-  let initialScrollReady = false;
+  let scrollReady = false;
 
-  $: chronologicalMessages = messages;
+  // ===========================================
+  // CONFIGURATION
+  // ===========================================
+  const SCROLL_TRIGGER_THRESHOLD = 1200; // Pixels from oldest messages to trigger loading (increased for fast scroll)
+  const DEBOUNCE_MS = 150; // Reduced debounce for faster response
 
-  const MESSAGE_FIXED_HEIGHT = 40;
-  const UPDATE_TRIGGER_VIEW_OFFSET = 250;
-  const BUFFER_COUNT = 10;
+  // ===========================================
+  // MESSAGE ORDER
+  // Parent passes: messages={[...$messages.list].reverse()} which is [oldest...newest]
+  // We reverse again to get [newest...oldest] so index 0 = newest
+  // With flex-col-reverse, index 0 appears at the bottom (correct!)
+  // ===========================================
+  $: reversedMessages = [...messages].reverse();
 
-  let virtualizer = createVirtualizer({
-    count: chronologicalMessages?.length,
-    getScrollElement: () => containerEl,
-    estimateSize: () => MESSAGE_FIXED_HEIGHT,
-    overscan: BUFFER_COUNT,
-    useAnimationFrameWithResizeObserver: true,
-  });
-  // Update virtualizer count when messages change
-  $: if ($virtualizer) $virtualizer.setOptions({ count: chronologicalMessages?.length });
+  // ===========================================
+  // SCROLL HANDLING
+  // In flex-col-reverse:
+  // - scrollTop = 0 means we're at the BOTTOM (newest messages visible)
+  // - scrollTop increases as we scroll UP (toward older messages)
+  // - maxScrollTop = scrollHeight - clientHeight = fully scrolled to TOP (oldest)
+  // ===========================================
+  let lastTriggerTime = 0;
+  let scrollEndTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function measure(node: HTMLElement) {
-    const index = Number(node.dataset.index);
-    if (isNaN(index)) return;
+  function handleScroll() {
+    if (!containerEl || !scrollReady) return;
 
-    if (!$virtualizer) return;
-    const observer = new ResizeObserver(() => {
-      requestAnimationFrame(() => {
-        $virtualizer.measureElement(node);
-      });
-    });
+    const { scrollTop, scrollHeight, clientHeight } = containerEl;
+    const maxScrollTop = scrollHeight - clientHeight;
 
-    observer.observe(node);
+    // In flex-col-reverse:
+    // - scrollTop = 0 means at BOTTOM (newest messages)
+    // - scrollTop goes NEGATIVE as you scroll UP toward older messages
+    // - At oldest messages, scrollTop approaches -maxScrollTop
+    // So distanceFromOldest = maxScrollTop + scrollTop (will be small when near oldest)
+    const distanceFromOldest = maxScrollTop + scrollTop;
+    const isNearOldest = distanceFromOldest <= SCROLL_TRIGGER_THRESHOLD;
 
-    return {
-      destroy() {
-        observer.disconnect();
-      },
-    };
+    // Load older messages when scrolling near the oldest messages (top of visual list)
+    const now = Date.now();
+    if (isNearOldest && !loadingTop && now - lastTriggerTime > DEBOUNCE_MS) {
+      lastTriggerTime = now;
+      dispatch("scrollAtTop");
+    }
+
+    // Also check when scrolling stops (for fast scroll detection)
+    if (scrollEndTimer) clearTimeout(scrollEndTimer);
+    scrollEndTimer = setTimeout(() => {
+      checkAndTriggerLoad();
+    }, 100);
   }
 
-  let isAtBottom = true;
-  let wasAtBottom = true;
-  let isAtTop = false;
-  let wasAtTop = false;
-
-  onMount(async () => {
-    if (chronologicalMessages.length > 0 && containerEl) {
-      isAtBottom = true;
-      wasAtBottom = true;
-      isAtTop = false;
-      wasAtTop = false;
-
-      await scrollToBottom();
-    }
-  });
-
-  // to resolve glitch when (fetching older msgs from hc + loading msgs to store from localDB)
-  let previousScrollHeight = 0;
-  let previousItemCount = 0;
-  let shouldMaintainScroll = false;
-  let isFirstFetch = true;
-
-
-  beforeUpdate(() => {
-    // only capture the scrollHeight if a maintenance request is active.
-    if (shouldMaintainScroll && containerEl) {
-      previousScrollHeight = containerEl.scrollHeight;
-    }
-  });
-
-  // applying manual scroll maintainance
-  afterUpdate(() => {
-    if (shouldMaintainScroll && containerEl) {
-      shouldMaintainScroll = false;
-
-      const newScrollHeight = containerEl.scrollHeight;
-
-            const heightDifference =
-        newScrollHeight - previousScrollHeight + (!isFirstFetch ? 20 * 40 : 0);
-
-      if (isFirstFetch) isFirstFetch = false;
-
-      containerEl.scrollTop = heightDifference;
-    }
-  });
-
-  // logic for triggering fetch event, newly_added_items-scroll-down logic
-  $: {
-    const currentItemCount = chronologicalMessages.length;
-
-    if (containerEl && initialScrollReady) {
-      const { scrollTop, scrollHeight, clientHeight } = containerEl;
-      const scrollBottom = scrollHeight - scrollTop - clientHeight;
-
-      const isAtBottom = scrollBottom < 5;
-      const isAtTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
-
-      if (wasAtBottom && currentItemCount > previousItemCount) {
-        scrollToBottom("smooth");
-      }
-
-      if (isAtTop && !wasAtTop && !loadingTop) {
-        shouldMaintainScroll = true;
-
+  // Check if we should load more messages (called after scroll stops or messages change)
+  function checkAndTriggerLoad() {
+    if (!containerEl || !scrollReady || loadingTop) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = containerEl;
+    const maxScrollTop = scrollHeight - clientHeight;
+    const distanceFromOldest = maxScrollTop + scrollTop;
+    
+    if (distanceFromOldest <= SCROLL_TRIGGER_THRESHOLD) {
+      const now = Date.now();
+      if (now - lastTriggerTime > DEBOUNCE_MS) {
+        lastTriggerTime = now;
         dispatch("scrollAtTop");
       }
+    }
+  }
 
-      wasAtBottom = isAtBottom;
-      wasAtTop = isAtTop;
+  // Re-check after messages change - if still near top and not loading, trigger again
+  $: if (scrollReady && containerEl && messages.length > 0 && !loadingTop) {
+    // Use tick to ensure DOM is updated before measuring
+    setTimeout(() => {
+      checkAndTriggerLoad();
+    }, 100);
+  }
+
+  // ===========================================
+  // MOUNT - No scrolling needed! Newest messages are already at bottom
+  // ===========================================
+  onMount(() => {
+    
+    if (containerEl) {
+      containerEl.addEventListener("scroll", handleScroll, { passive: true });
     }
 
-    previousItemCount = currentItemCount;
-  }
+    // Small delay before enabling scroll detection
+    setTimeout(() => {
+      scrollReady = true;
+      console.log("[MOUNT] Scroll detection enabled");
+    }, 100);
 
-  async function scrollToBottom(behavior?: "auto" | "smooth") {
-    await waitForListLoad();
+    return () => {
+      if (containerEl) {
+        containerEl.removeEventListener("scroll", handleScroll);
+      }
+    };
+  });
 
-    const lastIndex = chronologicalMessages.length - 1;
-    if (lastIndex < 0) return;
-
-    let attempts = 0;
-    while (attempts < 5) {
-      // making sure the initial scroll lands completely at bottom edge of the container
-      $virtualizer.scrollToIndex(lastIndex + 999, {
-        align: "start",
-        behavior,
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      attempts++;
-    }
-
-    requestAnimationFrame(() => {
-      initialScrollReady = true;
-    });
-  }
-
-  async function waitForListLoad() {
-    await tick();
-
-    return new Promise((resolve) => {
-      const check = () => {
-        const lastIndex = chronologicalMessages?.length - 1;
-
-        if ($virtualizer.getVirtualItems().length > 0 && lastIndex >= 0) {
-          resolve({});
-        } else {
-          requestAnimationFrame(check); // keep checking on next frame
-        }
-      };
-
-      check();
-    });
-  }
-
+  // ===========================================
+  // UTILITY FUNCTIONS
+  // ===========================================
   function handleClick(e: MouseEvent, actionHashB64: ActionHashB64) {
     e.stopPropagation();
     selected = selected === actionHashB64 ? undefined : isMobile() ? undefined : actionHashB64;
@@ -187,90 +135,102 @@
     }
   }
 
-  function shouldShowDaySeparator(currentIndex: number) {
-    if (currentIndex === 0) return true;
+  // Messages are in reverse chronological order: index 0 = newest, index n-1 = oldest
+  // Check the NEXT item in array (which is the PREVIOUS message chronologically)
+  function shouldShowDaySeparator(index: number) {
+    // index 0 = newest message, index n-1 = oldest message
+    const currentMsg = reversedMessages?.[index]?.[1];
+    const nextMsg = reversedMessages?.[index + 1]?.[1]; // This is chronologically BEFORE current
 
-    const currentMsg = chronologicalMessages?.[currentIndex]?.[1];
-    const prevMsg = chronologicalMessages?.[currentIndex - 1]?.[1];
+    if (!currentMsg) return false;
 
-    if (!currentMsg || !prevMsg) return true;
+    // If there's no older message, this is the oldest - show its day
+    if (!nextMsg) return true;
 
-    return !isSameDay(new Date(currentMsg.timestamp / 1000), new Date(prevMsg.timestamp / 1000));
+    // Show separator if current message is on a DIFFERENT day than the older message
+    return !isSameDay(new Date(currentMsg.timestamp / 1000), new Date(nextMsg.timestamp / 1000));
   }
 
-  function shouldShowAuthor(currentIndex: number) {
-    if (currentIndex === 0) return true;
+  function shouldShowAuthor(index: number) {
+    const currentMsg = reversedMessages[index]?.[1];
+    const nextMsg = reversedMessages[index + 1]?.[1]; // Chronologically BEFORE current
 
-    const currentMsg = chronologicalMessages[currentIndex][1];
-    const prevMsg = chronologicalMessages[currentIndex - 1][1];
+    if (!currentMsg) return true;
+    if (!nextMsg) return true; // Oldest message always shows author
 
-    if (!currentMsg || !prevMsg) return true;
-
+    // Show author if different from the previous message (chronologically)
     return (
-      currentMsg.authorAgentPubKeyB64 !== prevMsg.authorAgentPubKeyB64 ||
+      currentMsg.authorAgentPubKeyB64 !== nextMsg.authorAgentPubKeyB64 ||
       !isWithinFiveMinutes(
         new Date(currentMsg.timestamp / 1000),
-        new Date(prevMsg.timestamp / 1000),
+        new Date(nextMsg.timestamp / 1000),
       )
     );
+  }
+
+  function getDayHeaderDate(index: number) {
+    const msg = reversedMessages?.[index]?.[1];
+    if (!msg) return null;
+    return new Date(msg.timestamp / 1000);
   }
 </script>
 
 <div
-  class="flex h-full w-full flex-col overflow-y-auto overflow-x-hidden"
+  class="flex h-full w-full flex-col-reverse overflow-y-auto overflow-x-hidden"
   bind:this={containerEl}
-  style={`overflow-anchor: none; ${initialScrollReady ? "opacity: 1" : "opacity: 0"}`}
+  style="overflow-anchor: auto;"
 >
-  <!-- Fixed Conversation Header (not virtualized) -->
-  <div class="flex h-4 items-center justify-center"></div>
-  <ConversationHeader {cellIdB64} />
-  <div class="flex h-4 items-center justify-center"></div>
+  <!-- 
+    FLEX-COL-REVERSE LAYOUT:
+    - First items in DOM appear at the BOTTOM of the container
+    - scrollTop = 0 means bottom (newest) is visible
+    - Scrolling up increases scrollTop, showing older messages
+    - No auto-scroll needed on page load!
+  -->
 
-  <!-- This inner div effectively holds the virtualizer's content scroll height -->
-  <div style="height: {$virtualizer.getTotalSize()}px; position: relative; width: 100%;">
-    <!-- Virtualized message items -->
-    {#each $virtualizer.getVirtualItems() as virtualRow (virtualRow.key)}
-      {@const currentIndex = virtualRow.index}
-      {@const [actionHashB64, messageExtended] = chronologicalMessages[currentIndex]}
-      <div
-        class="absolute left-0 top-0 w-full"
-        style="transform: translateY({virtualRow.start}px);"
-        data-index={virtualRow.index}
-        use:measure
-      >
-        <div class="flex flex-shrink-0 flex-col">
-          <!-- Day separator -->
-          {#if shouldShowDaySeparator(currentIndex)}
+  <!-- Messages list (index 0 = newest, rendered at bottom due to flex-col-reverse) -->
+  <div class="flex flex-col-reverse">
+    {#each reversedMessages as [actionHashB64, messageExtended], index (actionHashB64)}
+      {@const isOldestMessage = index === reversedMessages.length - 1}
+
+      <div class="flex flex-shrink-0 flex-col">
+        <!-- Day separator - shown ABOVE the oldest message of each day -->
+        {#if shouldShowDaySeparator(index)}
+          {@const dayDate = getDayHeaderDate(index)}
+          {#if dayDate}
             <div class="text-secondary-400 dark:text-secondary-300 my-4 px-4 text-center text-xs">
-              {new Date(messageExtended.timestamp / 1000).toLocaleDateString("en-US", {
+              {dayDate.toLocaleDateString("en-US", {
                 weekday: "long",
                 month: "long",
                 day: "numeric",
               })}
             </div>
           {/if}
+        {/if}
 
-          <!-- Message content -->
-          <div class="mt-3 px-4">
-            <BaseMessage
-              {cellIdB64}
-              message={messageExtended}
-              isSelected={selected === actionHashB64}
-              showAuthor={shouldShowAuthor(currentIndex)}
-              {actionHashB64}
-              on:press={() => handlePress(actionHashB64)}
-              on:click={(e) => handleClick(e, actionHashB64)}
-              on:clickoutside={handleClickOutside}
-              on:delete
-            />
-          </div>
-
-          <!-- Padding at the very end of the chat -->
-          {#if currentIndex === chronologicalMessages?.length - 1}
-            <div class="flex h-4 items-center justify-center"></div>
-          {/if}
+        <!-- Message content -->
+        <div class="mt-3 px-4">
+          <BaseMessage
+            {cellIdB64}
+            message={messageExtended}
+            isSelected={selected === actionHashB64}
+            showAuthor={shouldShowAuthor(index)}
+            {actionHashB64}
+            on:press={() => handlePress(actionHashB64)}
+            on:click={(e) => handleClick(e, actionHashB64)}
+            on:clickoutside={handleClickOutside}
+            on:delete
+          />
         </div>
+
+        <!-- Spacer at the oldest message (top of the visual list) -->
+        {#if isOldestMessage}
+          <div class="flex h-4 items-center justify-center"></div>
+        {/if}
       </div>
     {/each}
   </div>
+
+  <!-- Bottom spacer (appears at visual bottom due to flex-col-reverse) -->
+  <div class="flex h-4 flex-shrink-0 items-center justify-center"></div>
 </div>
