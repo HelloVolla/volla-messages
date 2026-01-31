@@ -7,6 +7,7 @@
   export let loading = false;
   export let icon: string | undefined = undefined;
   export let iconAlign: Alignment = Alignment.Left;
+  export let iconSize: string = "h-[24px] w-[24px]";
 </script>
 
 <button
@@ -17,12 +18,12 @@
   {...$$restProps}
 >
   {#if loading}
-    <SvgIcon icon="spinner" moreClasses="text-primary-500 {moreClasses}" />
+    <SvgIcon icon="spinner" size={iconSize} moreClasses="text-primary-500 {moreClasses}" />
   {:else if icon !== undefined}
-    <SvgIcon {icon} moreClasses="text-primary-500 {moreClasses}" />
+    <SvgIcon {icon} size={iconSize} moreClasses="text-primary-500 {moreClasses}" />
   {/if}
 
-  <div class=" flex w-full justify-center">
-    <slot></slot>
-  </div>
+  <span class="inline-flex items-center">
+    <slot />
+  </span>
 </button>

@@ -120,7 +120,7 @@
     <InputImageAvatar value={image} on:change={(e) => saveImage(e.detail)} />
   {/if}
 
-  <div class="flex items-center justify-center space-x-2">
+  <div class="flex w-full items-center justify-center space-x-2 px-4">
     {#if editingTitle}
       <TitleInput
         initialValue={title}
@@ -128,7 +128,7 @@
         on:cancel={() => (editingTitle = false)}
       />
     {:else}
-      <h1 class="break-all text-3xl">
+      <h1 class="min-w-0 truncate text-2xl sm:text-3xl">
         {title}
       </h1>
 
@@ -155,11 +155,11 @@
       {#if $conversation.dnaProperties.privacy === Privacy.Public && $conversation.publicInviteCode !== undefined}
         <li class="variant-filled-primary mb-2 flex flex-row items-center rounded-full p-2 text-xl">
           <span
-            class="bg-tertiary-500 inline-block flex h-10 w-10 items-center justify-center rounded-full"
+            class="bg-tertiary-500 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
           >
             <SvgIcon icon="addPerson" moreClasses="text-primary-600" />
           </span>
-          <span class="ml-4 flex-1 text-sm font-bold">{$t("common.add_members")}</span>
+          <span class="ml-2 min-w-0 flex-1 truncate text-sm font-bold sm:ml-4">{$t("common.add_members")}</span>
 
           <ButtonsCopyShareInline
             text={$conversation.publicInviteCode}
