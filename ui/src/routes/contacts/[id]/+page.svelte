@@ -112,7 +112,7 @@
       </div>
       <div class="mt-2 flex items-center justify-center">
         <span
-          class="text-secondary-400 dark:text-tertiary-700 mr-1 w-64 overflow-hidden text-ellipsis text-nowrap"
+          class="mr-1 w-64 overflow-hidden text-ellipsis text-nowrap text-secondary-400 dark:text-tertiary-700"
         >
           {$contact.publicKeyB64}
         </span>
