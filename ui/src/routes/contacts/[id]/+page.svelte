@@ -59,7 +59,7 @@
   async function loadProfiles() {
     if (!profiles) return;
 
-    await profiles.load(isFirstProfilesLoad);
+    await profiles.load(true); // allways load local because we don't want to trigger a network get that can take a long time.
     isFirstProfilesLoad = false;
 
     if (!hasAgentJoinedDht) {
