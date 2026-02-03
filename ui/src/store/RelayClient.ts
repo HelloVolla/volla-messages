@@ -12,6 +12,7 @@ import {
   type ClonedCell,
   type ProvisionedCell,
   type SignedActionHashed,
+  type Link,
 } from "@holochain/client";
 import { EntryRecord } from "@holochain-open-dev/utils";
 import type {
@@ -189,6 +190,22 @@ export class RelayClient {
       fn_name: "get_message_entries",
       payload: { input: hashes, local },
     });
+  }
+
+  public async getMessagesForBuckets(
+    cell_id: CellId,
+    buckets: Array<number>,
+  ): Promise<Array<MessageRecord>> {
+    const links: Array<Link> = await this.client.callZome({
+      cell_id,
+      zome_name: ZOME_NAME,
+      fn_name: "get_message_links_for_buckets",
+      payload: buckets,
+    });
+    const hashes = links.map((l) => l.target);
+    const records = await this.getMessageEntries(cell_id, hashes, true);
+
+    return records;
   }
 
   /**

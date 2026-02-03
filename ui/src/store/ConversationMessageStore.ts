@@ -67,7 +67,7 @@ export interface ConversationMessageStore extends GenericKeyKeyValueStore<Messag
     key1: CellIdB64,
     actionHashB64: ActionHashB64,
   ) => Promise<void>;
-  debugGetAllMessages: (key1: CellIdB64) => Promise<Record[]>;
+  debugGetAllMessages: (key1: CellIdB64) => Promise<MessageRecord[]>;
 }
 
 export function createConversationMessageStore(
@@ -764,21 +764,29 @@ export function createConversationMessageStore(
   async function debugGetAllMessages(key1: CellIdB64): Promise<MessageRecord[]> {
     let bucket = conversationStore.getBucket(key1, new Date().getTime());
     const cellId = decodeCellIdFromBase64(key1);
-    let hashes: HoloHash[] = [];
-    while (bucket >= 0) {
-      console.log("getting BUCKET", bucket);
-      const h = await client.getMessageHashes(
-        cellId,
-        {
-          bucket,
-          count: 0,
-        },
-        true,
-      );
-      hashes = [...hashes, ...h];
-      bucket -= 1;
-    }
-    const records = await client.getMessageEntries(cellId, hashes);
+
+    // Get the hashes for buckets by calling them one bucket at a time.
+    // let hashes: HoloHash[] = [];
+    // while (bucket >= 0) {
+    //   console.log("getting BUCKET", bucket);
+    //   const h = await client.getMessageHashes(
+    //     cellId,
+    //     {
+    //       bucket,
+    //       count: 0,
+    //     },
+    //     true,
+    //   );
+    //   hashes = [...hashes, ...h];
+    //   bucket -= 1;
+    // }
+    // const records = await client.getMessageEntries(cellId, hashes);
+
+    const records = await client.getMessagesForBuckets(
+      cellId,
+      Array.from({ length: bucket + 1 }, (_, index) => index),
+    );
+
     console.log("Records", records);
     return records;
   }
