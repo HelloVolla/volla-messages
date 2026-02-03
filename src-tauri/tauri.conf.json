@@ -1,6 +1,6 @@
 {
   "productName": "Volla Messages",
-  "identifier": "com.volla.messages",
+  "identifier": "com.volla.messages.bundled",
   "version": "0.11.0",
   "build": {
     "beforeBuildCommand": "npm run build -w ui",
@@ -22,10 +22,16 @@
     }
   },
   "app": {
-    "withGlobalTauri": true,
-    "security": {
-      "csp": null
-    },
-    "windows": []
+    "windows": [
+      {
+        "width": 360,
+        "height": 720,
+        "decorations": false,
+        "resizable": true,
+        "center": true,
+        "url": "splashscreen.html",
+        "label": "splashscreen"
+      }
+    ]
   }
 }

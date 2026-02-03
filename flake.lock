@@ -576,16 +576,16 @@
         "scaffolding": "scaffolding"
       },
       "locked": {
-        "lastModified": 1770121713,
-        "narHash": "sha256-yPkdH7CYvkE0D1P+l6QMLkzScJVBy+OdP480cGNGxqY=",
-        "owner": "darksoil-studio",
+        "lastModified": 1770155399,
+        "narHash": "sha256-OCUqVwQl7QyI8z7cxQE/TWz9vnDV3jmRExYyCvbJV0I=",
+        "owner": "lightningrodlabs",
         "repo": "tauri-plugin-holochain",
-        "rev": "9bb4fcbdf395c57eeedb713203ecad639ae91b54",
+        "rev": "f1cb3bb9223433747cd95172302a334bea2dff3e",
         "type": "github"
       },
       "original": {
-        "owner": "darksoil-studio",
-        "ref": "main-0.6",
+        "owner": "lightningrodlabs",
+        "ref": "main-0.6.1",
         "repo": "tauri-plugin-holochain",
         "type": "github"
       }
