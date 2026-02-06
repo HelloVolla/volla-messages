@@ -573,18 +573,19 @@
           "holonix",
           "rust-overlay"
         ],
-        "scaffolding": "scaffolding"
+        "scaffolding": "scaffolding",
+        "webkitnixpkgs": "webkitnixpkgs"
       },
       "locked": {
-        "lastModified": 1770155399,
-        "narHash": "sha256-OCUqVwQl7QyI8z7cxQE/TWz9vnDV3jmRExYyCvbJV0I=",
-        "owner": "lightningrodlabs",
+        "lastModified": 1770400675,
+        "narHash": "sha256-c3Z5la2Sy4mfdBwwNQaDVlWvJgHAOTULCQnE6QFiOGI=",
+        "owner": "darksoil-studio",
         "repo": "tauri-plugin-holochain",
-        "rev": "f1cb3bb9223433747cd95172302a334bea2dff3e",
+        "rev": "bd67bade146eef1982e09b5aa4e6c7e2122c9d4c",
         "type": "github"
       },
       "original": {
-        "owner": "lightningrodlabs",
+        "owner": "darksoil-studio",
         "ref": "main-0.6.1",
         "repo": "tauri-plugin-holochain",
         "type": "github"
@@ -731,17 +732,33 @@
         ]
       },
       "locked": {
-        "lastModified": 1770121204,
-        "narHash": "sha256-meHpdtUg1mPn+/FzJpulcdyoUKIaLP8LzDsOW5x/2gY=",
+        "lastModified": 1770399766,
+        "narHash": "sha256-Ex/MSxT6+bvGMBEjcnA3IxmsqTf8SmLpp0/r5MeyE0E=",
         "owner": "darksoil-studio",
         "repo": "scaffolding",
-        "rev": "f601d7f7c56ac485885f21a15d115f07d4794373",
+        "rev": "2790bc65ea2453e37568a0a96785a26afbc4592a",
         "type": "github"
       },
       "original": {
         "owner": "darksoil-studio",
         "ref": "main-0.6",
         "repo": "scaffolding",
+        "type": "github"
+      }
+    },
+    "webkitnixpkgs": {
+      "locked": {
+        "lastModified": 1709246466,
+        "narHash": "sha256-jN8Y5Zv2tNUKIGuSqhm8yIMn2x6jhMQvNwKYduvKxjU=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "ed4db9c6c75079ff3570a9e3eb6806c8f692dc26",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "ed4db9c6c75079ff3570a9e3eb6806c8f692dc26",
         "type": "github"
       }
     }
