@@ -31,7 +31,7 @@
     "setup:happ-release": "curl -L https://github.com/HelloVolla/volla-messages/releases/download/happ-v0.11.0/relay.happ -o workdir/relay.happ"
   },
   "devDependencies": {
-    "@holochain/hc-spin": "^0.600.0",
+    "@holochain/hc-spin": "^0.600.2-rc.0",
     "@tauri-apps/cli": "^2.5.0",
     "@tsconfig/svelte": "^5.0.4",
     "@types/dompurify": "^3.0.5",

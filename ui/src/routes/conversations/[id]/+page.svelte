@@ -95,7 +95,7 @@
    * Fetch agent profiles every 2s, until at least 2 profiles are received.
    */
   async function loadProfiles() {
-    await profiles.load(isFirstProfilesLoad);
+    await profiles.load(true); // allways load local because we don't want to trigger a network get that can take a long time.
     isFirstProfilesLoad = false;
     clearTimeout(agentTimeout);
 
@@ -117,7 +117,7 @@
    * navigating away from and back to this page.
    */
   async function loadConfig() {
-    await conversation.loadConfig(isFirstConfigLoad);
+    await conversation.loadConfig(true); // allways load local because we don't want to trigger a network get that can take a long time.
     isFirstConfigLoad = false;
     clearTimeout(configTimeout);
 
@@ -137,7 +137,7 @@
    */
   async function loadMessages() {
     clearTimeout(messageTimeout);
-    await loadMessagesInCurrentBucket(isFirstLoadMessages);
+    await loadMessagesInCurrentBucket(true); // allways load local because we don't want to trigger a network get that can take a long time.
     isFirstLoadMessages = false;
 
     if ($messages.count === 0) {
@@ -162,7 +162,7 @@
 
     loadingMessagesOld = true;
     try {
-      await messages.loadMessagesInPreviousBucketTargetCount(false); //TODO: is this ok to always be from network?
+      await messages.loadMessagesInPreviousBucketTargetCount(true); // allways load local because we don't want to trigger a network get that can take a long time.
     } catch (e) {
       console.error(e);
     }

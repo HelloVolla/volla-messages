@@ -241,10 +241,11 @@ export function createConversationMessageStore(
         );
       }
 
-      // If no more messages in DB, try fetching from network
-      if (olderMessages.length === 0) {
-        loadedCount = await loadMessagesInPreviousBucketTargetCount(false, cellIdB64);
-      }
+      // This shouldn't be done, it will only likely trigger timeouts.  Unless the node is zero-arc (which we are not doing in Volla), all loading should be local.
+      // Data will be synced quickly and so it's not worth trying to get it from the network.
+      // if (olderMessages.length === 0) {
+      //   loadedCount = await loadMessagesInPreviousBucketTargetCount(false, cellIdB64);
+      // }
 
       return loadedCount;
     } catch (error) {
