@@ -59,13 +59,13 @@
 >
   <Avatar size={38} agentPubKeyB64={$contact.publicKeyB64} moreClasses="mr-3" />
   <p
-    class="dark:text-tertiary-100 flex-1 text-start font-bold {hasAgentJoinedDht
+    class="flex-1 text-start font-bold dark:text-tertiary-100 {hasAgentJoinedDht
       ? 'text-secondary-400 dark:!text-secondary-300'
       : ''}"
   >
     {$contact.fullName}
     {#if !hasAgentJoinedDht}
-      <span class="text-secondary-400 ml-1 text-xs">{$t("common.unconfirmed")}</span>
+      <span class="ml-1 text-xs text-secondary-400">{$t("common.unconfirmed")}</span>
     {/if}
   </p>
   {#if selected}
@@ -76,6 +76,6 @@
       {$t("common.view")}
     </ButtonInline>
   {:else}
-    <span class="text-primary-500 text-lg font-extrabold">+</span>
+    <span class="text-lg font-extrabold text-primary-500">+</span>
   {/if}
 </button>

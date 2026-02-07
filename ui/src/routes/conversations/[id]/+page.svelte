@@ -224,6 +224,11 @@
     clearTimeout(configTimeout);
     clearTimeout(messageTimeout);
   });
+
+  async function dumpAll() {
+    console.log("Dumping all");
+    messages.debugGetAllMessages();
+  }
 </script>
 
 <Header backUrl="/conversations">
@@ -232,6 +237,12 @@
   </h1>
 
   <div class="flex items-center justify-center" slot="right">
+    <ButtonIconBare
+      moreClasses="!w-[18px] !h-auto"
+      moreClassesButton="p-4"
+      icon="archive"
+      on:click={dumpAll}
+    />
     <ButtonIconBare
       moreClasses="!w-[18px] !h-auto"
       moreClassesButton="p-4"
