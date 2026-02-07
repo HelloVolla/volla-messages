@@ -63,14 +63,17 @@ where
                             window = window.title(String::from("Volla Messages"));
                         }
 
-                        window.build().expect("Failed to open main window");
+                        let main_window = window.build().expect("Failed to open main window");
+
+                        // Open devtools for debugging
+                        main_window.open_devtools();
 
                         #[cfg(desktop)]
                         {
                             // After it's done, close the splashscreen and display the main window
-                            let splashscreen_window =
-                                handle.get_webview_window("splashscreen").unwrap();
-                            splashscreen_window.close().unwrap();
+                            if let Some(splashscreen_window) = handle.get_webview_window("splashscreen") {
+                                let _ = splashscreen_window.close();
+                            }
                         }
 
                         // Load barcode scanner plugin if on supported platform
