@@ -24,14 +24,14 @@ tauri-plugin-holochain = { git = "https://github.com/darksoil-studio/tauri-plugi
 # tauri-plugin-holochain-service-client = { git = "https://github.com/HelloVolla/volla-cloud-services", tag = "android-service-runtime-v0.2.0" , optional = true }
 
 # iroh
-holochain = {version = "0.6.1-rc.0", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh"] }
+holochain = {version = "0.6.1-rc.1", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh"] }
 
 # go-pion webrtc back-end
 #holochain = {version = "0.6.0", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "backend-go-pion"] }
 
-holochain_types = "0.6.1-rc.0"
+holochain_types = "0.6.1-rc.1"
 lair_keystore = "0.6.3"
-holochain_client = "0.8.1-rc.0"
+holochain_client = "0.8.1-rc.1"
 
 log = "0.4"
 tauri-plugin-log = "2.4.0"
