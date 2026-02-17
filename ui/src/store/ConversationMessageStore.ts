@@ -145,6 +145,7 @@ export function createConversationMessageStore(
 
   /**
    * Load messages from IndexedDB into memory store with memory management
+   * Now merges with existing in-memory messages instead of overwriting
    */
   async function _loadMessagesFromDB(cellIdB64: CellIdB64, pagesToLoad: number): Promise<void> {
     try {
@@ -160,10 +161,17 @@ export function createConversationMessageStore(
         const messagesToKeep = sortedMessages.slice(0, maxMessagesInMemory); // Keep from beginning (newest)
         const messageData = Object.fromEntries(messagesToKeep);
 
-        messages.update((m) => ({
-          ...m,
-          [cellIdB64]: messageData,
-        }));
+        // Merge with existing messages instead of overwriting
+        // This prevents race condition where messages arriving via signal get lost
+        messages.update((m) => {
+          const existing = m[cellIdB64] || {};
+          const merged = { ...existing, ...messageData };
+          
+          return {
+            ...m,
+            [cellIdB64]: merged,
+          };
+        });
 
         // Update pagination state
         paginationState.update((state) => ({
@@ -171,13 +179,13 @@ export function createConversationMessageStore(
           [cellIdB64]: {
             ...state[cellIdB64],
             loadedPages: pagesToLoad,
-            totalMessages: messagesToKeep.length,
+            totalMessages: Object.keys(messages).length,
             oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) message in memory
           },
         }));
 
         console.log(
-          `Memory management: Keeping ${messagesToKeep.length} most recent messages out of ${sortedMessages.length} total (${pagesToLoad} pages loaded)`,
+          `Memory management: Loaded ${messagesToKeep.length} messages from DB, merged with existing (${pagesToLoad} pages loaded)`,
         );
       }
     } catch (error) {
@@ -402,14 +410,28 @@ export function createConversationMessageStore(
   }
 
   async function handleMessageSignalReceived(key1: CellIdB64, signal: MessageSignal) {
+    const actionHashB64 = encodeHashToBase64(signal.action.hashed.hash);
+
+    // Check for duplicates before processing
+    const exists = await messageDB.hasMessage(actionHashB64);
+    if (exists) {
+      console.log(`Message ${actionHashB64} already exists, skipping duplicate`);
+      return; // Skip duplicate
+    }
+
+    // Check if already in memory (double-check for race conditions)
+    const currentMessages = get(messages).data[key1] || {};
+    if (currentMessages[actionHashB64]) {
+      console.log(`Message ${actionHashB64} already in memory, skipping duplicate`);
+      return;
+    }
+
     // Make MessageExtended
     const messageExtended = await _makeMessageExtended(decodeCellIdFromBase64(key1), {
       message: signal.message,
       original_action: signal.action.hashed.hash,
       signed_action: signal.action,
     });
-
-    const actionHashB64 = encodeHashToBase64(signal.action.hashed.hash);
 
     // Store in IndexedDB first
     await messageDB.storeMessage(key1, actionHashB64, messageExtended);

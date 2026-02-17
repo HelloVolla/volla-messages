@@ -22,7 +22,7 @@
 
   $: chronologicalMessages = messages;
 
-  const MESSAGE_FIXED_HEIGHT = 40;
+  const MESSAGE_FIXED_HEIGHT = 80; //Increased from 40 to 80 (more realistic average)
   const UPDATE_TRIGGER_VIEW_OFFSET = 250;
   const BUFFER_COUNT = 10;
 
@@ -92,9 +92,13 @@
       shouldMaintainScroll = false;
 
       const newScrollHeight = containerEl.scrollHeight;
+      
+      // The magic number (20 * 40 = 800px) was wrong when fewer/more messages loaded
+      const actualLoadedCount = chronologicalMessages.length - previousItemCount;
+      const estimatedHeightAdded = actualLoadedCount * MESSAGE_FIXED_HEIGHT;
 
-            const heightDifference =
-        newScrollHeight - previousScrollHeight + (!isFirstFetch ? 20 * 40 : 0);
+      const heightDifference =
+        newScrollHeight - previousScrollHeight + (!isFirstFetch ? estimatedHeightAdded : 0);
 
       if (isFirstFetch) isFirstFetch = false;
 
@@ -102,29 +106,44 @@
     }
   });
 
-  // logic for triggering fetch event, newly_added_items-scroll-down logic
+  //Debounced scroll handler to prevent excessive reactive updates
+  let scrollCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+  
+  function checkScrollPosition() {
+    if (!containerEl || !initialScrollReady) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = containerEl;
+    const scrollBottom = scrollHeight - scrollTop - clientHeight;
+
+    isAtBottom = scrollBottom < 5;
+    isAtTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
+
+    // Trigger fetch when reaching top (debounced automatically by the timeout)
+    if (isAtTop && !wasAtTop && !loadingTop) {
+      shouldMaintainScroll = true;
+      dispatch("scrollAtTop");
+    }
+
+    wasAtBottom = isAtBottom;
+    wasAtTop = isAtTop;
+  }
+  
+  // Listen to scroll events with debouncing
+  $: if (containerEl) {
+    const handleScroll = () => {
+      if (scrollCheckTimeout) clearTimeout(scrollCheckTimeout);
+      scrollCheckTimeout = setTimeout(checkScrollPosition, 150); // 150ms debounce
+    };
+    
+    containerEl.addEventListener('scroll', handleScroll, { passive: true });
+  }
+
+  // logic for newly_added_items-scroll-down logic
   $: {
     const currentItemCount = chronologicalMessages.length;
 
-    if (containerEl && initialScrollReady) {
-      const { scrollTop, scrollHeight, clientHeight } = containerEl;
-      const scrollBottom = scrollHeight - scrollTop - clientHeight;
-
-      const isAtBottom = scrollBottom < 5;
-      const isAtTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
-
-      if (wasAtBottom && currentItemCount > previousItemCount) {
-        scrollToBottom("smooth");
-      }
-
-      if (isAtTop && !wasAtTop && !loadingTop) {
-        shouldMaintainScroll = true;
-
-        dispatch("scrollAtTop");
-      }
-
-      wasAtBottom = isAtBottom;
-      wasAtTop = isAtTop;
+    if (containerEl && initialScrollReady && wasAtBottom && currentItemCount > previousItemCount) {
+      scrollToBottom("smooth");
     }
 
     previousItemCount = currentItemCount;
@@ -136,21 +155,49 @@
     const lastIndex = chronologicalMessages.length - 1;
     if (lastIndex < 0) return;
 
-    let attempts = 0;
-    while (attempts < 5) {
-      // making sure the initial scroll lands completely at bottom edge of the container
-      $virtualizer.scrollToIndex(lastIndex + 999, {
-        align: "start",
-        behavior,
-      });
+    // Proper scroll to bottom without hacks
+    // Wait for all measurements to complete
+    await waitForMeasurements();
+    
+    // Scroll to actual last item using proper alignment
+    $virtualizer.scrollToIndex(lastIndex, {
+      align: "end", // Use "end" alignment for last item
+      behavior,
+    });
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      attempts++;
+    // Wait for scroll to complete
+    await tick();
+    
+    // Verify we reached bottom, force if needed
+    if (containerEl) {
+      const { scrollTop, scrollHeight, clientHeight } = containerEl;
+      const scrollBottom = scrollHeight - scrollTop - clientHeight;
+      
+      if (scrollBottom > 5) {
+        // Still not at bottom, force scroll
+        containerEl.scrollTop = scrollHeight;
+      }
     }
 
     requestAnimationFrame(() => {
       initialScrollReady = true;
+    });
+  }
+
+  async function waitForMeasurements() {
+    return new Promise<void>((resolve) => {
+      const check = () => {
+        const items = $virtualizer.getVirtualItems();
+        // Check if virtualizer has measured items with actual sizes
+        const hasMeasurements = items.length > 0 && items.every(item => item.size > 0);
+        
+        if (hasMeasurements || items.length === 0) {
+          resolve();
+        } else {
+          requestAnimationFrame(check);
+        }
+      };
+      check();
     });
   }
 
@@ -219,12 +266,19 @@
 <div
   class="flex h-full w-full flex-col overflow-y-auto overflow-x-hidden"
   bind:this={containerEl}
-  style={`overflow-anchor: none; ${initialScrollReady ? "opacity: 1" : "opacity: 0"}`}
+  style={`overflow-anchor: none; opacity: ${initialScrollReady ? 1 : 0}; transition: opacity 200ms ease-in-out;`}
 >
   <!-- Fixed Conversation Header (not virtualized) -->
   <div class="flex h-4 items-center justify-center"></div>
   <ConversationHeader {cellIdB64} />
   <div class="flex h-4 items-center justify-center"></div>
+
+  <!-- Loading indicator when fetching older messages -->
+  {#if loadingTop}
+    <div class="flex h-12 items-center justify-center">
+      <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"></div>
+    </div>
+  {/if}
 
   <!-- This inner div effectively holds the virtualizer's content scroll height -->
   <div style="height: {$virtualizer.getTotalSize()}px; position: relative; width: 100%;">
