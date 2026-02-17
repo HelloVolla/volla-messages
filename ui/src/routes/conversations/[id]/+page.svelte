@@ -29,6 +29,7 @@
   import SvgIcon from "$lib/SvgIcon.svelte";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
+  import Avatar from "$lib/Avatar.svelte";
 
   const conversationStore = getContext<{ getStore: () => ConversationStore }>(
     "conversationStore",
@@ -68,6 +69,8 @@
   let showDeleteDialog = false;
   let deleteMessageActionHashB64: undefined | ActionHashB64 = undefined;
   let isDeletingMessage = false;
+
+  let showAvatarDialog = false;
 
   let isFirstConfigLoad = true;
   let isFirstProfilesLoad = true;
@@ -232,6 +235,33 @@
 </script>
 
 <Header backUrl="/conversations">
+  <!-- Left slot: Back button + Avatar that opens dialog on click -->
+  <div slot="left" class="flex items-center">
+    <ButtonIconBare
+      on:click={() => goto('/conversations')}
+      icon="caretLeft"
+      moreClasses="!h-[16px] !w-[16px] text-base"
+      moreClassesButton="p-4"
+    />
+    <button class="flex items-center" on:click={() => showAvatarDialog = true}>
+      {#if $conversation.dnaProperties.privacy === Privacy.Private}
+        <div class="flex -space-x-1">
+          {#each $joined.list
+            .filter(([agentPubKeyB64]) => agentPubKeyB64 !== myPubKeyB64)
+            .slice(0, 2) as [agentPubKeyB64] (agentPubKeyB64)}
+            <Avatar cellIdB64={$page.params.id} {agentPubKeyB64} size={40} moreClasses="ring-2 ring-surface-100-800-token" />
+          {/each}
+        </div>
+      {:else if $conversation.config?.image}
+        <img
+          src={$conversation.config.image}
+          alt="Conversation"
+          class="h-10 w-10 rounded-full object-cover"
+        />
+      {/if}
+    </button>
+  </div>
+
   <h1 slot="center" class="overflow-hidden text-ellipsis whitespace-nowrap p-4 text-center">
     {$conversationTitle}
   </h1>
@@ -275,7 +305,7 @@
         <ConversationMessages
           loadingTop={loadingMessagesOld}
           cellIdB64={$page.params.id}
-          messages={$messages.list.reverse()}
+          messages={[...$messages.list].reverse()}
           on:delete={(e) => {
             deleteMessageActionHashB64 = e.detail;
             showDeleteDialog = true;
@@ -304,3 +334,33 @@
 >
   <p>{$t("common.delete_message_dialog_message")}</p>
 </DialogConfirm>
+
+<!-- Avatar Dialog for larger view -->
+{#if showAvatarDialog}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+    on:click={() => showAvatarDialog = false}
+    on:keydown={(e) => e.key === 'Escape' && (showAvatarDialog = false)}
+    role="button"
+    tabindex="0"
+  >
+    <div class="flex flex-col items-center gap-6 p-4">
+      {#if $conversation.dnaProperties.privacy === Privacy.Private}
+        <div class="flex items-center gap-6">
+          {#each $joined.list
+            .filter(([agentPubKeyB64]) => agentPubKeyB64 !== myPubKeyB64)
+            .slice(0, 2) as [agentPubKeyB64] (agentPubKeyB64)}
+            <Avatar cellIdB64={$page.params.id} {agentPubKeyB64} size={200} />
+          {/each}
+        </div>
+      {:else if $conversation.config?.image}
+        <img
+          src={$conversation.config.image}
+          alt="Conversation"
+          class="h-52 w-52 rounded-full object-cover"
+        />
+      {/if}
+      <h2 class="text-2xl font-semibold text-white">{$conversationTitle}</h2>
+    </div>
+  </div>
+{/if}
