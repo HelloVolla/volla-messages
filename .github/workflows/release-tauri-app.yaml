@@ -333,7 +333,6 @@ jobs:
           files: C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/target/release/bundle/msi/*;C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/target/release/bundle/nsis/*
           
   release-tauri-app-macos:
-    if: false
     needs: create-release
     permissions: write-all
     environment: Relay Release
