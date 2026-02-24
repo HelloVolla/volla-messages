@@ -196,17 +196,17 @@ jobs:
       - name: Build android AAB
         run: |
           cargo clean
-          nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --aab --target aarch64 --target i686 --target x86_64"
+          nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --aab --target aarch64 --target x86_64"
 
       - name: Build android APK (aarch64)
         run: |
           cargo clean
           nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --apk --split-per-abi --target aarch64"
 
-      - name: Build android APK (i684)
-        run: |
-          cargo clean
-          nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --apk --split-per-abi --target i686"
+      # - name: Build android APK (i684)
+      #   run: |
+      #     cargo clean
+      #     nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --apk --split-per-abi --target i686"
       
       - name: Build android APK (x86_64)
         run: |
@@ -330,7 +330,7 @@ jobs:
           # We use forward slashes for glob expressions, even though these are windows paths.
           # See the docs for the fast-glob library used by this gh action:
           # https://www.npmjs.com/package/fast-glob#how-to-write-patterns-on-windows
-          files: C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/target/release/bundle/msi/*;C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/target/release/bundle/nsis/*
+          files: C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/msi/*;C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/nsis/*
           
   release-tauri-app-macos:
     needs: create-release
