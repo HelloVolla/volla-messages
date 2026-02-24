@@ -75,6 +75,31 @@
 
   $: iAmProgenitor = $conversation.dnaProperties.progenitor === myPubKeyB64;
 
+  // 🐛 DEBUG: Monitor all reactive data to identify why messages aren't showing
+  $: {
+    console.group(" DEBUG: Conversation Page State");
+    console.log(" Messages:", {
+      count: $messages.count,
+      listLength: $messages.list.length,
+      data: $messages.data,
+    });
+    console.log(" Joined:", {
+      count: $joined.count,
+      list: $joined.list,
+    });
+    console.log(" Profiles:", {
+      count: $profiles.count,
+      list: $profiles.list,
+    });
+    console.log("Conversation:", {
+      config: $conversation.config,
+      dnaProperties: $conversation.dnaProperties,
+    });
+    console.log("Title:", $conversationTitle);
+    console.log("Cell ID:", $page.params.id);
+    console.groupEnd();
+  }
+
   async function handleDeleteMessage() {
     if (deleteMessageActionHashB64 === undefined) return;
 
@@ -227,6 +252,12 @@
 
   async function dumpAll() {
     console.log("Dumping all");
+    
+    // Import and dump IndexedDB contents
+    const { messageDB } = await import("$store/db/MessageDatabase");
+    await messageDB.debugDumpAll();
+    
+    // Also get all messages from Holochain
     messages.debugGetAllMessages();
   }
 </script>

@@ -83,40 +83,69 @@ export function createConversationMessageStore(
   const paginationState = writable<{ [cellIdB64: CellIdB64]: PaginationState }>({});
 
   // Filter out messages by agents who do not have a Contact nor Profile
+  // BUT: Don't filter if profiles haven't loaded yet (prevents race condition)
   const { subscribe } = derived(
     [messages, mergedProfileContactInviteStore],
     ([$messages, $mergedProfileContactInviteStore]) => {
       const filteredMessages = Object.fromEntries(
-        $messages.list.map(([cellIdB64, messagesData]) => [
-          cellIdB64,
-          Object.fromEntries(
-            Object.entries(messagesData).filter(
-              ([, messageExtended]) =>
-                $mergedProfileContactInviteStore.data[cellIdB64] !== undefined &&
-                $mergedProfileContactInviteStore.data[cellIdB64][
-                  messageExtended.authorAgentPubKeyB64
-                ] !== undefined,
-            ),
-          ),
-        ]),
+        $messages.list.map(([cellIdB64, messagesData]) => {
+          const messagesArray = Object.entries(messagesData);
+          
+          // Check if profiles have loaded for this cell
+          const profilesLoadedForCell = $mergedProfileContactInviteStore.data[cellIdB64] !== undefined;
+          
+          // If profiles haven't loaded yet, show all messages (prevent race condition)
+          // Once profiles load, filter to only show messages from known authors
+          const filtered = messagesArray.filter(
+            ([actionHash, messageExtended]) => {
+              // If profiles not loaded yet, don't filter anything out
+              if (!profilesLoadedForCell) {
+                return true;
+              }
+              
+              // Profiles are loaded, so only show messages from known authors
+              const hasAuthor = $mergedProfileContactInviteStore.data[cellIdB64][
+                messageExtended.authorAgentPubKeyB64
+              ] !== undefined;
+              
+              return hasAuthor;
+            },
+          );
+          
+          return [
+            cellIdB64,
+            Object.fromEntries(filtered),
+          ];
+        }),
       );
 
-      return {
+      const result = {
         data: filteredMessages,
         list: Object.entries(filteredMessages),
         count: Object.keys(filteredMessages).length,
       };
+
+      return result;
     },
   );
 
   async function initialize() {
+    console.group("ConversationMessageStore.initialize()");
     const cellInfos = await client.getRelayClonedCellInfos();
+    console.log(`Found ${cellInfos.length} conversations`);
+
+    // Log all Cell IDs for debugging
+    cellInfos.forEach((cellInfo, index) => {
+      const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
+      console.log(`Conversation ${index + 1} Cell ID: ${cellIdB64}`);
+    });
 
     // Initialize empty messages for each conversation
     const messagesData = Object.fromEntries(
       cellInfos.map((cellInfo) => [encodeCellIdToBase64(cellInfo.cell_id), {}]),
     );
     messages.set(messagesData);
+    console.log(" Initialized empty message containers");
 
     // Initialize pagination state
     const initialPaginationState = Object.fromEntries(
@@ -126,21 +155,38 @@ export function createConversationMessageStore(
       ]),
     );
     paginationState.set(initialPaginationState);
+    console.log(" Initialized pagination state");
 
     // Load initial messages from IndexedDB for each conversation
-    await Promise.allSettled(
+    console.log("Loading messages from IndexedDB for each conversation...");
+    const results = await Promise.allSettled(
       cellInfos.map(async (cellInfo) => {
         const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
+        console.log(`\n--- Loading for Cell ${cellIdB64.substring(0, 20)}... ---`);
+        
         await _loadMessagesFromDB(cellIdB64, 1); // Load first page
 
         // If no messages in DB, try to fetch from network
         const currentState = get(paginationState)[cellIdB64];
+        console.log(`After DB load: ${currentState.totalMessages} messages in memory`);
+        
         if (currentState.totalMessages === 0) {
+          console.log("No messages in DB, fetching from Holochain...");
           // when first initializing go local
-          await loadMessagesInCurrentBucketTargetCount(true, cellIdB64, 1, 5, 50);
+          await loadMessagesInCurrentBucketTargetCount(true, cellIdB64, TARGET_MESSAGES_COUNT, 10, 50);
         }
       }),
     );
+    
+    // Log any errors
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        console.error(`Failed to load messages for conversation ${index}:`, result.reason);
+      }
+    });
+    
+    console.log(" Initialization complete");
+    console.groupEnd();
   }
 
   /**
@@ -150,22 +196,34 @@ export function createConversationMessageStore(
   async function _loadMessagesFromDB(cellIdB64: CellIdB64, pagesToLoad: number): Promise<void> {
     try {
       const limit = pagesToLoad * MESSAGES_PER_PAGE;
+      console.log(` _loadMessagesFromDB: Attempting to load ${limit} messages (${pagesToLoad} pages × ${MESSAGES_PER_PAGE} per page) for cell ${cellIdB64.substring(0, 10)}...`);
+      
+      // Check if agent changed and clear cache if needed
+      const cacheCleared = await messageDB.clearCacheOnAgentChange(cellIdB64);
+      if (cacheCleared) {
+        console.log(` Cache cleared due to agent change. Will fetch fresh from DHT.`);
+      }
+      
       const dbMessages = await messageDB.getMessages(cellIdB64, limit);
+      console.log(` Retrieved ${dbMessages.length} messages from IndexedDB`);
 
       if (dbMessages.length > 0) {
         // Sort messages by timestamp (newest to oldest) for natural chat order
         const sortedMessages = dbMessages.sort(([, a], [, b]) => b.timestamp - a.timestamp);
+        console.log(` Sorted ${sortedMessages.length} messages by timestamp`);
 
         // Apply memory management: keep only the most recent messages within limit based on loaded pages
         const maxMessagesInMemory = pagesToLoad * MESSAGES_PER_PAGE;
         const messagesToKeep = sortedMessages.slice(0, maxMessagesInMemory); // Keep from beginning (newest)
         const messageData = Object.fromEntries(messagesToKeep);
+        console.log(` Keeping ${messagesToKeep.length} messages (max: ${maxMessagesInMemory})`);
 
         // Merge with existing messages instead of overwriting
         // This prevents race condition where messages arriving via signal get lost
         messages.update((m) => {
           const existing = m[cellIdB64] || {};
           const merged = { ...existing, ...messageData };
+          console.log(`Merged: ${Object.keys(existing).length} existing + ${Object.keys(messageData).length} from DB = ${Object.keys(merged).length} total`);
           
           return {
             ...m,
@@ -179,17 +237,19 @@ export function createConversationMessageStore(
           [cellIdB64]: {
             ...state[cellIdB64],
             loadedPages: pagesToLoad,
-            totalMessages: Object.keys(messages).length,
+            totalMessages: Object.keys(messagesToKeep).length,
             oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) message in memory
           },
         }));
 
         console.log(
-          `Memory management: Loaded ${messagesToKeep.length} messages from DB, merged with existing (${pagesToLoad} pages loaded)`,
+          ` Memory management: Loaded ${messagesToKeep.length} messages from DB, merged with existing (${pagesToLoad} pages loaded)`,
         );
+      } else {
+        console.warn(`No messages found in IndexedDB for cell ${cellIdB64.substring(0, 10)}...`);
       }
     } catch (error) {
-      console.error("Error loading messages from DB:", error);
+      console.error(" Error loading messages from DB:", error);
     }
   }
 
@@ -242,7 +302,7 @@ export function createConversationMessageStore(
             ...state[cellIdB64],
             loadedPages: newLoadedPages,
             totalMessages: messagesToKeep.length,
-            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) of the messages in memory
+            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) of t
           },
         }));
 
@@ -675,6 +735,12 @@ export function createConversationMessageStore(
       .map((p) => p.value);
 
     if (validMessages.length === 0) return 0;
+
+    console.group(" SAVING TO INDEXEDDB");
+    console.log(`Cell ID: ${key1.substring(0, 15)}...`);
+    console.log(`Attempting to save ${validMessages.length} messages to local database.`);
+    console.log("Data payload:", validMessages);
+    console.groupEnd();
 
     // Store in IndexedDB first
     await messageDB.storeMessages(key1, validMessages);
