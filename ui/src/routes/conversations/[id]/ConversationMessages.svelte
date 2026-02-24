@@ -73,38 +73,38 @@
   });
 
   // to resolve glitch when (fetching older msgs from hc + loading msgs to store from localDB)
-  let previousScrollHeight = 0;
-  let previousItemCount = 0;
+let previousScrollHeight = 0;
+  let previousScrollTop = 0;
+  let previousItemCount = 0; // <-- ADD THIS BACK!
   let shouldMaintainScroll = false;
-  let isFirstFetch = true;
+  // let isFirstFetch = true;
 
 
-  beforeUpdate(() => {
-    // only capture the scrollHeight if a maintenance request is active.
+beforeUpdate(() => {
+    // Capture the exact scroll state right before Svelte renders the new messages
     if (shouldMaintainScroll && containerEl) {
       previousScrollHeight = containerEl.scrollHeight;
+      previousScrollTop = containerEl.scrollTop;
     }
   });
 
   // applying manual scroll maintainance
-  afterUpdate(() => {
+afterUpdate(() => {
+    // Adjust the scroll position immediately after the new messages are rendered
     if (shouldMaintainScroll && containerEl) {
       shouldMaintainScroll = false;
 
-      const newScrollHeight = containerEl.scrollHeight;
+      // Find out exactly how many pixels were added to the top of the container
+      const heightDifference = containerEl.scrollHeight - previousScrollHeight;
 
-            const heightDifference =
-        newScrollHeight - previousScrollHeight + (!isFirstFetch ? 20 * 40 : 0);
-
-      if (isFirstFetch) isFirstFetch = false;
-
-      containerEl.scrollTop = heightDifference;
+      // Seamlessly shift the scrollbar down by that exact amount
+      containerEl.scrollTop = previousScrollTop + heightDifference;
     }
   });
 
   // logic for triggering fetch event, newly_added_items-scroll-down logic
-  $: {
-    const currentItemCount = chronologicalMessages.length;
+ $: {
+    const currentItemCount = chronologicalMessages?.length || 0;
 
     if (containerEl && initialScrollReady) {
       const { scrollTop, scrollHeight, clientHeight } = containerEl;
@@ -119,7 +119,6 @@
 
       if (isAtTop && !wasAtTop && !loadingTop) {
         shouldMaintainScroll = true;
-
         dispatch("scrollAtTop");
       }
 
