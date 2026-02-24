@@ -314,9 +314,56 @@ export function createConversationMessageStore(
 
       // This shouldn't be done, it will only likely trigger timeouts.  Unless the node is zero-arc (which we are not doing in Volla), all loading should be local.
       // Data will be synced quickly and so it's not worth trying to get it from the network.
-      // if (olderMessages.length === 0) {
-      //   loadedCount = await loadMessagesInPreviousBucketTargetCount(false, cellIdB64);
-      // }
+    if (olderMessages.length === 0) {
+        console.log(`📡 [Network Fetch] Local DB empty. Using reliable backend sync...`);
+        
+        try {
+          const cellId = decodeCellIdFromBase64(cellIdB64);
+          
+          // 1. Get the actual oldest message from memory to find its exact bucket
+          const currentMessages = get(messages).data[cellIdB64] || {};
+          const messagesList = Object.entries(currentMessages).sort(([, a], [, b]) => a.timestamp - b.timestamp);
+          const oldestMessage = messagesList[0]?.[1];
+          
+          if (!oldestMessage) return 0;
+
+          // 2. Read the bucket directly from the message object (No timestamp math!)
+          const oldestBucket = oldestMessage.message.bucket;
+          
+          // 3. Safely ask for just the next 3 older buckets
+          const targetBuckets = [oldestBucket - 1, oldestBucket - 2, oldestBucket - 3].filter(b => b >= 0);
+
+          if (targetBuckets.length > 0) {
+            console.log(`Fetching buckets directly from DHT:`, targetBuckets);
+            
+            const messageRecords = await client.getMessagesForBuckets(cellId, targetBuckets);
+
+            if (messageRecords.length > 0) {
+              const messageEntries = await Promise.allSettled(
+                messageRecords.map(async (m) =>
+                  [encodeHashToBase64(m.original_action), await _makeMessageExtended(cellId, m)] as [ActionHashB64, MessageExtended]
+                )
+              );
+
+              const validMessages = messageEntries
+                .filter((p) => p.status === "fulfilled")
+                .map((p: any) => p.value);
+
+              await messageDB.storeMessages(cellIdB64, validMessages);
+              await _loadMessagesFromDB(cellIdB64, currentState.loadedPages + 1);
+              _applyMemoryManagement(cellIdB64);
+
+              loadedCount = validMessages.length;
+              console.log(`✅ [Network Fetch] Success! Downloaded and saved ${loadedCount} messages.`);
+            } else {
+              console.log(`[Network Fetch] DHT returned 0 messages for those buckets.`);
+            }
+          }
+        } catch (error) {
+          console.error(` [Network Fetch] FAILED:`, error);
+          loadedCount = 0;
+        }
+      }
 
       return loadedCount;
     } catch (error) {
