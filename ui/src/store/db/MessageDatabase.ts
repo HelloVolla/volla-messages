@@ -330,28 +330,20 @@ export class MessageDatabase extends Dexie {
    * When a new agent appears with the same DNA, we clear the old agent's cache
    * and let the new agent fetch their authorized messages from the DHT
    */
-  async clearCacheOnAgentChange(currentCellIdB64: CellIdB64): Promise<boolean> {
+async clearCacheOnAgentChange(currentCellIdB64: CellIdB64): Promise<boolean> {
     const storedCellIds = await this.getAllCellIds();
     
     if (storedCellIds.length === 0) {
       // No stored messages, nothing to clear
       return false;
     }
-    
-    // Check if current Cell ID already has messages
-    const hasCurrentCellMessages = storedCellIds.includes(currentCellIdB64);
-    if (hasCurrentCellMessages) {
-      // Current Cell ID is already in database, no clearing needed
-      return false;
-    }
-    
+        
     // Extract DNA hash from current Cell ID
     const currentDnaHash = this.extractDnaHash(currentCellIdB64);
     
     // Find stored Cell IDs with the same DNA hash but different agent
     const mismatchedCellIds = storedCellIds.filter(
-      storedCellId => this.extractDnaHash(storedCellId) === currentDnaHash &&
-                      storedCellId !== currentCellIdB64
+      storedCellId => this.extractDnaHash(storedCellId) === currentDnaHash && storedCellId !== currentCellIdB64
     );
     
     if (mismatchedCellIds.length === 0) {
@@ -359,14 +351,15 @@ export class MessageDatabase extends Dexie {
       return false;
     }
     
-    // Found old Cell ID(s) with same DNA but different agent - clear them
     let totalCleared = 0;
     for (const oldCellId of mismatchedCellIds) {
       const count = await this.getMessageCount(oldCellId);
       await this.clearConversationMessages(oldCellId);
       totalCleared += count;
+      console.log(`  Cleared ${count} messages from ${oldCellId.substring(0, 20)}...`);
     }
-    
+    console.log(` Cache cleared: ${totalCleared} messages removed`);   
+
     return true;
   }
 }

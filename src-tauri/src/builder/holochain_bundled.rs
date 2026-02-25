@@ -7,9 +7,9 @@ use tauri_plugin_holochain::NetworkConfig;
 use uuid::Uuid;
 use serde_json::json;
 
-pub const SIGNAL_URL: &'static str = "wss://relay.volla.tech/";
+pub const SIGNAL_URL: &'static str = "wss://relay2.volla.tech/";
 
-pub const BOOTSTRAP_URL: &'static str = "https://relay.volla.tech/";
+pub const BOOTSTRAP_URL: &'static str = "https://relay2.volla.tech/";
 
 pub static ICE_URLS: &'static [&str] = &[
     "stun://stun.nextcloud.com:443"
