@@ -72,8 +72,7 @@ export class MessageDatabase extends Dexie {
   }
 
   /**
-   * Store multiple messages in the database with error handling
-   * Added try-catch and quota handling
+   * Store multiple messages in the database 
    */
   async storeMessages(
     cellIdB64: CellIdB64,
@@ -130,7 +129,6 @@ export class MessageDatabase extends Dexie {
       .offset(offset)
       .limit(limit)
       .toArray();
-
     return messages.map((dbMessage) => [dbMessage.actionHashB64, dbMessage.message]);
   }
 
@@ -150,7 +148,6 @@ export class MessageDatabase extends Dexie {
       .filter(msg => !msg.deleted) // Filter out deleted messages
       .limit(limit)
       .toArray();
-
     return messages.map((dbMessage) => [dbMessage.actionHashB64, dbMessage.message]);
   }
 
@@ -325,8 +322,6 @@ export class MessageDatabase extends Dexie {
    * Cell IDs are: DNAHash + AgentPubKey concatenated
    */
   private extractDnaHash(cellIdB64: CellIdB64): string {
-    // Both DNA hash and Agent pub key are 39 characters when base64 encoded
-    // Total Cell ID length is 78 characters
     return cellIdB64.substring(0, 52);
   }
 
@@ -365,22 +360,12 @@ export class MessageDatabase extends Dexie {
     }
     
     // Found old Cell ID(s) with same DNA but different agent - clear them
-    console.group("Agent Change Detected");
-    console.log(`Current Cell ID: ${currentCellIdB64}`);
-    console.log(`Old Cell ID(s) with same DNA: ${mismatchedCellIds.join(", ")}`);
-    console.log("Clearing cached messages from old agent...");
-    
     let totalCleared = 0;
     for (const oldCellId of mismatchedCellIds) {
       const count = await this.getMessageCount(oldCellId);
       await this.clearConversationMessages(oldCellId);
       totalCleared += count;
-      console.log(`  Cleared ${count} messages from ${oldCellId.substring(0, 20)}...`);
     }
-    
-    console.log(` Cache cleared: ${totalCleared} messages removed`);
-    console.log("New agent will fetch authorized messages from DHT...");
-    console.groupEnd();
     
     return true;
   }

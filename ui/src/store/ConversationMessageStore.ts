@@ -83,7 +83,7 @@ export function createConversationMessageStore(
   const paginationState = writable<{ [cellIdB64: CellIdB64]: PaginationState }>({});
 
   // Filter out messages by agents who do not have a Contact nor Profile
-  // BUT: Don't filter if profiles haven't loaded yet (prevents race condition)
+  // Don't filter if profiles haven't loaded yet (prevents race condition)
   const { subscribe } = derived(
     [messages, mergedProfileContactInviteStore],
     ([$messages, $mergedProfileContactInviteStore]) => {
@@ -130,14 +130,10 @@ export function createConversationMessageStore(
   );
 
   async function initialize() {
-    console.group("ConversationMessageStore.initialize()");
     const cellInfos = await client.getRelayClonedCellInfos();
-    console.log(`Found ${cellInfos.length} conversations`);
-
     // Log all Cell IDs for debugging
     cellInfos.forEach((cellInfo, index) => {
       const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
-      console.log(`Conversation ${index + 1} Cell ID: ${cellIdB64}`);
     });
 
     // Initialize empty messages for each conversation
@@ -145,7 +141,6 @@ export function createConversationMessageStore(
       cellInfos.map((cellInfo) => [encodeCellIdToBase64(cellInfo.cell_id), {}]),
     );
     messages.set(messagesData);
-    console.log(" Initialized empty message containers");
 
     // Initialize pagination state
     const initialPaginationState = Object.fromEntries(
@@ -155,23 +150,18 @@ export function createConversationMessageStore(
       ]),
     );
     paginationState.set(initialPaginationState);
-    console.log(" Initialized pagination state");
 
     // Load initial messages from IndexedDB for each conversation
-    console.log("Loading messages from IndexedDB for each conversation...");
     const results = await Promise.allSettled(
       cellInfos.map(async (cellInfo) => {
         const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
-        console.log(`\n--- Loading for Cell ${cellIdB64.substring(0, 20)}... ---`);
         
         await _loadMessagesFromDB(cellIdB64, 1); // Load first page
 
         // If no messages in DB, try to fetch from network
         const currentState = get(paginationState)[cellIdB64];
-        console.log(`After DB load: ${currentState.totalMessages} messages in memory`);
         
         if (currentState.totalMessages === 0) {
-          console.log("No messages in DB, fetching from Holochain...");
           // when first initializing go local
           await loadMessagesInCurrentBucketTargetCount(true, cellIdB64, TARGET_MESSAGES_COUNT, 10, 50);
         }
@@ -186,7 +176,6 @@ export function createConversationMessageStore(
     });
     
     console.log(" Initialization complete");
-    console.groupEnd();
   }
 
   /**
@@ -196,13 +185,9 @@ export function createConversationMessageStore(
   async function _loadMessagesFromDB(cellIdB64: CellIdB64, pagesToLoad: number): Promise<void> {
     try {
       const limit = pagesToLoad * MESSAGES_PER_PAGE;
-      console.log(` _loadMessagesFromDB: Attempting to load ${limit} messages (${pagesToLoad} pages × ${MESSAGES_PER_PAGE} per page) for cell ${cellIdB64.substring(0, 10)}...`);
       
       // Check if agent changed and clear cache if needed
       const cacheCleared = await messageDB.clearCacheOnAgentChange(cellIdB64);
-      if (cacheCleared) {
-        console.log(` Cache cleared due to agent change. Will fetch fresh from DHT.`);
-      }
       
       const dbMessages = await messageDB.getMessages(cellIdB64, limit);
       console.log(` Retrieved ${dbMessages.length} messages from IndexedDB`);
@@ -210,27 +195,23 @@ export function createConversationMessageStore(
       if (dbMessages.length > 0) {
         // Sort messages by timestamp (newest to oldest) for natural chat order
         const sortedMessages = dbMessages.sort(([, a], [, b]) => b.timestamp - a.timestamp);
-        console.log(` Sorted ${sortedMessages.length} messages by timestamp`);
 
         // Apply memory management: keep only the most recent messages within limit based on loaded pages
         const maxMessagesInMemory = pagesToLoad * MESSAGES_PER_PAGE;
         const messagesToKeep = sortedMessages.slice(0, maxMessagesInMemory); // Keep from beginning (newest)
         const messageData = Object.fromEntries(messagesToKeep);
-        console.log(` Keeping ${messagesToKeep.length} messages (max: ${maxMessagesInMemory})`);
 
         // Merge with existing messages instead of overwriting
         // This prevents race condition where messages arriving via signal get lost
         messages.update((m) => {
           const existing = m[cellIdB64] || {};
           const merged = { ...existing, ...messageData };
-          console.log(`Merged: ${Object.keys(existing).length} existing + ${Object.keys(messageData).length} from DB = ${Object.keys(merged).length} total`);
           
           return {
             ...m,
             [cellIdB64]: merged,
           };
         });
-
         // Update pagination state
         paginationState.update((state) => ({
           ...state,
@@ -242,9 +223,6 @@ export function createConversationMessageStore(
           },
         }));
 
-        console.log(
-          ` Memory management: Loaded ${messagesToKeep.length} messages from DB, merged with existing (${pagesToLoad} pages loaded)`,
-        );
       } else {
         console.warn(`No messages found in IndexedDB for cell ${cellIdB64.substring(0, 10)}...`);
       }
@@ -287,35 +265,28 @@ export function createConversationMessageStore(
         const maxMessagesInMemory = newLoadedPages * MESSAGES_PER_PAGE;
 
         // Apply memory management: keep only the most recent messages within limit
-        const messagesToKeep = allMessages.slice(0, maxMessagesInMemory); // Keep from beginning (newest)
+        const messagesToKeep = allMessages.slice(0, maxMessagesInMemory);
         const updatedMessages = Object.fromEntries(messagesToKeep);
-
         messages.update((m) => ({
           ...m,
           [cellIdB64]: updatedMessages,
         }));
 
-        // Update pagination state
         paginationState.update((state) => ({
           ...state,
           [cellIdB64]: {
             ...state[cellIdB64],
             loadedPages: newLoadedPages,
             totalMessages: messagesToKeep.length,
-            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) of t
+            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, 
           },
         }));
-
-        loadedCount = olderMessages.length;
-        console.log(
-          `Infinite scroll: Loaded ${loadedCount} older messages, keeping ${messagesToKeep.length} total messages in memory (${newLoadedPages} pages loaded)`,
-        );
       }
 
       // This shouldn't be done, it will only likely trigger timeouts.  Unless the node is zero-arc (which we are not doing in Volla), all loading should be local.
       // Data will be synced quickly and so it's not worth trying to get it from the network.
     if (olderMessages.length === 0) {
-        console.log(`📡 [Network Fetch] Local DB empty. Using reliable backend sync...`);
+        console.log(`Local DB empty. Using reliable backend sync...`);
         
         try {
           const cellId = decodeCellIdFromBase64(cellIdB64);
@@ -354,7 +325,7 @@ export function createConversationMessageStore(
               _applyMemoryManagement(cellIdB64);
 
               loadedCount = validMessages.length;
-              console.log(`✅ [Network Fetch] Success! Downloaded and saved ${loadedCount} messages.`);
+              console.log(`[Network Fetch] Success! Downloaded and saved ${loadedCount} messages.`);
             } else {
               console.log(`[Network Fetch] DHT returned 0 messages for those buckets.`);
             }
@@ -817,10 +788,6 @@ export function createConversationMessageStore(
     // even if they haven't explicitly loaded older pages via infinite scroll
     const effectivePages = Math.max(loadedPages, 3);
     const maxMessagesInMemory = effectivePages * MESSAGES_PER_PAGE;
-
-    console.log(
-      `Memory management check: ${messagesList.length} messages in memory, limit is ${maxMessagesInMemory} (${loadedPages} loaded pages, ${effectivePages} effective pages)`,
-    );
 
     if (messagesList.length <= maxMessagesInMemory) {
       console.log("No trimming needed - within memory limit");

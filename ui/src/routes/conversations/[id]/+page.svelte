@@ -75,31 +75,6 @@
 
   $: iAmProgenitor = $conversation.dnaProperties.progenitor === myPubKeyB64;
 
-  // 🐛 DEBUG: Monitor all reactive data to identify why messages aren't showing
-  $: {
-    console.group(" DEBUG: Conversation Page State");
-    console.log(" Messages:", {
-      count: $messages.count,
-      listLength: $messages.list.length,
-      data: $messages.data,
-    });
-    console.log(" Joined:", {
-      count: $joined.count,
-      list: $joined.list,
-    });
-    console.log(" Profiles:", {
-      count: $profiles.count,
-      list: $profiles.list,
-    });
-    console.log("Conversation:", {
-      config: $conversation.config,
-      dnaProperties: $conversation.dnaProperties,
-    });
-    console.log("Title:", $conversationTitle);
-    console.log("Cell ID:", $page.params.id);
-    console.groupEnd();
-  }
-
   async function handleDeleteMessage() {
     if (deleteMessageActionHashB64 === undefined) return;
 
@@ -120,7 +95,7 @@
    * Fetch agent profiles every 2s, until at least 2 profiles are received.
    */
   async function loadProfiles() {
-    await profiles.load(true); // allways load local because we don't want to trigger a network get that can take a long time.
+    await profiles.load(true); 
     isFirstProfilesLoad = false;
     clearTimeout(agentTimeout);
 
@@ -142,7 +117,7 @@
    * navigating away from and back to this page.
    */
   async function loadConfig() {
-    await conversation.loadConfig(true); // allways load local because we don't want to trigger a network get that can take a long time.
+    await conversation.loadConfig(true); 
     isFirstConfigLoad = false;
     clearTimeout(configTimeout);
 
