@@ -83,34 +83,58 @@ export function createConversationMessageStore(
   const paginationState = writable<{ [cellIdB64: CellIdB64]: PaginationState }>({});
 
   // Filter out messages by agents who do not have a Contact nor Profile
+  // Don't filter if profiles haven't loaded yet (prevents race condition)
   const { subscribe } = derived(
     [messages, mergedProfileContactInviteStore],
     ([$messages, $mergedProfileContactInviteStore]) => {
       const filteredMessages = Object.fromEntries(
-        $messages.list.map(([cellIdB64, messagesData]) => [
-          cellIdB64,
-          Object.fromEntries(
-            Object.entries(messagesData).filter(
-              ([, messageExtended]) =>
-                $mergedProfileContactInviteStore.data[cellIdB64] !== undefined &&
-                $mergedProfileContactInviteStore.data[cellIdB64][
-                  messageExtended.authorAgentPubKeyB64
-                ] !== undefined,
-            ),
-          ),
-        ]),
+        $messages.list.map(([cellIdB64, messagesData]) => {
+          const messagesArray = Object.entries(messagesData);
+          
+          // Check if profiles have loaded for this cell
+          const profilesLoadedForCell = $mergedProfileContactInviteStore.data[cellIdB64] !== undefined;
+          
+          // If profiles haven't loaded yet, show all messages (prevent race condition)
+          // Once profiles load, filter to only show messages from known authors
+          const filtered = messagesArray.filter(
+            ([actionHash, messageExtended]) => {
+              // If profiles not loaded yet, don't filter anything out
+              if (!profilesLoadedForCell) {
+                return true;
+              }
+              
+              // Profiles are loaded, so only show messages from known authors
+              const hasAuthor = $mergedProfileContactInviteStore.data[cellIdB64][
+                messageExtended.authorAgentPubKeyB64
+              ] !== undefined;
+              
+              return hasAuthor;
+            },
+          );
+          
+          return [
+            cellIdB64,
+            Object.fromEntries(filtered),
+          ];
+        }),
       );
 
-      return {
+      const result = {
         data: filteredMessages,
         list: Object.entries(filteredMessages),
         count: Object.keys(filteredMessages).length,
       };
+
+      return result;
     },
   );
 
   async function initialize() {
     const cellInfos = await client.getRelayClonedCellInfos();
+    // Log all Cell IDs for debugging
+    cellInfos.forEach((cellInfo, index) => {
+      const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
+    });
 
     // Initialize empty messages for each conversation
     const messagesData = Object.fromEntries(
@@ -128,28 +152,45 @@ export function createConversationMessageStore(
     paginationState.set(initialPaginationState);
 
     // Load initial messages from IndexedDB for each conversation
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       cellInfos.map(async (cellInfo) => {
         const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
+        
         await _loadMessagesFromDB(cellIdB64, 1); // Load first page
 
         // If no messages in DB, try to fetch from network
         const currentState = get(paginationState)[cellIdB64];
+        
         if (currentState.totalMessages === 0) {
           // when first initializing go local
-          await loadMessagesInCurrentBucketTargetCount(true, cellIdB64, 1, 5, 50);
+          await loadMessagesInCurrentBucketTargetCount(true, cellIdB64, TARGET_MESSAGES_COUNT, 10, 50);
         }
       }),
     );
+    
+    // Log any errors
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        console.error(`Failed to load messages for conversation ${index}:`, result.reason);
+      }
+    });
+    
+    console.log(" Initialization complete");
   }
 
   /**
    * Load messages from IndexedDB into memory store with memory management
+   * Now merges with existing in-memory messages instead of overwriting
    */
   async function _loadMessagesFromDB(cellIdB64: CellIdB64, pagesToLoad: number): Promise<void> {
     try {
       const limit = pagesToLoad * MESSAGES_PER_PAGE;
+      
+      // Check if agent changed and clear cache if needed
+      const cacheCleared = await messageDB.clearCacheOnAgentChange(cellIdB64);
+      
       const dbMessages = await messageDB.getMessages(cellIdB64, limit);
+      console.log(` Retrieved ${dbMessages.length} messages from IndexedDB`);
 
       if (dbMessages.length > 0) {
         // Sort messages by timestamp (newest to oldest) for natural chat order
@@ -160,28 +201,33 @@ export function createConversationMessageStore(
         const messagesToKeep = sortedMessages.slice(0, maxMessagesInMemory); // Keep from beginning (newest)
         const messageData = Object.fromEntries(messagesToKeep);
 
-        messages.update((m) => ({
-          ...m,
-          [cellIdB64]: messageData,
-        }));
-
+        // Merge with existing messages instead of overwriting
+        // This prevents race condition where messages arriving via signal get lost
+        messages.update((m) => {
+          const existing = m[cellIdB64] || {};
+          const merged = { ...existing, ...messageData };
+          
+          return {
+            ...m,
+            [cellIdB64]: merged,
+          };
+        });
         // Update pagination state
         paginationState.update((state) => ({
           ...state,
           [cellIdB64]: {
             ...state[cellIdB64],
             loadedPages: pagesToLoad,
-            totalMessages: messagesToKeep.length,
+            totalMessages: Object.keys(messagesToKeep).length,
             oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) message in memory
           },
         }));
 
-        console.log(
-          `Memory management: Keeping ${messagesToKeep.length} most recent messages out of ${sortedMessages.length} total (${pagesToLoad} pages loaded)`,
-        );
+      } else {
+        console.warn(`No messages found in IndexedDB for cell ${cellIdB64.substring(0, 10)}...`);
       }
     } catch (error) {
-      console.error("Error loading messages from DB:", error);
+      console.error(" Error loading messages from DB:", error);
     }
   }
 
@@ -219,36 +265,76 @@ export function createConversationMessageStore(
         const maxMessagesInMemory = newLoadedPages * MESSAGES_PER_PAGE;
 
         // Apply memory management: keep only the most recent messages within limit
-        const messagesToKeep = allMessages.slice(0, maxMessagesInMemory); // Keep from beginning (newest)
+        const messagesToKeep = allMessages.slice(0, maxMessagesInMemory);
         const updatedMessages = Object.fromEntries(messagesToKeep);
-
         messages.update((m) => ({
           ...m,
           [cellIdB64]: updatedMessages,
         }));
 
-        // Update pagination state
         paginationState.update((state) => ({
           ...state,
           [cellIdB64]: {
             ...state[cellIdB64],
             loadedPages: newLoadedPages,
             totalMessages: messagesToKeep.length,
-            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) of the messages in memory
+            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, 
           },
         }));
-
-        loadedCount = olderMessages.length;
-        console.log(
-          `Infinite scroll: Loaded ${loadedCount} older messages, keeping ${messagesToKeep.length} total messages in memory (${newLoadedPages} pages loaded)`,
-        );
       }
 
       // This shouldn't be done, it will only likely trigger timeouts.  Unless the node is zero-arc (which we are not doing in Volla), all loading should be local.
       // Data will be synced quickly and so it's not worth trying to get it from the network.
-      // if (olderMessages.length === 0) {
-      //   loadedCount = await loadMessagesInPreviousBucketTargetCount(false, cellIdB64);
-      // }
+    if (olderMessages.length === 0) {
+        console.log(`Local DB empty. Using reliable backend sync...`);
+        
+        try {
+          const cellId = decodeCellIdFromBase64(cellIdB64);
+          
+          // 1. Get the actual oldest message from memory to find its exact bucket
+          const currentMessages = get(messages).data[cellIdB64] || {};
+          const messagesList = Object.entries(currentMessages).sort(([, a], [, b]) => a.timestamp - b.timestamp);
+          const oldestMessage = messagesList[0]?.[1];
+          
+          if (!oldestMessage) return 0;
+
+          // 2. Read the bucket directly from the message object (No timestamp math!)
+          const oldestBucket = oldestMessage.message.bucket;
+          
+          // 3. Safely ask for just the next 3 older buckets
+          const targetBuckets = [oldestBucket - 1, oldestBucket - 2, oldestBucket - 3].filter(b => b >= 0);
+
+          if (targetBuckets.length > 0) {
+            console.log(`Fetching buckets directly from DHT:`, targetBuckets);
+            
+            const messageRecords = await client.getMessagesForBuckets(cellId, targetBuckets);
+
+            if (messageRecords.length > 0) {
+              const messageEntries = await Promise.allSettled(
+                messageRecords.map(async (m) =>
+                  [encodeHashToBase64(m.original_action), await _makeMessageExtended(cellId, m)] as [ActionHashB64, MessageExtended]
+                )
+              );
+
+              const validMessages = messageEntries
+                .filter((p) => p.status === "fulfilled")
+                .map((p: any) => p.value);
+
+              await messageDB.storeMessages(cellIdB64, validMessages);
+              await _loadMessagesFromDB(cellIdB64, currentState.loadedPages + 1);
+              _applyMemoryManagement(cellIdB64);
+
+              loadedCount = validMessages.length;
+              console.log(`[Network Fetch] Success! Downloaded and saved ${loadedCount} messages.`);
+            } else {
+              console.log(`[Network Fetch] DHT returned 0 messages for those buckets.`);
+            }
+          }
+        } catch (error) {
+          console.error(` [Network Fetch] FAILED:`, error);
+          loadedCount = 0;
+        }
+      }
 
       return loadedCount;
     } catch (error) {
@@ -402,14 +488,28 @@ export function createConversationMessageStore(
   }
 
   async function handleMessageSignalReceived(key1: CellIdB64, signal: MessageSignal) {
+    const actionHashB64 = encodeHashToBase64(signal.action.hashed.hash);
+
+    // Check for duplicates before processing
+    const exists = await messageDB.hasMessage(actionHashB64);
+    if (exists) {
+      console.log(`Message ${actionHashB64} already exists, skipping duplicate`);
+      return; // Skip duplicate
+    }
+
+    // Check if already in memory (double-check for race conditions)
+    const currentMessages = get(messages).data[key1] || {};
+    if (currentMessages[actionHashB64]) {
+      console.log(`Message ${actionHashB64} already in memory, skipping duplicate`);
+      return;
+    }
+
     // Make MessageExtended
     const messageExtended = await _makeMessageExtended(decodeCellIdFromBase64(key1), {
       message: signal.message,
       original_action: signal.action.hashed.hash,
       signed_action: signal.action,
     });
-
-    const actionHashB64 = encodeHashToBase64(signal.action.hashed.hash);
 
     // Store in IndexedDB first
     await messageDB.storeMessage(key1, actionHashB64, messageExtended);
@@ -654,6 +754,12 @@ export function createConversationMessageStore(
 
     if (validMessages.length === 0) return 0;
 
+    console.group(" SAVING TO INDEXEDDB");
+    console.log(`Cell ID: ${key1.substring(0, 15)}...`);
+    console.log(`Attempting to save ${validMessages.length} messages to local database.`);
+    console.log("Data payload:", validMessages);
+    console.groupEnd();
+
     // Store in IndexedDB first
     await messageDB.storeMessages(key1, validMessages);
 
@@ -682,10 +788,6 @@ export function createConversationMessageStore(
     // even if they haven't explicitly loaded older pages via infinite scroll
     const effectivePages = Math.max(loadedPages, 3);
     const maxMessagesInMemory = effectivePages * MESSAGES_PER_PAGE;
-
-    console.log(
-      `Memory management check: ${messagesList.length} messages in memory, limit is ${maxMessagesInMemory} (${loadedPages} loaded pages, ${effectivePages} effective pages)`,
-    );
 
     if (messagesList.length <= maxMessagesInMemory) {
       console.log("No trimming needed - within memory limit");

@@ -95,7 +95,7 @@
    * Fetch agent profiles every 2s, until at least 2 profiles are received.
    */
   async function loadProfiles() {
-    await profiles.load(true); // allways load local because we don't want to trigger a network get that can take a long time.
+    await profiles.load(true); 
     isFirstProfilesLoad = false;
     clearTimeout(agentTimeout);
 
@@ -117,7 +117,7 @@
    * navigating away from and back to this page.
    */
   async function loadConfig() {
-    await conversation.loadConfig(true); // allways load local because we don't want to trigger a network get that can take a long time.
+    await conversation.loadConfig(true); 
     isFirstConfigLoad = false;
     clearTimeout(configTimeout);
 
@@ -227,6 +227,12 @@
 
   async function dumpAll() {
     console.log("Dumping all");
+    
+    // Import and dump IndexedDB contents
+    const { messageDB } = await import("$store/db/MessageDatabase");
+    await messageDB.debugDumpAll();
+    
+    // Also get all messages from Holochain
     messages.debugGetAllMessages();
   }
 </script>
