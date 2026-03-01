@@ -5,7 +5,14 @@
   import BaseMessage from "./Message.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
-  import { afterUpdate, beforeUpdate, createEventDispatcher, onMount, tick } from "svelte";
+  import {
+    afterUpdate,
+    beforeUpdate,
+    createEventDispatcher,
+    onDestroy,
+    onMount,
+    tick,
+  } from "svelte";
 
   const dispatch = createEventDispatcher<{
     scrollAtTop: null;
@@ -38,8 +45,6 @@
     overscan: BUFFER_COUNT,
     useAnimationFrameWithResizeObserver: true,
   });
-  // Update virtualizer count when messages change
-  $: if ($virtualizer) $virtualizer.setOptions({ count: chronologicalMessages?.length });
 
   function measure(node: HTMLElement) {
     const index = Number(node.dataset.index);
@@ -66,16 +71,50 @@
   let isAtTop = false;
   let wasAtTop = false;
   let scrollDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let scrollToBottomInProgress = false;
+  let isMounted = false;
+  let pendingInitialScroll = false;
+  let revealFallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
   onMount(async () => {
-    if (chronologicalMessages.length > 0 && containerEl) {
-      isAtBottom = true;
-      wasAtBottom = true;
-      isAtTop = false;
-      wasAtTop = false;
+    isMounted = true;
+    isAtBottom = true;
+    wasAtBottom = true;
+    isAtTop = false;
+    wasAtTop = false;
 
+    // containerEl is now bound. Force the virtualizer to re-attach its ResizeObserver
+    // to the scroll element — it was created before mount when containerEl was null.
+    $virtualizer.setOptions({
+      count: chronologicalMessages?.length ?? 0,
+      getScrollElement: () => containerEl,
+      estimateSize: () => MESSAGE_FIXED_HEIGHT,
+      overscan: BUFFER_COUNT,
+      useAnimationFrameWithResizeObserver: true,
+    });
+    // Force an immediate measurement cycle so virtual items are produced right away.
+    $virtualizer.measure();
+
+    if (pendingInitialScroll || chronologicalMessages.length > 0) {
+      // Messages already available — scroll then reveal.
+      pendingInitialScroll = false;
       await scrollToBottom();
+    } else {
+      // No messages yet — show the UI immediately (empty state is fine to show).
+      // The reactive block will call scrollToBottom() when messages arrive.
+      initialScrollReady = true;
     }
+
+    // Safety net: if messages are still loading and scrollToBottom() never ran,
+    // reveal the UI after 2s so the user never sees a permanently blank screen.
+    revealFallbackTimer = setTimeout(() => {
+      if (!initialScrollReady) initialScrollReady = true;
+    }, 2000);
+  });
+
+  onDestroy(() => {
+    clearTimeout(revealFallbackTimer);
+    if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
   });
 
   let previousScrollHeight = 0;
