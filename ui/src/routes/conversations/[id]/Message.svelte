@@ -32,6 +32,7 @@
   export let showAuthor: boolean = false;
   export let actionHashB64: ActionHashB64;
   export let participantCount: number = 0;
+  export let threadViewEnabled: boolean = false;
 
   const dispatch = createEventDispatcher<{
     scrollToMessage: ActionHashB64;
@@ -39,8 +40,8 @@
   }>();
 
   $: fromMe = message.authorAgentPubKeyB64 === myPubKeyB64;
-  $: isSmallConversation = participantCount <= 2;
-  $: isThreaded = !isSmallConversation && message.message.thread_root;
+  $: isSmallConversation = participantCount <= 2 || !threadViewEnabled;
+  $: isThreaded = !isSmallConversation && !!message.hasReplies;
   $: conferenceLog = isConferenceLog(message.message.content)
     ? parseConferenceLog(message.message.content)
     : null;
@@ -106,6 +107,17 @@
         <span class="inline-block min-w-6"></span>
       {/if}
 
+      {#if !isSmallConversation && message.hasReplies && fromMe}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div on:click|stopPropagation on:press|stopPropagation>
+          <ThreadIndicator
+            replyCount={message.replyCount || 0}
+            on:click={() => dispatch("openThread", actionHashB64)}
+          />
+        </div>
+      {/if}
+
       <div class="max-w-3/4 ml-3 w-auto {fromMe && 'items-end text-end'}">
         {#if showAuthor}
           <span class="flex items-baseline {fromMe && 'flex-row-reverse opacity-80'}">
@@ -160,7 +172,7 @@
         </div>
       </div>
 
-      {#if !isSmallConversation && message.hasReplies}
+      {#if !isSmallConversation && message.hasReplies && !fromMe}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <div on:click|stopPropagation on:press|stopPropagation>

@@ -139,7 +139,6 @@ export interface Message {
   bucket: number;
   images: MessageFile[];
   reply_to?: ActionHash;
-  thread_root?: ActionHash;
 }
 
 export interface MessageExtended {

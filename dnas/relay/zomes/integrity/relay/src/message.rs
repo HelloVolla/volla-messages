@@ -16,7 +16,6 @@ pub struct Message {
     pub bucket: u32,
     pub images: Vec<File>,
     pub reply_to: Option<ActionHash>,
-    pub thread_root: Option<ActionHash>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -183,21 +182,3 @@ pub fn validate_delete_link_message_replies(
     Ok(ValidateCallbackResult::Valid)
 }
 
-pub fn validate_create_link_thread_messages(
-    action: CreateLink,
-    base_address: AnyLinkableHash,
-    target_address: AnyLinkableHash,
-    tag: LinkTag,
-) -> ExternResult<ValidateCallbackResult> {
-    validate_create_link_message_replies(action, base_address, target_address, tag)
-}
-
-pub fn validate_delete_link_thread_messages(
-    _action: DeleteLink,
-    _original_action: CreateLink,
-    _base: AnyLinkableHash,
-    _target: AnyLinkableHash,
-    _tag: LinkTag,
-) -> ExternResult<ValidateCallbackResult> {
-    Ok(ValidateCallbackResult::Valid)
-}

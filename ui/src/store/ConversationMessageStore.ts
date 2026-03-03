@@ -63,10 +63,9 @@ export interface ConversationMessageStore extends GenericKeyKeyValueStore<Messag
     content: string,
     files: LocalFile[],
     replyTo?: ActionHashB64,
-    threadRoot?: ActionHashB64,
   ) => Promise<void>;
   getRepliesForMessage: (key1: CellIdB64, messageHash: ActionHashB64) => Promise<MessageExtended[]>;
-  getThreadMessages: (key1: CellIdB64, threadRootHash: ActionHashB64) => Promise<MessageExtended[]>;
+  getThreadMessages: (key1: CellIdB64, threadRootHash: ActionHashB64) => Promise<[ActionHashB64, MessageExtended][]>;
   getReplyCount: (key1: CellIdB64, messageHash: ActionHashB64) => Promise<number>;
   deleteMessage: (key1: CellIdB64, messageContent: string) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
@@ -158,13 +157,8 @@ export function createConversationMessageStore(
       const dbMessages = await messageDB.getMessages(cellIdB64, limit);
 
       if (dbMessages.length > 0) {
-        // Filter out threaded replies from main view
-        const mainViewMessages = dbMessages.filter(([, messageExtended]) => {
-          return !messageExtended.message.thread_root;
-        });
-
         // Sort messages by timestamp (newest to oldest) for natural chat order
-        const sortedMessages = mainViewMessages.sort(([, a], [, b]) => b.timestamp - a.timestamp);
+        const sortedMessages = dbMessages.sort(([, a], [, b]) => b.timestamp - a.timestamp);
 
         // Apply memory management: keep only the most recent messages within limit based on loaded pages
         const maxMessagesInMemory = pagesToLoad * MESSAGES_PER_PAGE;
@@ -199,6 +193,8 @@ export function createConversationMessageStore(
           ...m,
           [cellIdB64]: messageData,
         }));
+
+        _recomputeThreadCounts(cellIdB64);
 
         // Update pagination state
         paginationState.update((state) => ({
@@ -240,11 +236,6 @@ export function createConversationMessageStore(
       let loadedCount = 0;
 
       if (olderMessages.length > 0) {
-        // Filter out threaded replies from main view
-        const mainViewOlderMessages = olderMessages.filter(([, messageExtended]) => {
-          return !messageExtended.message.thread_root;
-        });
-
         // Get current messages and sort them by timestamp (newest to oldest) for natural chat order
         const currentMessages = get(messages).data[cellIdB64] || {};
         const currentMessagesList = Object.entries(currentMessages).sort(
@@ -252,7 +243,7 @@ export function createConversationMessageStore(
         );
 
         // Combine older messages with current ones - older messages go at the end (bottom)
-        const allMessages = [...currentMessagesList, ...mainViewOlderMessages];
+        const allMessages = [...currentMessagesList, ...olderMessages];
 
         // Calculate new loaded pages count
         const newLoadedPages = currentState.loadedPages + 1;
@@ -266,6 +257,8 @@ export function createConversationMessageStore(
           ...m,
           [cellIdB64]: updatedMessages,
         }));
+
+        _recomputeThreadCounts(cellIdB64);
 
         // Update pagination state
         paginationState.update((state) => ({
@@ -296,12 +289,67 @@ export function createConversationMessageStore(
     }
   }
 
+  /**
+   * Recompute replyCount / hasReplies for messages that have replies, using the
+   * full reply graph in memory.  Direct-only counts (from the DHT) miss
+   * transitive replies (replies-to-replies), so we BFS from each parent and
+   * count ALL descendants.  Only the affected messages are updated in the store.
+   */
+  function _recomputeThreadCounts(key1: CellIdB64): void {
+    try {
+      const allMessages = get(messages).data[key1] || {};
+
+      // Build parent → children map from reply_to relationships
+      const childrenMap: Record<ActionHashB64, ActionHashB64[]> = {};
+      for (const [hash, msg] of Object.entries(allMessages)) {
+        if (msg.message?.reply_to) {
+          const parentHash = encodeHashToBase64(msg.message.reply_to);
+          if (!childrenMap[parentHash]) childrenMap[parentHash] = [];
+          childrenMap[parentHash].push(hash);
+        }
+      }
+
+      // No replies in this conversation — nothing to update
+      if (Object.keys(childrenMap).length === 0) return;
+
+      // BFS from each parent to count all transitive descendants
+      const counts: Record<ActionHashB64, number> = {};
+      for (const parentHash of Object.keys(childrenMap)) {
+        const queue = [...childrenMap[parentHash]];
+        const seen = new Set<ActionHashB64>();
+        let count = 0;
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (seen.has(current)) continue;
+          seen.add(current);
+          count++;
+          (childrenMap[current] || []).forEach((c) => queue.push(c));
+        }
+        counts[parentHash] = count;
+      }
+
+      // Only patch the messages whose counts changed — do not replace the whole map
+      messages.update((m) => {
+        const current = m[key1];
+        if (!current) return m;
+        const patched = { ...current };
+        for (const [hash, count] of Object.entries(counts)) {
+          if (patched[hash]) {
+            patched[hash] = { ...patched[hash], replyCount: count, hasReplies: count > 0 };
+          }
+        }
+        return { ...m, [key1]: patched };
+      });
+    } catch (e) {
+      console.error("[ConversationMessageStore] _recomputeThreadCounts error:", e);
+    }
+  }
+
   async function sendMessage(
     key1: CellIdB64,
     content: string,
     files: LocalFile[],
     replyTo?: ActionHashB64,
-    threadRoot?: ActionHashB64,
   ) {
     const cellId = decodeCellIdFromBase64(key1);
     const messageFiles = await Promise.all(
@@ -327,26 +375,6 @@ export function createConversationMessageStore(
     );
     const agentPubKeys = get(mergedProfileContact).list.map(([a]) => decodeHashFromBase64(a));
 
-    // Determine thread_root if replying
-    let finalThreadRoot = threadRoot ? decodeHashFromBase64(threadRoot) : undefined;
-    console.log("[ConversationMessageStore] Thread determination:", {
-      hasReplyTo: !!replyTo,
-      hasThreadRoot: !!threadRoot,
-      participantCount: agentPubKeys.length,
-    });
-
-    if (replyTo && !finalThreadRoot) {
-      const participantCount = agentPubKeys.length;
-
-      if (participantCount > 2) {
-        // For large conversation use threading
-        // This is a reply to a non-threaded message, make it the thread root
-        finalThreadRoot = decodeHashFromBase64(replyTo);
-      } else {
-        console.log("[ConversationMessageStore] Small conversation, inline reply mode");
-      }
-    }
-
     // Create Message entry
     const messagePayload = {
       message: {
@@ -354,7 +382,6 @@ export function createConversationMessageStore(
         bucket: conversationStore.getBucket(key1, new Date().getTime()),
         images: messageFiles,
         reply_to: replyTo ? decodeHashFromBase64(replyTo) : undefined,
-        thread_root: finalThreadRoot,
       },
       agents: agentPubKeys,
     };
@@ -375,33 +402,6 @@ export function createConversationMessageStore(
     // Store in IndexedDB first
     await messageDB.storeMessage(key1, actionHashB64, messageExtended);
 
-    // If this is a threaded reply, update the root message's hasReplies flag
-    if (messagePayload.message.thread_root) {
-      const threadRootHashB64 = encodeHashToBase64(messagePayload.message.thread_root);
-      messages.update((m) => {
-        const currentMessages = m[key1] || {};
-        if (currentMessages[threadRootHashB64]) {
-          const newCount = (currentMessages[threadRootHashB64].replyCount || 0) + 1;
-          const updatedRoot = {
-            ...currentMessages[threadRootHashB64],
-            replyCount: newCount,
-            hasReplies: true,
-          };
-          return {
-            ...m,
-            [key1]: {
-              ...currentMessages,
-              [threadRootHashB64]: updatedRoot,
-            },
-          };
-        }
-        return m;
-      });
-
-      // Don't add threaded replies to main view, return early
-      return;
-    }
-
     // Update in-memory store (add new message at the end - newest timestamp)
     messages.update((m) => {
       const currentMessages = m[key1] || {};
@@ -420,6 +420,9 @@ export function createConversationMessageStore(
         [key1]: updatedMessages,
       };
     });
+
+    // Recompute all transitive thread counts now that a new message is in the store
+    _recomputeThreadCounts(key1);
 
     // Apply memory management after adding new message
     _applyMemoryManagement(key1);
@@ -510,34 +513,6 @@ export function createConversationMessageStore(
     // Store in IndexedDB first
     await messageDB.storeMessage(key1, actionHashB64, messageExtended);
 
-    // Filter out threaded replies from main view
-    // Threaded replies should only appear in thread view
-    if (messageExtended.message.thread_root) {
-      // Update reply count for the thread root message
-      const threadRootHashB64 = encodeHashToBase64(messageExtended.message.thread_root);
-      messages.update((m) => {
-        const currentMessages = m[key1] || {};
-        if (currentMessages[threadRootHashB64]) {
-          const newCount = (currentMessages[threadRootHashB64].replyCount || 0) + 1;
-          const updatedRoot = {
-            ...currentMessages[threadRootHashB64],
-            replyCount: newCount,
-            hasReplies: true, // Always true once a reply exists
-          };
-          return {
-            ...m,
-            [key1]: {
-              ...currentMessages,
-              [threadRootHashB64]: updatedRoot,
-            },
-          };
-        }
-        return m;
-      });
-
-      return;
-    }
-
     // Add to in-memory store (add new message at the end - newest timestamp)
     messages.update((m) => {
       const currentMessages = m[key1] || {};
@@ -556,6 +531,9 @@ export function createConversationMessageStore(
         [key1]: updatedMessages,
       };
     });
+
+    // Recompute all transitive thread counts now that a new message is in the store
+    _recomputeThreadCounts(key1);
 
     // Apply memory management after receiving new message
     _applyMemoryManagement(key1);
@@ -774,12 +752,7 @@ export function createConversationMessageStore(
 
     const validMessages = messageEntries
       .filter((p) => p.status === "fulfilled")
-      .map((p) => p.value)
-      .filter(([, messageExtended]) => {
-        // Filter out threaded replies from main view (messages with thread_root)
-        // These should only appear in the thread view
-        return !messageExtended.message.thread_root;
-      });
+      .map((p) => p.value);
 
     if (validMessages.length === 0) return 0;
 
@@ -936,14 +909,52 @@ export function createConversationMessageStore(
   async function getThreadMessages(
     key1: CellIdB64,
     threadRootHash: ActionHashB64,
-  ): Promise<MessageExtended[]> {
+  ): Promise<[ActionHashB64, MessageExtended][]> {
     const cellId = decodeCellIdFromBase64(key1);
-    const threadMessages = await client.getThreadMessages(
-      cellId,
-      decodeHashFromBase64(threadRootHash),
-    );
 
-    return Promise.all(threadMessages.map((m) => _makeMessageExtended(cellId, m)));
+    // Fetch root + direct replies from DHT to ensure data is available on cold load
+    const dhtMessages = await client.getThreadMessages(cellId, decodeHashFromBase64(threadRootHash));
+    const dhtData: Record<ActionHashB64, MessageExtended> = {};
+    for (const m of dhtMessages) {
+      const hash = encodeHashToBase64(m.original_action);
+      dhtData[hash] = await _makeMessageExtended(cellId, m);
+    }
+
+    // Merge with in-memory store (store takes precedence — more up-to-date)
+    // The store contains transitive replies that DHT fetch wouldn't reach
+    const storeData = get(messages).data[key1] ?? {};
+    const allData: Record<ActionHashB64, MessageExtended> = { ...dhtData, ...storeData };
+
+    // BFS: collect root + all transitive replies (replies to replies)
+    const result: [ActionHashB64, MessageExtended][] = [];
+    const seen = new Set<ActionHashB64>();
+    const queue: ActionHashB64[] = [threadRootHash];
+
+    while (queue.length > 0) {
+      const currentHash = queue.shift()!;
+      if (seen.has(currentHash)) continue;
+      seen.add(currentHash);
+
+      const message = allData[currentHash];
+      if (message) result.push([currentHash, message]);
+
+      // Enqueue any message whose reply_to points to the current node
+      for (const [hash, msg] of Object.entries(allData)) {
+        if (!seen.has(hash) && msg.message.reply_to &&
+            encodeHashToBase64(msg.message.reply_to) === currentHash) {
+          queue.push(hash);
+        }
+      }
+    }
+
+    // Root first, then ascending by timestamp
+    result.sort(([hashA, a], [hashB, b]) => {
+      if (hashA === threadRootHash) return -1;
+      if (hashB === threadRootHash) return 1;
+      return a.timestamp - b.timestamp;
+    });
+
+    return result;
   }
 
   async function getReplyCount(key1: CellIdB64, messageHash: ActionHashB64): Promise<number> {
@@ -988,11 +999,10 @@ export interface CellConversationMessageStore
     content: string,
     files: LocalFile[],
     replyTo?: ActionHashB64,
-    threadRoot?: ActionHashB64,
   ) => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
   getRepliesForMessage: (messageHash: ActionHashB64) => Promise<MessageExtended[]>;
-  getThreadMessages: (threadRoot: ActionHashB64) => Promise<MessageExtended[]>;
+  getThreadMessages: (threadRoot: ActionHashB64) => Promise<[ActionHashB64, MessageExtended][]>;
   getReplyCount: (messageHash: ActionHashB64) => Promise<number>;
 }
 
@@ -1035,8 +1045,7 @@ export function deriveCellConversationMessageStore(
       content: string,
       files: LocalFile[],
       replyTo?: ActionHashB64,
-      threadRoot?: ActionHashB64,
-    ) => conversationMessageStore.sendMessage(key, content, files, replyTo, threadRoot),
+    ) => conversationMessageStore.sendMessage(key, content, files, replyTo),
     handleMessageSignalReceived: (signal: MessageSignal) =>
       conversationMessageStore.handleMessageSignalReceived(key, signal),
     deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>

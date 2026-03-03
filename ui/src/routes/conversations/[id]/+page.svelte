@@ -35,6 +35,7 @@
     type MergedProfileContactInviteStore,
   } from "$store/MergedProfileContactInviteStore";
   import { POLLING_INTERVAL_FAST, POLLING_INTERVAL_SLOW } from "$config";
+  import { deriveThreadViewEnabled } from "$store/ThreadViewStore";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
   import InlineConferenceInvite from "./InlineConferenceInvite.svelte";
@@ -101,9 +102,14 @@
   let isFirstProfilesLoad = true;
   let isFirstLoadMessages = true;
 
+  const threadViewEnabled = deriveThreadViewEnabled($page.params.id);
+
   $: iAmProgenitor = $conversation.dnaProperties.progenitor === myPubKeyB64;
   $: participantCount = $mergedProfileContact.list.length;
-  $: isSmallConversation = participantCount <= 2;
+  $: isSmallConversation = participantCount <= 2 || !$threadViewEnabled;
+  $: displayMessages = isSmallConversation
+    ? $messages.list
+    : $messages.list.filter(([, msg]) => !msg.message.reply_to);
 
   async function handleDeleteMessage() {
     if (deleteMessageActionHashB64 === undefined) return;
@@ -224,12 +230,7 @@
     loadingMessagesNew = false;
   }
 
-  async function sendMessage(
-    text: string,
-    files: LocalFile[],
-    replyTo?: ActionHashB64,
-    threadRoot?: ActionHashB64,
-  ) {
+  async function sendMessage(text: string, files: LocalFile[], replyTo?: ActionHashB64) {
     if (sending) return;
 
     // Focus on input field to ensure the keyboard remains open after sending message on android
@@ -237,7 +238,7 @@
 
     sending = true;
     try {
-      await messages.sendMessage(text, files, replyTo, threadRoot);
+      await messages.sendMessage(text, files, replyTo);
 
       // Clear reply context
       replyToMessage = undefined;
@@ -425,8 +426,9 @@
         <ConversationMessages
           loadingTop={loadingMessagesOld}
           cellIdB64={$page.params.id}
-          messages={$messages.list.reverse()}
+          messages={displayMessages.reverse()}
           {participantCount}
+          threadViewEnabled={$threadViewEnabled}
           on:delete={(e) => {
             deleteMessageActionHashB64 = e.detail;
             showDeleteDialog = true;
@@ -455,7 +457,6 @@
       e.detail.text,
       e.detail.files,
       e.detail.replyTo ? encodeHashToBase64(e.detail.replyTo) : undefined,
-      e.detail.threadRoot ? encodeHashToBase64(e.detail.threadRoot) : undefined,
     )}
   on:cancelReply={() => {
     replyToMessage = undefined;

@@ -36,7 +36,6 @@ pub enum LinkTypes {
     ContactUpdates,
     AllContacts,
     MessageReplies,
-    ThreadMessages,
     RoomParticipants,
     ActiveCalls,
     RoomIdToConference,
@@ -391,14 +390,6 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         tag,
                     )
                 }
-                LinkTypes::ThreadMessages => {
-                    validate_create_link_thread_messages(
-                        action,
-                        base_address,
-                        target_address,
-                        tag,
-                    )
-                }
                 LinkTypes::RoomParticipants => {
                     Ok(ValidateCallbackResult::Valid)
                 }
@@ -472,15 +463,6 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 }
                 LinkTypes::MessageReplies => {
                     validate_delete_link_message_replies(
-                        action,
-                        original_action,
-                        base_address,
-                        target_address,
-                        tag,
-                    )
-                }
-                LinkTypes::ThreadMessages => {
-                    validate_delete_link_thread_messages(
                         action,
                         original_action,
                         base_address,
@@ -775,14 +757,6 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                                 tag,
                             )
                         }
-                        LinkTypes::ThreadMessages => {
-                            validate_create_link_thread_messages(
-                                action,
-                                base_address,
-                                target_address,
-                                tag,
-                            )
-                        }
                         LinkTypes::RoomParticipants => {
                             Ok(ValidateCallbackResult::Valid)
                         }
@@ -870,15 +844,6 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         }
                         LinkTypes::MessageReplies => {
                             validate_delete_link_message_replies(
-                                action,
-                                create_link.clone(),
-                                base_address,
-                                create_link.target_address,
-                                create_link.tag,
-                            )
-                        }
-                        LinkTypes::ThreadMessages => {
-                            validate_delete_link_thread_messages(
                                 action,
                                 create_link.clone(),
                                 base_address,

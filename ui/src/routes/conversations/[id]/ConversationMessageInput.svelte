@@ -16,7 +16,6 @@
       text: string;
       files: LocalFile[];
       replyTo?: ActionHash;
-      threadRoot?: ActionHash;
     };
     cancelReply: void;
   }>();
@@ -87,7 +86,6 @@
       text,
       files,
       replyTo: replyToActionHash ? decodeHashFromBase64(replyToActionHash) : undefined,
-      threadRoot: replyToMessage?.message.thread_root,
     };
 
     dispatch("send", sendPayload);

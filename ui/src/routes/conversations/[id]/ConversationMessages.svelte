@@ -19,6 +19,7 @@
   export let cellIdB64: CellIdB64;
   export let loadingTop = false;
   export let participantCount: number = 0;
+  export let threadViewEnabled: boolean = false;
 
   let selected: ActionHashB64 | undefined;
   let containerEl: HTMLDivElement | null = null;
@@ -262,6 +263,7 @@
               showAuthor={shouldShowAuthor(currentIndex)}
               {actionHashB64}
               {participantCount}
+              {threadViewEnabled}
               on:press={() => handlePress(actionHashB64)}
               on:click={(e) => handleClick(e, actionHashB64)}
               on:clickoutside={handleClickOutside}

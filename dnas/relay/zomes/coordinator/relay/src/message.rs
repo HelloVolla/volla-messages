@@ -37,16 +37,6 @@ pub fn create_message(input: SendMessageInput) -> ExternResult<Record> {
         )?;
     }
 
-    // Create thread link if this is part of a thread
-    if let Some(thread_root_hash) = &input.message.thread_root {
-        create_link(
-            thread_root_hash.clone(),
-            message_hash.clone(),
-            LinkTypes::ThreadMessages,
-            (),
-        )?;
-    }
-
     // Signal other agents that a message was created
     let my_pub_key = agent_info()?.agent_initial_pubkey;
     let agents = input
@@ -368,12 +358,15 @@ pub fn get_replies_for_message(
     message_hash: ZomeFnInput<ActionHash>,
 ) -> ExternResult<Vec<MessageRecord>> {
     let links = get_links(
-        GetLinksInputBuilder::try_new(
-            message_hash.input.clone(),
-            LinkTypes::MessageReplies,
-        )?
-        .get_options(message_hash.get_strategy())
-        .build(),
+        LinkQuery {
+            base: message_hash.input.clone().into(),
+            link_type: LinkTypes::MessageReplies.try_into_filter()?,
+            tag_prefix: None,
+            after: None,
+            before: None,
+            author: None,
+        },
+        message_hash.get_strategy(),
     )?;
 
     let mut replies = Vec::new();
@@ -400,17 +393,11 @@ pub fn get_replies_for_message(
     Ok(replies)
 }
 
-/// Get all messages in a thread
+/// Get all messages in a thread (root + all direct replies via MessageReplies links)
 #[hdk_extern]
 pub fn get_thread_messages(
     thread_root: ZomeFnInput<ActionHash>,
 ) -> ExternResult<Vec<MessageRecord>> {
-    let links = get_links(
-        GetLinksInputBuilder::try_new(thread_root.input.clone(), LinkTypes::ThreadMessages)?
-            .get_options(thread_root.get_strategy())
-            .build(),
-    )?;
-
     let mut thread_messages = Vec::new();
 
     // Include the root message first
@@ -421,7 +408,19 @@ pub fn get_thread_messages(
         thread_messages.push(root_record);
     }
 
-    // Add all replies
+    // Get all replies via MessageReplies links
+    let links = get_links(
+        LinkQuery {
+            base: thread_root.input.clone().into(),
+            link_type: LinkTypes::MessageReplies.try_into_filter()?,
+            tag_prefix: None,
+            after: None,
+            before: None,
+            author: None,
+        },
+        thread_root.get_strategy(),
+    )?;
+
     for link in links {
         if let Some(msg_hash) = link.target.into_action_hash() {
             if let Some(record) = get_latest_message(ZomeFnInput {
@@ -449,7 +448,15 @@ pub fn get_thread_messages(
 #[hdk_extern]
 pub fn get_reply_count(message_hash: ActionHash) -> ExternResult<usize> {
     let links = get_links(
-        GetLinksInputBuilder::try_new(message_hash, LinkTypes::MessageReplies)?.build(),
+        LinkQuery {
+            base: message_hash.into(),
+            link_type: LinkTypes::MessageReplies.try_into_filter()?,
+            tag_prefix: None,
+            after: None,
+            before: None,
+            author: None,
+        },
+        GetStrategy::Network,
     )?;
     Ok(links.len())
 }
