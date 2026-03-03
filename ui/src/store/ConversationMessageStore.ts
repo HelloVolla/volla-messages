@@ -920,12 +920,26 @@ export function createConversationMessageStore(
       dhtData[hash] = await _makeMessageExtended(cellId, m);
     }
 
-    // Merge with in-memory store (store takes precedence — more up-to-date)
-    // The store contains transitive replies that DHT fetch wouldn't reach
-    const storeData = get(messages).data[key1] ?? {};
-    const allData: Record<ActionHashB64, MessageExtended> = { ...dhtData, ...storeData };
+    // Write DHT messages into the store so reactive subscribers stay in sync.
+    if (Object.keys(dhtData).length > 0) {
+      messages.update((m) => {
+        const existing = m[key1] || {};
+        return { ...m, [key1]: { ...dhtData, ...existing } };
+      });
+    }
 
-    // BFS: collect root + all transitive replies (replies to replies)
+    const allData = get(messages).data[key1] ?? {};
+
+    // Build parent→children map for O(1) child lookups during BFS.
+    const childrenMap: Record<ActionHashB64, ActionHashB64[]> = {};
+    for (const [hash, msg] of Object.entries(allData)) {
+      if (msg.message?.reply_to) {
+        const parent = encodeHashToBase64(msg.message.reply_to);
+        if (!childrenMap[parent]) childrenMap[parent] = [];
+        childrenMap[parent].push(hash);
+      }
+    }
+
     const result: [ActionHashB64, MessageExtended][] = [];
     const seen = new Set<ActionHashB64>();
     const queue: ActionHashB64[] = [threadRootHash];
@@ -938,16 +952,11 @@ export function createConversationMessageStore(
       const message = allData[currentHash];
       if (message) result.push([currentHash, message]);
 
-      // Enqueue any message whose reply_to points to the current node
-      for (const [hash, msg] of Object.entries(allData)) {
-        if (!seen.has(hash) && msg.message.reply_to &&
-            encodeHashToBase64(msg.message.reply_to) === currentHash) {
-          queue.push(hash);
-        }
+      for (const child of (childrenMap[currentHash] || [])) {
+        if (!seen.has(child)) queue.push(child);
       }
     }
 
-    // Root first, then ascending by timestamp
     result.sort(([hashA, a], [hashB, b]) => {
       if (hashA === threadRootHash) return -1;
       if (hashB === threadRootHash) return 1;

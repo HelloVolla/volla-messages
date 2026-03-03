@@ -44,6 +44,48 @@
     loading = false;
   }
 
+  // Reactively re-derives thread on store changes (new signals update $messages).
+  // Builds a parent→children map first so BFS lookups are O(1) instead of O(n) per node.
+  $: if ($messages.data && threadRootHash) {
+    const allData = $messages.data;
+
+    const childrenMap: Record<ActionHashB64, ActionHashB64[]> = {};
+    for (const [hash, msg] of Object.entries(allData)) {
+      if (msg.message?.reply_to) {
+        const parent = encodeHashToBase64(msg.message.reply_to);
+        if (!childrenMap[parent]) childrenMap[parent] = [];
+        childrenMap[parent].push(hash);
+      }
+    }
+
+    const result: [ActionHashB64, MessageExtended][] = [];
+    const seen = new Set<ActionHashB64>();
+    const queue: ActionHashB64[] = [threadRootHash];
+
+    while (queue.length > 0) {
+      const currentHash = queue.shift()!;
+      if (seen.has(currentHash)) continue;
+      seen.add(currentHash);
+
+      const message = allData[currentHash];
+      if (message) result.push([currentHash, message]);
+
+      for (const child of (childrenMap[currentHash] || [])) {
+        if (!seen.has(child)) queue.push(child);
+      }
+    }
+
+    result.sort(([hashA, a], [hashB, b]) => {
+      if (hashA === threadRootHash) return -1;
+      if (hashB === threadRootHash) return 1;
+      return a.timestamp - b.timestamp;
+    });
+
+    if (result.length > 0) {
+      threadMessages = result;
+    }
+  }
+
   async function handleSend(event: CustomEvent) {
     if (sending) return;
 
