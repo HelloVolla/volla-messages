@@ -3,7 +3,6 @@
   import type { ActionHashB64 } from "@holochain/client";
   import type { MessageExtended, CellIdB64 } from "$lib/types";
   import BaseMessage from "./Message.svelte";
-  import ConversationHeader from "./ConversationHeader.svelte";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
   import {
     afterUpdate,
@@ -272,7 +271,6 @@ afterUpdate(() => {
   style={`overflow-anchor: none; ${initialScrollReady ? "opacity: 1" : "opacity: 0"}`}
 >
   <div class="flex h-4 items-center justify-center"></div>
-  <ConversationHeader {cellIdB64} />
   <div class="flex h-4 items-center justify-center"></div>
 
    <!-- Loading indicator when fetching older messages -->
