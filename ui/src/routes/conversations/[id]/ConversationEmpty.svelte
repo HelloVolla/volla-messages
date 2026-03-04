@@ -28,7 +28,6 @@
   let invite = deriveCellInviteStore(inviteStore, cellIdB64);
 </script>
 
-<ConversationHeader {cellIdB64} />
 
 <div class="flex h-full w-full flex-col items-center justify-center">
   <div
