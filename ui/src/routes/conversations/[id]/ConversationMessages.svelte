@@ -3,9 +3,9 @@
   import type { ActionHashB64 } from "@holochain/client";
   import type { MessageExtended, CellIdB64 } from "$lib/types";
   import BaseMessage from "./Message.svelte";
-  import ConversationHeader from "./ConversationHeader.svelte";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
-  import { afterUpdate, beforeUpdate, createEventDispatcher, onMount, tick } from "svelte";
+  import { afterUpdate, createEventDispatcher, onMount, tick } from "svelte";
+  import { LOAD_MORE_VIEWPORT } from "$config";
 
   const dispatch = createEventDispatcher<{
     scrollAtTop: null;
@@ -78,35 +78,68 @@
     }
   });
 
-  let previousScrollHeight = 0;
-  let previousScrollTop = 0;
   let previousItemCount = 0;
-  let shouldMaintainScroll = false;
-  // let isFirstFetch = true;
+  let isRestoringScroll = false;
+  let savedAnchor: { actionHash: ActionHashB64; offsetFromViewport: number } | null = null;
 
+  /**
+   * Capture the first visible message and its pixel offset from the viewport top.
+   * Called right before dispatching scrollAtTop so data is fresh.
+   */
+  function captureScrollAnchor() {
+    if (!containerEl || !$virtualizer) return;
+    const { scrollTop } = containerEl;
+    const virtualItems = $virtualizer.getVirtualItems();
+    const firstVisible = virtualItems.find((item) => item.start + item.size > scrollTop);
+    if (firstVisible && chronologicalMessages[firstVisible.index]) {
+      savedAnchor = {
+        actionHash: chronologicalMessages[firstVisible.index][0],
+        offsetFromViewport: firstVisible.start - scrollTop,
+      };
+    }
+  }
 
-beforeUpdate(() => {
-    if (shouldMaintainScroll && containerEl && previousScrollHeight === 0) {
-      previousScrollHeight = containerEl.scrollHeight;
-      previousScrollTop = containerEl.scrollTop;
+  afterUpdate(() => {
+    // When new messages are loaded and loading spinner is gone, restore scroll position
+    if (savedAnchor && !loadingTop && !isRestoringScroll) {
+      restoreScrollPosition();
     }
   });
 
-afterUpdate(() => {
-    if (shouldMaintainScroll && !loadingTop && containerEl && previousScrollHeight > 0) {
-      const heightDifference = containerEl.scrollHeight - previousScrollHeight;
-      
-      // Seamlessly shift the scrollbar down by the exact height of the new messages
-      containerEl.scrollTop = previousScrollTop + heightDifference;
+  /**
+   * Restore scroll to the previously-visible message over multiple frames,
+   * allowing the virtualizer to settle its measurements.
+   */
+  async function restoreScrollPosition() {
+    if (!savedAnchor || !containerEl) return;
 
-      // Reset the locks for the next time the user scrolls up
-      shouldMaintainScroll = false;
-      previousScrollHeight = 0;
+    const anchor = savedAnchor;
+    isRestoringScroll = true;
+
+    const targetIndex = chronologicalMessages.findIndex(([hash]) => hash === anchor.actionHash);
+
+    if (targetIndex >= 0) {
+      // Immediately jump close to the target
+      $virtualizer.scrollToIndex(targetIndex, { align: "start" });
+
+      // Fine-tune over several frames as the virtualizer measures real item sizes
+      for (let i = 0; i < 6; i++) {
+        await new Promise((r) => requestAnimationFrame(r));
+
+        const items = $virtualizer.getVirtualItems();
+        const targetItem = items.find((item) => item.index === targetIndex);
+        if (targetItem && containerEl) {
+          containerEl.scrollTop = targetItem.start - anchor.offsetFromViewport;
+        }
+      }
     }
-  });
+
+    savedAnchor = null;
+    isRestoringScroll = false;
+  }
 
   function handleScroll() {
-    if (!containerEl || !initialScrollReady) return;
+    if (!containerEl || !initialScrollReady || isRestoringScroll) return;
 
     const { scrollTop, scrollHeight, clientHeight } = containerEl;
     const scrollBottom = scrollHeight - scrollTop - clientHeight;
@@ -114,12 +147,21 @@ afterUpdate(() => {
     const isAtBottom = scrollBottom < 5;
     const isAtTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
 
-    // Trigger Infinite Scroll
-    if (isAtTop && !wasAtTop && !loadingTop) {
+    // Log how many messages are above the visible area (not yet scrolled into view)
+    const virtualItems = $virtualizer.getVirtualItems();
+    const firstVisibleItem = virtualItems.find((item) => item.start + item.size > scrollTop);
+    const firstVisibleIndex = firstVisibleItem ? firstVisibleItem.index : 0;
+    const totalMessages = chronologicalMessages?.length ?? 0;
+    console.log(
+      `[Scroll] ${firstVisibleIndex} of ${totalMessages} messages above viewport (scroll up to see)`,
+    );
+
+    // Trigger Infinite Scroll when fewer than LOAD_MORE_VIEWPORT messages remain above viewport
+    if (firstVisibleIndex < LOAD_MORE_VIEWPORT && !loadingTop) {
       if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
-      
+
       scrollDebounceTimer = setTimeout(() => {
-        shouldMaintainScroll = true;
+        captureScrollAnchor(); // Capture fresh anchor at dispatch time
         dispatch("scrollAtTop");
         scrollDebounceTimer = undefined;
       }, SCROLL_DEBOUNCE_MS);
@@ -233,15 +275,17 @@ afterUpdate(() => {
   style={`overflow-anchor: none; ${initialScrollReady ? "opacity: 1" : "opacity: 0"}`}
 >
   <div class="flex h-4 items-center justify-center"></div>
-  <ConversationHeader {cellIdB64} />
   <div class="flex h-4 items-center justify-center"></div>
 
-   <!-- Loading indicator when fetching older messages -->
-  {#if loadingTop}
-    <div class="flex h-12 items-center justify-center">
-      <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"></div>
-    </div>
-  {/if}
+  <!-- Loading indicator when fetching older messages (fixed height to avoid layout shift) -->
+  <div
+    class="flex h-12 items-center justify-center"
+    style="visibility: {loadingTop ? 'visible' : 'hidden'}"
+  >
+    <div
+      class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"
+    ></div>
+  </div>
 
   <!-- This inner div effectively holds the virtualizer's content scroll height -->
   <div style="height: {$virtualizer.getTotalSize()}px; position: relative; width: 100%;">
