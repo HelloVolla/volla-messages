@@ -29,4 +29,5 @@ export const POLLING_INTERVAL_SLOW = 30 * 1000;
 export const POLLING_INTERVAL_FAST = 2 * 1000;
 
 // Memory management for chat messages
-export const MESSAGES_PER_PAGE = 20;
+export const MESSAGES_PER_PAGE = 30;
+export const LOAD_MORE_VIEWPORT = 20; // Number of extra messages to render above and below the viewport in ConversationMessages
