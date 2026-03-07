@@ -29,7 +29,6 @@
   import SvgIcon from "$lib/SvgIcon.svelte";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
-  import Avatar from "$lib/Avatar.svelte";
 
   const conversationStore = getContext<{ getStore: () => ConversationStore }>(
     "conversationStore",
@@ -69,8 +68,6 @@
   let showDeleteDialog = false;
   let deleteMessageActionHashB64: undefined | ActionHashB64 = undefined;
   let isDeletingMessage = false;
-
-  let showAvatarDialog = false;
 
   let isFirstConfigLoad = true;
   let isFirstProfilesLoad = true;
@@ -204,44 +201,9 @@
     conversationMessageInputRef.focus();
 
     sending = true;
-
-    // --- Optimistic UI: add a temporary message ---
-    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const now = Date.now() * 1000; // microseconds
-    const optimisticMessage = {
-      message: {
-        content: text,
-        images: files.map((f) => ({
-          name: f.file.name,
-          size: f.file.size,
-          file_type: f.file.type,
-          last_modified: f.file.lastModified,
-          storage_entry_hash: undefined,
-        })),
-        // add other required Message fields if needed
-      },
-      timestamp: now,
-      authorAgentPubKeyB64: myPubKeyB64,
-      images: files.map((f) => ({
-        name: f.file.name,
-        size: f.file.size,
-        file_type: f.file.type,
-        last_modified: f.file.lastModified,
-        storage_entry_hash: undefined,
-      })),
-      pending: true,
-      // add other required MessageExtended fields if needed
-    };
-    // Insert optimistic message at the end using the writable store
-    conversationMessageStore.setKeyKeyValue($page.params.id, tempId, optimisticMessage);
-
     try {
       await messages.sendMessage(text, files);
-      // Remove optimistic placeholder — the real message has been added by sendMessage()
-      conversationMessageStore.removeKeyKeyValue($page.params.id, tempId);
     } catch (e) {
-      // Remove optimistic message on error
-      conversationMessageStore.removeKeyKeyValue($page.params.id, tempId);
       console.error(e);
       toast.error(`${$t("common.error_sending_message")}: ${(e as Error).message || e}`);
     }
@@ -276,38 +238,6 @@
 </script>
 
 <Header backUrl="/conversations">
-  <!-- Left slot: Back button + Avatar that opens dialog on click -->
-  <div slot="left" class="flex items-center">
-    <ButtonIconBare
-      on:click={() => goto("/conversations")}
-      icon="caretLeft"
-      moreClasses="!h-[16px] !w-[16px] text-base"
-      moreClassesButton="p-4"
-    />
-    <button class="flex items-center" on:click={() => (showAvatarDialog = true)}>
-      {#if $conversation.dnaProperties.privacy === Privacy.Private}
-        <div class="flex -space-x-1">
-          {#each $joined.list
-            .filter(([agentPubKeyB64]) => agentPubKeyB64 !== myPubKeyB64)
-            .slice(0, 2) as [agentPubKeyB64] (agentPubKeyB64)}
-            <Avatar
-              cellIdB64={$page.params.id}
-              {agentPubKeyB64}
-              size={40}
-              moreClasses="ring-2 ring-surface-100-800-token"
-            />
-          {/each}
-        </div>
-      {:else if $conversation.config?.image}
-        <img
-          src={$conversation.config.image}
-          alt="Conversation"
-          class="h-10 w-10 rounded-full object-cover"
-        />
-      {/if}
-    </button>
-  </div>
-
   <h1 slot="center" class="overflow-hidden text-ellipsis whitespace-nowrap p-4 text-center">
     {$conversationTitle}
   </h1>
@@ -380,33 +310,3 @@
 >
   <p>{$t("common.delete_message_dialog_message")}</p>
 </DialogConfirm>
-
-<!-- Avatar Dialog for larger view -->
-{#if showAvatarDialog}
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
-    on:click={() => (showAvatarDialog = false)}
-    on:keydown={(e) => e.key === "Escape" && (showAvatarDialog = false)}
-    role="button"
-    tabindex="0"
-  >
-    <div class="flex flex-col items-center gap-6 p-4">
-      {#if $conversation.dnaProperties.privacy === Privacy.Private}
-        <div class="flex items-center gap-6">
-          {#each $joined.list
-            .filter(([agentPubKeyB64]) => agentPubKeyB64 !== myPubKeyB64)
-            .slice(0, 2) as [agentPubKeyB64] (agentPubKeyB64)}
-            <Avatar cellIdB64={$page.params.id} {agentPubKeyB64} size={200} />
-          {/each}
-        </div>
-      {:else if $conversation.config?.image}
-        <img
-          src={$conversation.config.image}
-          alt="Conversation"
-          class="h-52 w-52 rounded-full object-cover"
-        />
-      {/if}
-      <h2 class="text-2xl font-semibold text-white">{$conversationTitle}</h2>
-    </div>
-  </div>
-{/if}
