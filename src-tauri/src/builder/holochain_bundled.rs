@@ -9,6 +9,8 @@ use serde_json::json;
 
 pub const SIGNAL_URL: &'static str = "wss://relay2.volla.tech/";
 
+pub const RELAY_URL: &'static str = "https://relay2.volla.tech/";
+
 pub const BOOTSTRAP_URL: &'static str = "https://relay2.volla.tech/";
 
 pub static ICE_URLS: &'static [&str] = &[
@@ -131,9 +133,8 @@ async fn setup<R: Runtime>(handle: AppHandle<R>) -> anyhow::Result<()> {
 }
 fn network_config() -> NetworkConfig {
     let mut config = NetworkConfig::default();
-    config.signal_url = url2::url2!("{}", SIGNAL_URL);
+    config.relay_url = url2::url2!("{}", RELAY_URL);
     config.bootstrap_url = url2::url2!("{}", BOOTSTRAP_URL);
-    config.webrtc_config = Some(json!({ "iceServers": [ { "urls": ICE_URLS }]}));
     config
 }
 fn holochain_dir() -> PathBuf {
