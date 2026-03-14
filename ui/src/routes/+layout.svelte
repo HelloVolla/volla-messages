@@ -47,6 +47,10 @@
     type MergedProfileContactInviteUnjoinedStore,
   } from "$store/MergedProfileContactInviteJoinedStore";
   import { createFileStore, type FileStore } from "$store/FileStore";
+  import {
+    createNetworkStatsStore,
+    type NetworkStatsStore,
+  } from "$store/NetworkStatsStore";
   import Dialog from "$lib/Dialog.svelte";
 
   // Holochain client
@@ -68,10 +72,12 @@
   let provisionedRelayCellProfileStore: CellProfileStore;
   let mergedProfileContactInviteUnjoinedStore: MergedProfileContactInviteUnjoinedStore;
   let mergedProfileContactInviteJoinedStore: MergedProfileContactInviteJoinedStore;
+  let networkStatsStore: NetworkStatsStore;
 
   // Is the holochain client connected?
   let isClientConnected = false;
   let isClientConnectionFailed = false;
+
 
   // Are the frontend stores initialized?
   let isStoresSetup = false;
@@ -182,6 +188,10 @@
         myPubKeyB64
       );
 
+      // Initialize network stats store
+      networkStatsStore = createNetworkStatsStore(client);
+      networkStatsStore.start();
+
       // Initialize store data
       await contactStore.initialize();
       await profileStore.initialize();
@@ -259,6 +269,10 @@
 
   setContext("inviteStore", {
     getStore: () => inviteStore,
+  });
+
+  setContext("networkStatsStore", {
+    getStore: () => networkStatsStore,
   });
 </script>
 
