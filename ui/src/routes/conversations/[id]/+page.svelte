@@ -29,6 +29,12 @@
   import SvgIcon from "$lib/SvgIcon.svelte";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
+  import {
+    deriveConversationNetworkStore,
+    type NetworkStatsStore,
+  } from "$store/NetworkStatsStore";
+  import NetworkStatusDot from "$lib/NetworkStatusDot.svelte";
+  import NetworkStatusPanel from "$lib/NetworkStatusPanel.svelte";
 
   const conversationStore = getContext<{ getStore: () => ConversationStore }>(
     "conversationStore",
@@ -46,6 +52,9 @@
   const conversationMessageStore = getContext<{
     getStore: () => ConversationMessageStore;
   }>("conversationMessageStore").getStore();
+  const networkStatsStore = getContext<{
+    getStore: () => NetworkStatsStore;
+  }>("networkStatsStore").getStore();
 
   let conversation = deriveCellConversationStore(conversationStore, $page.params.id);
   let messages = deriveCellConversationMessageStore(conversationMessageStore, $page.params.id);
@@ -55,6 +64,8 @@
     mergedProfileContactInviteJoinedStore,
     $page.params.id,
   );
+  let conversationNetwork = deriveConversationNetworkStore(networkStatsStore, $page.params.id);
+  let showConversationNetworkPanel = false;
 
   let configTimeout: NodeJS.Timeout;
   let agentTimeout: NodeJS.Timeout;
@@ -238,9 +249,15 @@
 </script>
 
 <Header backUrl="/conversations">
-  <h1 slot="center" class="overflow-hidden text-ellipsis whitespace-nowrap p-4 text-center">
-    {$conversationTitle}
-  </h1>
+  <div slot="center" class="flex items-center justify-center gap-1 overflow-hidden px-4">
+    <NetworkStatusDot
+      connectionCount={$conversationNetwork?.peerCount || 0}
+      onClick={() => (showConversationNetworkPanel = !showConversationNetworkPanel)}
+    />
+    <h1 class="overflow-hidden text-ellipsis whitespace-nowrap text-center">
+      {$conversationTitle}
+    </h1>
+  </div>
 
   <div class="flex items-center justify-center" slot="right">
     <ButtonIconBare
@@ -266,6 +283,14 @@
     {/if}
   </div>
 </Header>
+
+{#if showConversationNetworkPanel}
+  <NetworkStatusPanel
+    stats={$networkStatsStore}
+    conversationInfo={$conversationNetwork}
+    onClose={() => (showConversationNetworkPanel = false)}
+  />
+{/if}
 
 <div class="mx-auto flex w-full flex-1 flex-col items-center justify-center overflow-hidden">
   <div class="relative flex w-full grow flex-col items-center overflow-hidden pt-6">

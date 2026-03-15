@@ -30,3 +30,6 @@ export const POLLING_INTERVAL_FAST = 2 * 1000;
 
 // Memory management for chat messages
 export const MESSAGES_PER_PAGE = 20;
+
+// Network stats polling interval (ms)
+export const NETWORK_STATS_POLL_INTERVAL = 30 * 1000;
