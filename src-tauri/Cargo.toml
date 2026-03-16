@@ -56,3 +56,9 @@ default = []
 
 holochain_bundled = ["dep:tauri-plugin-holochain", "dep:tauri-runtime"]
 # holochain_service = ["dep:tauri-plugin-holochain-service-client"]
+
+# kitsune2_dht 0.4.0-dev.4 on crates.io is missing the `op_count()` method
+# in the `DhtApi` trait, which kitsune2_gossip 0.4.0-dev.4 calls.
+# Patch to the git main branch where the method is present.
+[patch.crates-io]
+kitsune2_dht = { git = "https://github.com/holochain/kitsune2", rev = "11428459ac316c2972bd5d1aa9f7700bb4637495" }
