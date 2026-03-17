@@ -3,6 +3,7 @@
 
   inputs = {
     p2p-shipyard.url = "github:darksoil-studio/tauri-plugin-holochain/main-0.6.1";
+    p2p-shipyard.inputs.holonix.follows = "holonix";
     holonix.url = "github:holochain/holonix/main-0.6";
 
     nixpkgs.follows = "holonix/nixpkgs";
