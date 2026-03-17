@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
-  import { getContext, onMount } from "svelte";
+  import { encodeHashToBase64, type ActionHashB64 } from "@holochain/client";
+  import { getContext } from "svelte";
   import { page } from "$app/stores";
   import Header from "$lib/Header.svelte";
   import type { LocalFile, MessageExtended } from "$lib/types";
@@ -16,10 +16,6 @@
   const conversationMessageStore = getContext<{
     getStore: () => ConversationMessageStore;
   }>("conversationMessageStore").getStore();
-  const myPubKeyB64 = getContext<{ getMyPubKeyB64: () => AgentPubKeyB64 }>(
-    "myPubKey",
-  ).getMyPubKeyB64();
-
   let messages = deriveCellConversationMessageStore(conversationMessageStore, $page.params.id);
 
   let threadMessages: [ActionHashB64, MessageExtended][] = [];
@@ -33,16 +29,6 @@
 
   $: threadRootHash = $page.params.threadRootHash as ActionHashB64;
   $: conversationId = $page.params.id;
-
-  async function loadThread() {
-    try {
-      threadMessages = await messages.getThreadMessages(threadRootHash);
-    } catch (e) {
-      console.error("Failed to load thread:", e);
-      toast.error("Failed to load thread");
-    }
-    loading = false;
-  }
 
   // Reactively re-derives thread on store changes (new signals update $messages).
   // Builds a parent→children map first so BFS lookups are O(1) instead of O(n) per node.
@@ -81,9 +67,8 @@
       return a.timestamp - b.timestamp;
     });
 
-    if (result.length > 0) {
-      threadMessages = result;
-    }
+    threadMessages = result;
+    loading = false;
   }
 
   async function handleSend(event: CustomEvent) {
@@ -101,7 +86,6 @@
       );
       replyToMessage = undefined;
       replyToActionHash = undefined;
-      await loadThread();
     } catch (e) {
       console.error("Failed to send thread reply:", e);
       toast.error("Failed to send reply");
@@ -158,9 +142,6 @@
     );
   }
 
-  onMount(() => {
-    loadThread();
-  });
 </script>
 
 <Header backUrl="/conversations/{conversationId}">

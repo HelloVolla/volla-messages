@@ -271,32 +271,6 @@ export class RelayClient {
     return config ? new EntryRecord<Config>(config).entry : undefined;
   }
 
-  public async getRepliesForMessage(
-    cell_id: CellId,
-    message_hash: ActionHash,
-    local?: boolean,
-  ): Promise<Array<MessageRecord>> {
-    return this.client.callZome({
-      cell_id,
-      zome_name: ZOME_NAME,
-      fn_name: "get_replies_for_message",
-      payload: { input: message_hash, local },
-    });
-  }
-
-  public async getThreadMessages(
-    cell_id: CellId,
-    thread_root: ActionHash,
-    local?: boolean,
-  ): Promise<Array<MessageRecord>> {
-    return this.client.callZome({
-      cell_id,
-      zome_name: ZOME_NAME,
-      fn_name: "get_thread_messages",
-      payload: { input: thread_root, local },
-    });
-  }
-
   public async getReplyCount(cell_id: CellId, message_hash: ActionHash): Promise<number> {
     return this.client.callZome({
       cell_id,

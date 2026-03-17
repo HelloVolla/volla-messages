@@ -64,8 +64,6 @@ export interface ConversationMessageStore extends GenericKeyKeyValueStore<Messag
     files: LocalFile[],
     replyTo?: ActionHashB64,
   ) => Promise<void>;
-  getRepliesForMessage: (key1: CellIdB64, messageHash: ActionHashB64) => Promise<MessageExtended[]>;
-  getThreadMessages: (key1: CellIdB64, threadRootHash: ActionHashB64) => Promise<[ActionHashB64, MessageExtended][]>;
   getReplyCount: (key1: CellIdB64, messageHash: ActionHashB64) => Promise<number>;
   deleteMessage: (key1: CellIdB64, messageContent: string) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
@@ -896,76 +894,6 @@ export function createConversationMessageStore(
     return baseMessage;
   }
 
-  async function getRepliesForMessage(
-    key1: CellIdB64,
-    messageHash: ActionHashB64,
-  ): Promise<MessageExtended[]> {
-    const cellId = decodeCellIdFromBase64(key1);
-    const replies = await client.getRepliesForMessage(cellId, decodeHashFromBase64(messageHash));
-
-    return Promise.all(replies.map((r) => _makeMessageExtended(cellId, r)));
-  }
-
-  async function getThreadMessages(
-    key1: CellIdB64,
-    threadRootHash: ActionHashB64,
-  ): Promise<[ActionHashB64, MessageExtended][]> {
-    const cellId = decodeCellIdFromBase64(key1);
-
-    // Fetch root + direct replies from DHT to ensure data is available on cold load
-    const dhtMessages = await client.getThreadMessages(cellId, decodeHashFromBase64(threadRootHash));
-    const dhtData: Record<ActionHashB64, MessageExtended> = {};
-    for (const m of dhtMessages) {
-      const hash = encodeHashToBase64(m.original_action);
-      dhtData[hash] = await _makeMessageExtended(cellId, m);
-    }
-
-    // Write DHT messages into the store so reactive subscribers stay in sync.
-    if (Object.keys(dhtData).length > 0) {
-      messages.update((m) => {
-        const existing = m[key1] || {};
-        return { ...m, [key1]: { ...dhtData, ...existing } };
-      });
-    }
-
-    const allData = get(messages).data[key1] ?? {};
-
-    // Build parent→children map for O(1) child lookups during BFS.
-    const childrenMap: Record<ActionHashB64, ActionHashB64[]> = {};
-    for (const [hash, msg] of Object.entries(allData)) {
-      if (msg.message?.reply_to) {
-        const parent = encodeHashToBase64(msg.message.reply_to);
-        if (!childrenMap[parent]) childrenMap[parent] = [];
-        childrenMap[parent].push(hash);
-      }
-    }
-
-    const result: [ActionHashB64, MessageExtended][] = [];
-    const seen = new Set<ActionHashB64>();
-    const queue: ActionHashB64[] = [threadRootHash];
-
-    while (queue.length > 0) {
-      const currentHash = queue.shift()!;
-      if (seen.has(currentHash)) continue;
-      seen.add(currentHash);
-
-      const message = allData[currentHash];
-      if (message) result.push([currentHash, message]);
-
-      for (const child of (childrenMap[currentHash] || [])) {
-        if (!seen.has(child)) queue.push(child);
-      }
-    }
-
-    result.sort(([hashA, a], [hashB, b]) => {
-      if (hashA === threadRootHash) return -1;
-      if (hashB === threadRootHash) return 1;
-      return a.timestamp - b.timestamp;
-    });
-
-    return result;
-  }
-
   async function getReplyCount(key1: CellIdB64, messageHash: ActionHashB64): Promise<number> {
     const cellId = decodeCellIdFromBase64(key1);
     return await client.getReplyCount(cellId, decodeHashFromBase64(messageHash));
@@ -978,8 +906,6 @@ export function createConversationMessageStore(
     loadMessagesInPreviousBucketTargetCount,
     loadMoreMessages,
     sendMessage,
-    getRepliesForMessage,
-    getThreadMessages,
     getReplyCount,
     handleMessageSignalReceived,
     subscribe,
@@ -1010,8 +936,6 @@ export interface CellConversationMessageStore
     replyTo?: ActionHashB64,
   ) => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
-  getRepliesForMessage: (messageHash: ActionHashB64) => Promise<MessageExtended[]>;
-  getThreadMessages: (threadRoot: ActionHashB64) => Promise<[ActionHashB64, MessageExtended][]>;
   getReplyCount: (messageHash: ActionHashB64) => Promise<number>;
 }
 
@@ -1059,10 +983,6 @@ export function deriveCellConversationMessageStore(
       conversationMessageStore.handleMessageSignalReceived(key, signal),
     deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>
       conversationMessageStore.deleteMessage(key1, actionHashB64),
-    getRepliesForMessage: (messageHash: ActionHashB64) =>
-      conversationMessageStore.getRepliesForMessage(key, messageHash),
-    getThreadMessages: (threadRoot: ActionHashB64) =>
-      conversationMessageStore.getThreadMessages(key, threadRoot),
     getReplyCount: (messageHash: ActionHashB64) =>
       conversationMessageStore.getReplyCount(key, messageHash),
   };
