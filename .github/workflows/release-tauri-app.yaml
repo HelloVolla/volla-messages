@@ -53,7 +53,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           override: true
-          toolchain: 1.88.0
+          toolchain: 1.89
 
       - name: install Go stable
         uses: actions/setup-go@v4
@@ -147,7 +147,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           override: true
-          toolchain: 1.88.0
+          toolchain: 1.89
 
       - name: Install nix
         uses: cachix/install-nix-action@v27
@@ -263,7 +263,7 @@ jobs:
         uses: lionel-faber/toolchain@038230242ab440f3b34fc2fbd7ae4111add9e690
         with:
           override: true
-          toolchain: 1.88.0
+          toolchain: 1.89
 
       - name: install Go stable
         uses: actions/setup-go@v4
@@ -362,7 +362,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           override: true
-          toolchain: 1.88.0
+          toolchain: 1.89
 
       - name: install Go stable
         uses: actions/setup-go@v4
