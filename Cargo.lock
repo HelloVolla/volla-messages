@@ -248,7 +248,7 @@ name = "file_storage"
 version = "0.2.0"
 dependencies = [
  "file_storage_integrity",
- "hc_zome_file_storage_coordinator",
+ "hc_zome_file_storage_integrity",
  "hdk",
  "holochain_serialized_bytes",
  "serde",
@@ -391,16 +391,6 @@ name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
-
-[[package]]
-name = "hc_zome_file_storage_coordinator"
-version = "0.4.0"
-source = "git+https://github.com/holochain-open-dev/file-storage?rev=27f215945675af8#27f215945675af82db3ee727d7b9fe91e1589824"
-dependencies = [
- "hc_zome_file_storage_integrity",
- "hdk",
- "serde",
-]
 
 [[package]]
 name = "hc_zome_file_storage_integrity"
