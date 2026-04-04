@@ -20,8 +20,9 @@ hdi = "0.7.0"
 hdk = "0.6.0"
 hc_zome_profiles_integrity = { git = "https://github.com/holochain-open-dev/profiles", branch = "main-0.6" }
 hc_zome_profiles_coordinator = { git = "https://github.com/holochain-open-dev/profiles", branch = "main-0.6" }
-hc_zome_file_storage_integrity = { git = "https://github.com/holochain-open-dev/file-storage", rev = "27f215945675af8" }
-hc_zome_file_storage_coordinator = { git = "https://github.com/holochain-open-dev/file-storage", rev = "27f215945675af8" }
+hc_zome_file_storage_integrity = { git = "https://github.com/holochain-open-dev/file-storage", rev = "5bd7b171956c06671b201a0050c7e737719633db" }
+hc_zome_file_storage_coordinator = { git = "https://github.com/holochain-open-dev/file-storage", rev = "5bd7b171956c06671b201a0050c7e737719633db" }
+
 
 serde = "1.0"
 holochain_serialized_bytes = "0.0.56"
