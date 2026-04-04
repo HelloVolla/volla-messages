@@ -54,6 +54,13 @@
   <NetworkStatusPanel
     stats={$networkStatsStore}
     onClose={() => (showNetworkPanel = false)}
+    onCopyDiagnostics={() => {
+      const text = networkStatsStore.copyDiagnostics();
+      navigator.clipboard.writeText(text).then(
+        () => console.log("[NET] diagnostics copied to clipboard"),
+        () => console.log("[NET] diagnostics:\n" + text),
+      );
+    }}
   />
 {/if}
 

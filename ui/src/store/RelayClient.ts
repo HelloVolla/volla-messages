@@ -208,9 +208,15 @@ export class RelayClient {
     return records;
   }
 
-  /**
-   * Fetch all AgentPubKeys of agents with profiles
-   */
+  public async getNetworkDiagnostics(cell_id: CellId): Promise<any> {
+    return this.client.callZome({
+      cell_id,
+      zome_name: ZOME_NAME,
+      fn_name: "get_network_diagnostics",
+      payload: null,
+    });
+  }
+
   public async getAllAgents(cell_id: CellId): Promise<{ [key: AgentPubKeyB64]: Profile }> {
     const agentsResponse: AgentPubKey[] = await this.client.callZome({
       cell_id,

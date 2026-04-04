@@ -289,6 +289,14 @@
     stats={$networkStatsStore}
     conversationInfo={$conversationNetwork}
     onClose={() => (showConversationNetworkPanel = false)}
+    onCopyDiagnostics={() => {
+      const text = networkStatsStore.copyDiagnostics();
+      navigator.clipboard.writeText(text).then(
+        () => console.log("[NET] diagnostics copied to clipboard"),
+        () => console.log("[NET] diagnostics:\n" + text),
+      );
+    }}
+    resolveAgentName={(key) => $profiles.data[key]?.profile?.nickname}
   />
 {/if}
 

@@ -33,3 +33,4 @@ export const MESSAGES_PER_PAGE = 20;
 
 // Network stats polling interval (ms)
 export const NETWORK_STATS_POLL_INTERVAL = 30 * 1000;
+export const NETWORK_STATS_POLL_INTERVAL_FAST = 5 * 1000;
