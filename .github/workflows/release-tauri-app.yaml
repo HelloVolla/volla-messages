@@ -84,6 +84,13 @@ jobs:
           if [ "${{ matrix.arch }}" = "armv7" ]; then
               # Add armhf architecture
               sudo dpkg --add-architecture armhf
+
+              # Add ARM ports repository for armhf packages
+              echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/armhf.list
+              echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/armhf.list
+              echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/armhf.list
+              echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/armhf.list
+
               sudo apt-get update
 
               # Install cross-compilation toolchain
