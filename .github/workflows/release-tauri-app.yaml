@@ -93,6 +93,11 @@ jobs:
             librsvg2-dev \
             pkg-config
 
+          # Install ARM cross-compilation toolchain for armv7
+          if [ "${{ matrix.arch }}" = "armv7" ]; then
+              sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+          fi
+
           # We must pin webkitgtk to 2.44 for x86_64, as we get a blank screen on later versions.
           # See https://github.com/tauri-apps/tauri/issues/12431
           #
