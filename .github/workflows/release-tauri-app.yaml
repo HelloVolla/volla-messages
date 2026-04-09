@@ -45,10 +45,6 @@ jobs:
             runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
             container: null
-          - arch: armv7
-            runner: ubuntu-22.04
-            target: armv7-unknown-linux-gnueabihf
-            container: null
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     steps:
