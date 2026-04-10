@@ -58,7 +58,13 @@ export interface ConversationMessageStore extends GenericKeyKeyValueStore<Messag
     maxBucketsToFetch?: number,
   ) => Promise<number>;
   loadMoreMessages: (key1: CellIdB64) => Promise<number>;
-  sendMessage: (key1: CellIdB64, content: string, files: LocalFile[]) => Promise<void>;
+  sendMessage: (
+    key1: CellIdB64,
+    content: string,
+    files: LocalFile[],
+    replyTo?: ActionHashB64,
+  ) => Promise<void>;
+  getReplyCount: (key1: CellIdB64, messageHash: ActionHashB64) => Promise<number>;
   deleteMessage: (key1: CellIdB64, messageContent: string) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
   handleMessageDeletedSignalReceived: (
@@ -155,12 +161,38 @@ export function createConversationMessageStore(
         // Apply memory management: keep only the most recent messages within limit based on loaded pages
         const maxMessagesInMemory = pagesToLoad * MESSAGES_PER_PAGE;
         const messagesToKeep = sortedMessages.slice(0, maxMessagesInMemory); // Keep from beginning (newest)
-        const messageData = Object.fromEntries(messagesToKeep);
+
+        // Fetch fresh reply counts for all messages from DHT (not from cache)
+        const cellId = decodeCellIdFromBase64(cellIdB64);
+        const messagesWithUpdatedCounts = await Promise.all(
+          messagesToKeep.map(async ([actionHashB64, messageExtended]) => {
+            try {
+              const count = await client.getReplyCount(cellId, decodeHashFromBase64(actionHashB64));
+              // Always update with fresh count and hasReplies flag
+              return [
+                actionHashB64,
+                {
+                  ...messageExtended,
+                  replyCount: count,
+                  hasReplies: count > 0,
+                },
+              ] as [ActionHashB64, MessageExtended];
+            } catch (error) {
+              console.error("[ConversationMessageStore] Error fetching reply count:", error);
+              // Keep existing values on error
+              return [actionHashB64, messageExtended] as [ActionHashB64, MessageExtended];
+            }
+          }),
+        );
+
+        const messageData = Object.fromEntries(messagesWithUpdatedCounts);
 
         messages.update((m) => ({
           ...m,
           [cellIdB64]: messageData,
         }));
+
+        _recomputeThreadCounts(cellIdB64);
 
         // Update pagination state
         paginationState.update((state) => ({
@@ -224,6 +256,8 @@ export function createConversationMessageStore(
           [cellIdB64]: updatedMessages,
         }));
 
+        _recomputeThreadCounts(cellIdB64);
+
         // Update pagination state
         paginationState.update((state) => ({
           ...state,
@@ -253,7 +287,68 @@ export function createConversationMessageStore(
     }
   }
 
-  async function sendMessage(key1: CellIdB64, content: string, files: LocalFile[]) {
+  /**
+   * Recompute replyCount / hasReplies for messages that have replies, using the
+   * full reply graph in memory.  Direct-only counts (from the DHT) miss
+   * transitive replies (replies-to-replies), so we BFS from each parent and
+   * count ALL descendants.  Only the affected messages are updated in the store.
+   */
+  function _recomputeThreadCounts(key1: CellIdB64): void {
+    try {
+      const allMessages = get(messages).data[key1] || {};
+
+      // Build parent → children map from reply_to relationships
+      const childrenMap: Record<ActionHashB64, ActionHashB64[]> = {};
+      for (const [hash, msg] of Object.entries(allMessages)) {
+        if (msg.message?.reply_to) {
+          const parentHash = encodeHashToBase64(msg.message.reply_to);
+          if (!childrenMap[parentHash]) childrenMap[parentHash] = [];
+          childrenMap[parentHash].push(hash);
+        }
+      }
+
+      // No replies in this conversation — nothing to update
+      if (Object.keys(childrenMap).length === 0) return;
+
+      // BFS from each parent to count all transitive descendants
+      const counts: Record<ActionHashB64, number> = {};
+      for (const parentHash of Object.keys(childrenMap)) {
+        const queue = [...childrenMap[parentHash]];
+        const seen = new Set<ActionHashB64>();
+        let count = 0;
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (seen.has(current)) continue;
+          seen.add(current);
+          count++;
+          (childrenMap[current] || []).forEach((c) => queue.push(c));
+        }
+        counts[parentHash] = count;
+      }
+
+      // Only patch the messages whose counts changed — do not replace the whole map
+      messages.update((m) => {
+        const current = m[key1];
+        if (!current) return m;
+        const patched = { ...current };
+        for (const [hash, count] of Object.entries(counts)) {
+          if (patched[hash]) {
+            patched[hash] = { ...patched[hash], replyCount: count, hasReplies: count > 0 };
+          }
+        }
+        return { ...m, [key1]: patched };
+      });
+    } catch (e) {
+      console.error("[ConversationMessageStore] _recomputeThreadCounts error:", e);
+    }
+  }
+
+  async function sendMessage(
+    key1: CellIdB64,
+    content: string,
+    files: LocalFile[],
+    replyTo?: ActionHashB64,
+  ) {
     const cellId = decodeCellIdFromBase64(key1);
     const messageFiles = await Promise.all(
       files.map(async (file) => {
@@ -279,14 +374,17 @@ export function createConversationMessageStore(
     const agentPubKeys = get(mergedProfileContact).list.map(([a]) => decodeHashFromBase64(a));
 
     // Create Message entry
-    const record = await client.createMessage(cellId, {
+    const messagePayload = {
       message: {
         content,
         bucket: conversationStore.getBucket(key1, new Date().getTime()),
         images: messageFiles,
+        reply_to: replyTo ? decodeHashFromBase64(replyTo) : undefined,
       },
       agents: agentPubKeys,
-    });
+    };
+
+    const record = await client.createMessage(cellId, messagePayload);
 
     const message = new EntryRecord<Message>(record).entry;
     if (message === undefined) throw new Error("Failed to decode Message entry from record");
@@ -320,6 +418,9 @@ export function createConversationMessageStore(
         [key1]: updatedMessages,
       };
     });
+
+    // Recompute all transitive thread counts now that a new message is in the store
+    _recomputeThreadCounts(key1);
 
     // Apply memory management after adding new message
     _applyMemoryManagement(key1);
@@ -428,6 +529,9 @@ export function createConversationMessageStore(
         [key1]: updatedMessages,
       };
     });
+
+    // Recompute all transitive thread counts now that a new message is in the store
+    _recomputeThreadCounts(key1);
 
     // Apply memory management after receiving new message
     _applyMemoryManagement(key1);
@@ -745,6 +849,39 @@ export function createConversationMessageStore(
       timestamp: messageRecord.signed_action.hashed.content.timestamp,
     };
 
+    // Fetch reply-to message if this is a reply
+    if (messageRecord.message.reply_to) {
+      try {
+        const replyToHash = messageRecord.message.reply_to;
+        const replyToRecord = await client.getMessageEntries(cellId, [replyToHash], false);
+        if (replyToRecord && replyToRecord.length > 0 && replyToRecord[0].message) {
+          baseMessage.replyToMessage = {
+            message: replyToRecord[0].message,
+            authorAgentPubKeyB64: encodeHashToBase64(
+              replyToRecord[0].signed_action.hashed.content.author,
+            ),
+            timestamp: replyToRecord[0].signed_action.hashed.content.timestamp,
+          };
+        } else {
+          console.warn("[ConversationMessageStore] Reply-to record not found or invalid");
+        }
+      } catch (error) {
+        console.error("[ConversationMessageStore] Error fetching reply-to message:", error);
+      }
+    }
+
+    // Fetch reply count for thread indicator
+    // Always fetch for all messages so we can show thread indicators when needed
+    try {
+      const actionHash = messageRecord.signed_action.hashed.hash;
+      const count = await client.getReplyCount(cellId, actionHash);
+      if (count > 0) {
+        baseMessage.replyCount = count;
+      }
+    } catch (error) {
+      console.error("[ConversationMessageStore] Error fetching reply count:", error);
+    }
+
     if (messageRecord.message.images.length > 0) {
       messageRecord.message.images.forEach((messageFile) =>
         fileStore.download(
@@ -757,6 +894,11 @@ export function createConversationMessageStore(
     return baseMessage;
   }
 
+  async function getReplyCount(key1: CellIdB64, messageHash: ActionHashB64): Promise<number> {
+    const cellId = decodeCellIdFromBase64(key1);
+    return await client.getReplyCount(cellId, decodeHashFromBase64(messageHash));
+  }
+
   return {
     ...messages,
     initialize,
@@ -764,6 +906,7 @@ export function createConversationMessageStore(
     loadMessagesInPreviousBucketTargetCount,
     loadMoreMessages,
     sendMessage,
+    getReplyCount,
     handleMessageSignalReceived,
     subscribe,
     deleteMessage,
@@ -787,8 +930,13 @@ export interface CellConversationMessageStore
     maxBucketsToFetch?: number,
   ) => Promise<number>;
   loadMoreMessages: () => Promise<number>;
-  sendMessage: (content: string, files: LocalFile[]) => Promise<void>;
+  sendMessage: (
+    content: string,
+    files: LocalFile[],
+    replyTo?: ActionHashB64,
+  ) => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
+  getReplyCount: (messageHash: ActionHashB64) => Promise<number>;
 }
 
 export function deriveCellConversationMessageStore(
@@ -826,11 +974,16 @@ export function deriveCellConversationMessageStore(
         maxBucketsToFetch,
       ),
     loadMoreMessages: () => conversationMessageStore.loadMoreMessages(key),
-    sendMessage: (content: string, files: LocalFile[]) =>
-      conversationMessageStore.sendMessage(key, content, files),
+    sendMessage: (
+      content: string,
+      files: LocalFile[],
+      replyTo?: ActionHashB64,
+    ) => conversationMessageStore.sendMessage(key, content, files, replyTo),
     handleMessageSignalReceived: (signal: MessageSignal) =>
       conversationMessageStore.handleMessageSignalReceived(key, signal),
     deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>
       conversationMessageStore.deleteMessage(key1, actionHashB64),
+    getReplyCount: (messageHash: ActionHashB64) =>
+      conversationMessageStore.getReplyCount(key, messageHash),
   };
 }

@@ -27,6 +27,16 @@ pub fn create_message(input: SendMessageInput) -> ExternResult<Record> {
         (),
     )?;
 
+    // Create reply link if this is a reply
+    if let Some(reply_to_hash) = &input.message.reply_to {
+        create_link(
+            reply_to_hash.clone(),
+            message_hash.clone(),
+            LinkTypes::MessageReplies,
+            (),
+        )?;
+    }
+
     // Signal other agents that a message was created
     let my_pub_key = agent_info()?.agent_initial_pubkey;
     let agents = input
@@ -340,4 +350,21 @@ pub fn get_oldest_delete_for_message(
             .cmp(&delete_b.action().timestamp())
     });
     Ok(deletes.first().cloned())
+}
+
+/// Get reply count for a message (for thread indicators)
+#[hdk_extern]
+pub fn get_reply_count(message_hash: ActionHash) -> ExternResult<usize> {
+    let links = get_links(
+        LinkQuery {
+            base: message_hash.into(),
+            link_type: LinkTypes::MessageReplies.try_into_filter()?,
+            tag_prefix: None,
+            after: None,
+            before: None,
+            author: None,
+        },
+        GetStrategy::Network,
+    )?;
+    Ok(links.len())
 }

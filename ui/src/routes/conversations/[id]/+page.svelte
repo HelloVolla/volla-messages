@@ -10,7 +10,7 @@
   import { goto } from "$app/navigation";
   import Header from "$lib/Header.svelte";
   import { t } from "$translations";
-  import { Privacy, type LocalFile } from "$lib/types";
+  import { Privacy, type LocalFile, type MessageExtended } from "$lib/types";
   import ConversationMessageInput from "./ConversationMessageInput.svelte";
   import ConversationEmpty from "./ConversationEmpty.svelte";
   import ConversationMessages from "./ConversationMessages.svelte";
@@ -30,8 +30,12 @@
     deriveCellMergedProfileContactInviteJoinedStore,
     type MergedProfileContactInviteJoinedStore,
   } from "$store/MergedProfileContactInviteJoinedStore";
+  import {
+    deriveCellMergedProfileContactInviteStore,
+    type MergedProfileContactInviteStore,
+  } from "$store/MergedProfileContactInviteStore";
   import { POLLING_INTERVAL_FAST, POLLING_INTERVAL_SLOW } from "$config";
-  import SvgIcon from "$lib/SvgIcon.svelte";
+  import { deriveThreadViewEnabled } from "$store/ThreadViewStore";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
   import InlineConferenceInvite from "./InlineConferenceInvite.svelte";
@@ -45,6 +49,9 @@
   const mergedProfileContactInviteJoinedStore = getContext<{
     getStore: () => MergedProfileContactInviteJoinedStore;
   }>("mergedProfileContactInviteJoinedStore").getStore();
+  const mergedProfileContactInviteStore = getContext<{
+    getStore: () => MergedProfileContactInviteStore;
+  }>("mergedProfileContactInviteStore").getStore();
   const myPubKeyB64 = getContext<{ getMyPubKeyB64: () => AgentPubKeyB64 }>(
     "myPubKey",
   ).getMyPubKeyB64();
@@ -66,6 +73,11 @@
     mergedProfileContactInviteJoinedStore,
     $page.params.id,
   );
+  let mergedProfileContact = deriveCellMergedProfileContactInviteStore(
+    mergedProfileContactInviteStore,
+    $page.params.id,
+    myPubKeyB64,
+  );
 
   let configTimeout: NodeJS.Timeout;
   let agentTimeout: NodeJS.Timeout;
@@ -80,13 +92,24 @@
   let deleteMessageActionHashB64: undefined | ActionHashB64 = undefined;
   let isDeletingMessage = false;
 
+  // Reply state
+  let replyToMessage: MessageExtended | undefined = undefined;
+  let replyToActionHash: ActionHashB64 | undefined = undefined;
+
   let isStartingCall = false;
 
   let isFirstConfigLoad = true;
   let isFirstProfilesLoad = true;
   let isFirstLoadMessages = true;
 
+  const threadViewEnabled = deriveThreadViewEnabled($page.params.id);
+
   $: iAmProgenitor = $conversation.dnaProperties.progenitor === myPubKeyB64;
+  $: participantCount = $mergedProfileContact.list.length;
+  $: isSmallConversation = participantCount <= 2 || !$threadViewEnabled;
+  $: displayMessages = isSmallConversation
+    ? $messages.list
+    : $messages.list.filter(([, msg]) => !msg.message.reply_to);
 
   async function handleDeleteMessage() {
     if (deleteMessageActionHashB64 === undefined) return;
@@ -207,7 +230,7 @@
     loadingMessagesNew = false;
   }
 
-  async function sendMessage(text: string, files: LocalFile[]) {
+  async function sendMessage(text: string, files: LocalFile[], replyTo?: ActionHashB64) {
     if (sending) return;
 
     // Focus on input field to ensure the keyboard remains open after sending message on android
@@ -215,12 +238,45 @@
 
     sending = true;
     try {
-      await messages.sendMessage(text, files);
+      await messages.sendMessage(text, files, replyTo);
+
+      // Clear reply context
+      replyToMessage = undefined;
+      replyToActionHash = undefined;
     } catch (e) {
       console.error(e);
       toast.error(`${$t("common.error_sending_message")}: ${(e as Error).message || e}`);
     }
     sending = false;
+  }
+
+  function handleReply(event: CustomEvent<ActionHashB64>) {
+    const actionHashB64 = event.detail;
+    console.log("[+page] handleReply called:", {
+      actionHashB64,
+      participantCount,
+      isSmallConversation,
+    });
+
+    if (isSmallConversation) {
+      // Small conversation: show inline reply context
+      replyToActionHash = actionHashB64;
+      replyToMessage = $messages.data[actionHashB64];
+      conversationMessageInputRef.focus();
+    } else {
+      // for arge conversation open thread view
+      // don't set reply context
+      openThreadView(actionHashB64);
+    }
+  }
+
+  function openThreadView(rootMessageHash: ActionHashB64) {
+    goto(`/conversations/${$page.params.id}/thread/${rootMessageHash}`);
+  }
+
+  function scrollToMessage(actionHashB64: ActionHashB64) {
+    // TODO: Implement scroll-to-message functionality
+    console.log("Scroll to message:", actionHashB64);
   }
 
   async function startVideoCall() {
@@ -370,11 +426,16 @@
         <ConversationMessages
           loadingTop={loadingMessagesOld}
           cellIdB64={$page.params.id}
-          messages={$messages.list.reverse()}
+          messages={displayMessages.reverse()}
+          {participantCount}
+          threadViewEnabled={$threadViewEnabled}
           on:delete={(e) => {
             deleteMessageActionHashB64 = e.detail;
             showDeleteDialog = true;
           }}
+          on:reply={handleReply}
+          on:openThread={(e) => openThreadView(e.detail)}
+          on:scrollToMessage={(e) => scrollToMessage(e.detail)}
           on:scrollAtTop={loadMoreMessages}
         />
       </div>
@@ -386,9 +447,21 @@
 
 <ConversationMessageInput
   bind:ref={conversationMessageInputRef}
+  bind:replyToMessage
+  bind:replyToActionHash
+  cellIdB64={$page.params.id}
   disabled={sending}
   loading={sending}
-  on:send={(e) => sendMessage(e.detail.text, e.detail.files)}
+  on:send={(e) =>
+    sendMessage(
+      e.detail.text,
+      e.detail.files,
+      e.detail.replyTo ? encodeHashToBase64(e.detail.replyTo) : undefined,
+    )}
+  on:cancelReply={() => {
+    replyToMessage = undefined;
+    replyToActionHash = undefined;
+  }}
 />
 
 <DialogConfirm

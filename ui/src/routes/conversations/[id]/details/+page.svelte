@@ -17,6 +17,8 @@
     type MergedProfileContactInviteStore,
   } from "$store/MergedProfileContactInviteStore";
   import MemberListItem from "./MemberListItem.svelte";
+  import ThreadViewToggle from "./ThreadViewToggle.svelte";
+  import { deriveThreadViewEnabled, toggleThreadView } from "$store/ThreadViewStore";
   import PrivateConversationImage from "../PrivateConversationImage.svelte";
   import { type CellProfileStore } from "$store/ProfileStore";
   import {
@@ -79,10 +81,16 @@
   let title = $conversationTitle || "";
   let editingTitle = false;
 
+  const threadViewEnabled = deriveThreadViewEnabled($page.params.id);
+
   $: iAmProgenitor = myPubKeyB64 === $conversation.dnaProperties.progenitor;
+  $: isGroupConversation = $joined.count > 2;
 
   const saveTitle = async (newTitle: string) => {
-    conversation.updateConfig({ title: newTitle.trim(), image });
+    conversation.updateConfig({
+      title: newTitle.trim(),
+      image,
+    });
     title = newTitle.trim();
     editingTitle = false;
   };
@@ -152,6 +160,13 @@
 
   <div class="mx-auto flex w-full flex-col overflow-y-auto px-4">
     <ul class="mt-10 flex-1">
+      {#if isGroupConversation}
+        <ThreadViewToggle
+          enabled={$threadViewEnabled}
+          on:toggle={() => toggleThreadView($page.params.id)}
+        />
+      {/if}
+
       {#if $conversation.dnaProperties.privacy === Privacy.Public && $conversation.publicInviteCode !== undefined}
         <li class="variant-filled-primary mb-2 flex flex-row items-center rounded-full p-2 text-xl">
           <span
