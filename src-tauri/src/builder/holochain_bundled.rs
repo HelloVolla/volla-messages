@@ -11,6 +11,8 @@ pub const SIGNAL_URL: &'static str = "wss://relay2.volla.tech/";
 
 pub const BOOTSTRAP_URL: &'static str = "https://relay2.volla.tech/";
 
+pub const IROH_RELAY_URL: &'static str = "https://iroh-relay.volla.tech/";
+
 pub static ICE_URLS: &'static [&str] = &[
     "stun://stun.nextcloud.com:443"
 ];
@@ -133,6 +135,7 @@ fn network_config() -> NetworkConfig {
     let mut config = NetworkConfig::default();
     config.signal_url = url2::url2!("{}", SIGNAL_URL);
     config.bootstrap_url = url2::url2!("{}", BOOTSTRAP_URL);
+    config.iroh_relay_url = url2::url2!("{}", IROH_RELAY_URL);
     config.webrtc_config = Some(json!({ "iceServers": [ { "urls": ICE_URLS }]}));
     config
 }
