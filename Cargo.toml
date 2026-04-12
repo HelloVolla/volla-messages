@@ -16,8 +16,8 @@ exclude = [ "src-tauri"]
 resolver = "2"
 
 [workspace.dependencies]
-hdi = "0.7.1-rc.5"
-hdk = "0.6.1-rc.5"
+hdi = "0.7.0"
+hdk = "0.6.0"
 hc_zome_profiles_integrity = { git = "https://github.com/holochain-open-dev/profiles", branch = "main-0.6" }
 hc_zome_profiles_coordinator = { git = "https://github.com/holochain-open-dev/profiles", branch = "main-0.6" }
 hc_zome_file_storage_integrity = { git = "https://github.com/holochain-open-dev/file-storage", rev = "5bd7b171956c06671b201a0050c7e737719633db" }
