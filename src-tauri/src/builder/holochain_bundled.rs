@@ -135,7 +135,7 @@ fn network_config() -> NetworkConfig {
     let mut config = NetworkConfig::default();
     config.signal_url = url2::url2!("{}", SIGNAL_URL);
     config.bootstrap_url = url2::url2!("{}", BOOTSTRAP_URL);
-    config.iroh_relay_url = url2::url2!("{}", IROH_RELAY_URL);
+    config.relay_url = url2::url2!("{}", IROH_RELAY_URL);
     config.webrtc_config = Some(json!({ "iceServers": [ { "urls": ICE_URLS }]}));
     config
 }
