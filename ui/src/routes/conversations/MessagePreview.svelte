@@ -19,18 +19,14 @@
   $: hasFiles = otherFiles.length > 0;
 </script>
 
-<div class="mt-1 flex items-start justify-start space-x-2">
-  <div class=" flex items-start justify-start space-x-1">
+<div class="line-clamp-2 break-words">
+  <span class="inline-flex items-center align-middle">
     <Avatar agentPubKeyB64={messageExtended.authorAgentPubKeyB64} {cellIdB64} size={14} />
-    <AgentNickname {cellIdB64} agentPubKeyB64={messageExtended.authorAgentPubKeyB64} />
-  </div>
-
-  <div class="overflow-wrap-anywhere overflow-hidden whitespace-normal break-words">
-    {@html DOMPurify.sanitize(messageExtended.message.content)}
-  </div>
-
+    <span class="ml-1"><AgentNickname {cellIdB64} agentPubKeyB64={messageExtended.authorAgentPubKeyB64} /></span>
+  </span>
+  <span>{@html DOMPurify.sanitize(messageExtended.message.content)}</span>
   {#if hasImages || hasFiles}
-    <div class="text-secondary-400 italic">
+    <span class="text-secondary-400 italic">
       ({#if hasImages}
         {$t("common.images", {
           count: imageFiles.length,
@@ -43,6 +39,6 @@
           count: otherFiles.length,
         })}
       {/if})
-    </div>
+    </span>
   {/if}
 </div>

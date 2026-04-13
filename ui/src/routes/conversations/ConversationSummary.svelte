@@ -207,7 +207,7 @@
       {/if}
       <div class="ml-4 flex min-w-0 flex-1 flex-col overflow-hidden">
         <span class="text-base">{$conversationTitle}</span>
-        <span class="flex min-w-0 items-center overflow-hidden text-ellipsis text-nowrap text-xs">
+        <span class="min-w-0 overflow-hidden text-xs">
           {#if $conversation.unread}
             <UnreadIndicator />
           {/if}
