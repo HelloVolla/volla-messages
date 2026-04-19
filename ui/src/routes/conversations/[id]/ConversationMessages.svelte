@@ -1,8 +1,9 @@
 <script lang="ts">
   import { isMobile, isSameDay, isWithinFiveMinutes } from "$lib/utils";
   import type { ActionHashB64 } from "@holochain/client";
-  import type { MessageExtended, CellIdB64 } from "$lib/types";
+  import { MessageType, type MessageExtended, type CellIdB64 } from "$lib/types";
   import BaseMessage from "./Message.svelte";
+  import NoticeMessage from "./NoticeMessage.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
   import { afterUpdate, beforeUpdate, createEventDispatcher, onMount, tick } from "svelte";
@@ -216,6 +217,9 @@ afterUpdate(() => {
 
     if (!currentMsg || !prevMsg) return true;
 
+    // Always show author after a system notice
+    if (prevMsg.message.message_type === MessageType.System) return true;
+
     return (
       currentMsg.authorAgentPubKeyB64 !== prevMsg.authorAgentPubKeyB64 ||
       !isWithinFiveMinutes(
@@ -268,19 +272,23 @@ afterUpdate(() => {
           {/if}
 
           <!-- Message content -->
-          <div class="mt-3 px-4">
-            <BaseMessage
-              {cellIdB64}
-              message={messageExtended}
-              isSelected={selected === actionHashB64}
-              showAuthor={shouldShowAuthor(currentIndex)}
-              {actionHashB64}
-              on:press={() => handlePress(actionHashB64)}
-              on:click={(e) => handleClick(e, actionHashB64)}
-              on:clickoutside={handleClickOutside}
-              on:delete
-            />
-          </div>
+          {#if messageExtended.message.message_type === MessageType.System}
+            <NoticeMessage {cellIdB64} message={messageExtended} />
+          {:else}
+            <div class="mt-3 px-4">
+              <BaseMessage
+                {cellIdB64}
+                message={messageExtended}
+                isSelected={selected === actionHashB64}
+                showAuthor={shouldShowAuthor(currentIndex)}
+                {actionHashB64}
+                on:press={() => handlePress(actionHashB64)}
+                on:click={(e) => handleClick(e, actionHashB64)}
+                on:clickoutside={handleClickOutside}
+                on:delete
+              />
+            </div>
+          {/if}
 
           <!-- Padding at the very end of the chat -->
           {#if currentIndex === chronologicalMessages?.length - 1}
