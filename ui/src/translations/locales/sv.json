@@ -34,6 +34,7 @@
   "files": "{{count}} {{count; 1:fil; default:filer;}}",
   "invalid_contact_code": "Ogiltig kod",
   "join_conversation": "Gå med i konversationen",
+  "joined_the_conversation": "gick med i konversationen",
   "jump_in": "Hoppa in",
   "last": "Efternamn",
   "last_name": "Efternamn, tack",

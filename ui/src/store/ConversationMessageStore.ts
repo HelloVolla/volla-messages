@@ -7,6 +7,7 @@ import {
   type MessageRecord,
   type MessageSignal,
   type ProfileExtended,
+  MessageType,
 } from "$lib/types";
 import { encodeCellIdToBase64, decodeCellIdFromBase64, enqueueNotification } from "$lib/utils";
 import { EntryRecord } from "@holochain-open-dev/utils";
@@ -61,6 +62,7 @@ export interface ConversationMessageStore extends GenericKeyKeyValueStore<Messag
   ) => Promise<number>;
   loadMoreMessages: (key1: CellIdB64) => Promise<number>;
   sendMessage: (key1: CellIdB64, content: string, files: LocalFile[]) => Promise<void>;
+  sendJoinNotice: (key1: CellIdB64) => Promise<void>;
   deleteMessage: (key1: CellIdB64, messageContent: string) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
   handleMessageDeletedSignalReceived: (
@@ -90,32 +92,34 @@ export function createConversationMessageStore(
       const filteredMessages = Object.fromEntries(
         $messages.list.map(([cellIdB64, messagesData]) => {
           const messagesArray = Object.entries(messagesData);
-          
+
           // Check if profiles have loaded for this cell
-          const profilesLoadedForCell = $mergedProfileContactInviteStore.data[cellIdB64] !== undefined;
-          
+          const profilesLoadedForCell =
+            $mergedProfileContactInviteStore.data[cellIdB64] !== undefined;
+
           // If profiles haven't loaded yet, show all messages (prevent race condition)
           // Once profiles load, filter to only show messages from known authors
-          const filtered = messagesArray.filter(
-            ([actionHash, messageExtended]) => {
-              // If profiles not loaded yet, don't filter anything out
-              if (!profilesLoadedForCell) {
-                return true;
-              }
-              
-              // Profiles are loaded, so only show messages from known authors
-              const hasAuthor = $mergedProfileContactInviteStore.data[cellIdB64][
+          const filtered = messagesArray.filter(([actionHash, messageExtended]) => {
+            // If profiles not loaded yet, don't filter anything out
+            if (!profilesLoadedForCell) {
+              return true;
+            }
+
+            // Always show system messages
+            if (messageExtended.message.message_type === MessageType.System) {
+              return true;
+            }
+
+            // Profiles are loaded, so only show messages from known authors
+            const hasAuthor =
+              $mergedProfileContactInviteStore.data[cellIdB64][
                 messageExtended.authorAgentPubKeyB64
               ] !== undefined;
-              
-              return hasAuthor;
-            },
-          );
-          
-          return [
-            cellIdB64,
-            Object.fromEntries(filtered),
-          ];
+
+            return hasAuthor;
+          });
+
+          return [cellIdB64, Object.fromEntries(filtered)];
         }),
       );
 
@@ -155,26 +159,32 @@ export function createConversationMessageStore(
     const results = await Promise.allSettled(
       cellInfos.map(async (cellInfo) => {
         const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
-        
+
         await _loadMessagesFromDB(cellIdB64, 1); // Load first page
 
         // If no messages in DB, try to fetch from network
         const currentState = get(paginationState)[cellIdB64];
-        
+
         if (currentState.totalMessages === 0) {
           // when first initializing go local
-          await loadMessagesInCurrentBucketTargetCount(true, cellIdB64, TARGET_MESSAGES_COUNT, 10, 50);
+          await loadMessagesInCurrentBucketTargetCount(
+            true,
+            cellIdB64,
+            TARGET_MESSAGES_COUNT,
+            10,
+            50,
+          );
         }
       }),
     );
-    
+
     // Log any errors
     results.forEach((result, index) => {
       if (result.status === "rejected") {
         console.error(`Failed to load messages for conversation ${index}:`, result.reason);
       }
     });
-    
+
     console.log(" Initialization complete");
   }
 
@@ -185,10 +195,10 @@ export function createConversationMessageStore(
   async function _loadMessagesFromDB(cellIdB64: CellIdB64, pagesToLoad: number): Promise<void> {
     try {
       const limit = pagesToLoad * MESSAGES_PER_PAGE;
-      
+
       // Check if agent changed and clear cache if needed
       const cacheCleared = await messageDB.clearCacheOnAgentChange(cellIdB64);
-      
+
       const dbMessages = await messageDB.getMessages(cellIdB64, limit);
       console.log(` Retrieved ${dbMessages.length} messages from IndexedDB`);
 
@@ -206,7 +216,7 @@ export function createConversationMessageStore(
         messages.update((m) => {
           const existing = m[cellIdB64] || {};
           const merged = { ...existing, ...messageData };
-          
+
           return {
             ...m,
             [cellIdB64]: merged,
@@ -222,7 +232,6 @@ export function createConversationMessageStore(
             oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) message in memory
           },
         }));
-
       } else {
         console.warn(`No messages found in IndexedDB for cell ${cellIdB64.substring(0, 10)}...`);
       }
@@ -278,42 +287,50 @@ export function createConversationMessageStore(
             ...state[cellIdB64],
             loadedPages: newLoadedPages,
             totalMessages: messagesToKeep.length,
-            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, 
+            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp,
           },
         }));
       }
 
       // This shouldn't be done, it will only likely trigger timeouts.  Unless the node is zero-arc (which we are not doing in Volla), all loading should be local.
       // Data will be synced quickly and so it's not worth trying to get it from the network.
-    if (olderMessages.length === 0) {
+      if (olderMessages.length === 0) {
         console.log(`Local DB empty. Using reliable backend sync...`);
-        
+
         try {
           const cellId = decodeCellIdFromBase64(cellIdB64);
-          
+
           // 1. Get the actual oldest message from memory to find its exact bucket
           const currentMessages = get(messages).data[cellIdB64] || {};
-          const messagesList = Object.entries(currentMessages).sort(([, a], [, b]) => a.timestamp - b.timestamp);
+          const messagesList = Object.entries(currentMessages).sort(
+            ([, a], [, b]) => a.timestamp - b.timestamp,
+          );
           const oldestMessage = messagesList[0]?.[1];
-          
+
           if (!oldestMessage) return 0;
 
           // 2. Read the bucket directly from the message object (No timestamp math!)
           const oldestBucket = oldestMessage.message.bucket;
-          
+
           // 3. Safely ask for just the next 3 older buckets
-          const targetBuckets = [oldestBucket - 1, oldestBucket - 2, oldestBucket - 3].filter(b => b >= 0);
+          const targetBuckets = [oldestBucket - 1, oldestBucket - 2, oldestBucket - 3].filter(
+            (b) => b >= 0,
+          );
 
           if (targetBuckets.length > 0) {
             console.log(`Fetching buckets directly from DHT:`, targetBuckets);
-            
+
             const messageRecords = await client.getMessagesForBuckets(cellId, targetBuckets);
 
             if (messageRecords.length > 0) {
               const messageEntries = await Promise.allSettled(
-                messageRecords.map(async (m) =>
-                  [encodeHashToBase64(m.original_action), await _makeMessageExtended(cellId, m)] as [ActionHashB64, MessageExtended]
-                )
+                messageRecords.map(
+                  async (m) =>
+                    [
+                      encodeHashToBase64(m.original_action),
+                      await _makeMessageExtended(cellId, m),
+                    ] as [ActionHashB64, MessageExtended],
+                ),
               );
 
               const validMessages = messageEntries
@@ -374,6 +391,7 @@ export function createConversationMessageStore(
         content,
         bucket: conversationStore.getBucket(key1, new Date().getTime()),
         images: messageFiles,
+        message_type: MessageType.User,
       },
       agents: agentPubKeys,
     });
@@ -436,6 +454,53 @@ export function createConversationMessageStore(
         },
       };
     });
+  }
+
+  async function sendJoinNotice(key1: CellIdB64): Promise<void> {
+    const cellId = decodeCellIdFromBase64(key1);
+
+    // We just joined, so the local cache won't have other agents yet.
+    // If this fails, fall back to self, the message still lands on the DHT
+    // and others will see it when they next load messages.
+    let agentPubKeys;
+    try {
+      agentPubKeys = await client.getAgentsWithProfile(cellId);
+    } catch {
+      agentPubKeys = [client.client.myPubKey];
+    }
+
+    const message: Message = {
+      content: "",
+      bucket: conversationStore.getBucket(key1, new Date().getTime()),
+      images: [],
+      message_type: MessageType.System,
+    };
+
+    const record = await client.createMessage(cellId, {
+      message,
+      agents: agentPubKeys,
+    });
+
+    const entryMessage = new EntryRecord<Message>(record).entry;
+    if (entryMessage === undefined) throw new Error("Failed to decode Message entry from record");
+
+    const messageExtended = await _makeMessageExtended(cellId, {
+      message: entryMessage,
+      original_action: record.signed_action.hashed.hash,
+      signed_action: record.signed_action,
+    });
+
+    const actionHashB64 = encodeHashToBase64(record.signed_action.hashed.hash);
+
+    await messageDB.storeMessage(key1, actionHashB64, messageExtended);
+
+    messages.update((m) => ({
+      ...m,
+      [key1]: {
+        ...(m[key1] || {}),
+        [actionHashB64]: messageExtended,
+      },
+    }));
   }
 
   async function deleteMessage(key1: CellIdB64, actionHashB64: ActionHashB64): Promise<void> {
@@ -829,6 +894,8 @@ export function createConversationMessageStore(
     messageExtended: MessageExtended,
     fromProfile?: ProfileExtended,
   ) {
+    if (messageExtended.message.message_type === MessageType.System) return;
+
     const content =
       messageExtended.message.content.length > 125
         ? messageExtended.message.content.slice(0, 50) + "..."
@@ -900,6 +967,7 @@ export function createConversationMessageStore(
     loadMessagesInPreviousBucketTargetCount,
     loadMoreMessages,
     sendMessage,
+    sendJoinNotice,
     handleMessageSignalReceived,
     subscribe,
     deleteMessage,
@@ -925,6 +993,7 @@ export interface CellConversationMessageStore
   ) => Promise<number>;
   loadMoreMessages: () => Promise<number>;
   sendMessage: (content: string, files: LocalFile[]) => Promise<void>;
+  sendJoinNotice: () => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
   debugGetAllMessages: () => Promise<Record[]>;
 }
@@ -966,6 +1035,7 @@ export function deriveCellConversationMessageStore(
     loadMoreMessages: () => conversationMessageStore.loadMoreMessages(key),
     sendMessage: (content: string, files: LocalFile[]) =>
       conversationMessageStore.sendMessage(key, content, files),
+    sendJoinNotice: () => conversationMessageStore.sendJoinNotice(key),
     handleMessageSignalReceived: (signal: MessageSignal) =>
       conversationMessageStore.handleMessageSignalReceived(key, signal),
     deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>

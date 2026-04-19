@@ -31,6 +31,7 @@
   "files": "{{count}} {{count; 1:archivo; default:archivos;}}",
   "invalid_contact_code": "Código de contacto no válido",
   "join_conversation": "Participe en la conversación",
+  "joined_the_conversation": "se unió a la conversación",
   "jump_in": "Jump In",
   "last": "Last",
   "last_name": "Apellidos",
