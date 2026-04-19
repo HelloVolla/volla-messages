@@ -1,5 +1,11 @@
 use hdi::prelude::*;
 
+#[derive(Serialize, Deserialize, Debug, Clone, SerializedBytes, PartialEq)]
+pub enum MessageType {
+    User,
+    System,
+}
+
 #[derive(Serialize, Deserialize, Debug, SerializedBytes, Clone, PartialEq)]
 pub struct File {
     pub name: String,
@@ -15,6 +21,7 @@ pub struct Message {
     pub content: String,
     pub bucket: u32,
     pub images: Vec<File>,
+    pub message_type: MessageType,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
