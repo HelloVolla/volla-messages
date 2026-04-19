@@ -6,12 +6,16 @@
   import Button from "$lib/Button.svelte";
   import Header from "$lib/Header.svelte";
   import { t } from "$translations";
-  import type { Invitation } from "$lib/types";
+  import { Privacy, type Invitation } from "$lib/types";
   import type { ConversationStore } from "$store/ConversationStore";
+  import type { ConversationMessageStore } from "$store/ConversationMessageStore";
 
   const conversationStore = getContext<{ getStore: () => ConversationStore }>(
     "conversationStore",
   ).getStore();
+  const conversationMessageStore = getContext<{
+    getStore: () => ConversationMessageStore;
+  }>("conversationMessageStore").getStore();
 
   let inviteCode = "";
   let joining = false;
@@ -23,6 +27,15 @@
       const msgpack = Base64.toUint8Array(inviteCode);
       const invitation: Invitation = decode(msgpack) as Invitation;
       const cellIdB64 = await conversationStore.join(invitation);
+
+      // Send a join notice message to public conversations only
+      if (invitation.privacy === Privacy.Public) {
+        try {
+          await conversationMessageStore.sendJoinNotice(cellIdB64);
+        } catch (e) {
+          console.error("Failed to send join notice:", e);
+        }
+      }
 
       goto(`/conversations/${cellIdB64}`);
     } catch (e) {
@@ -40,14 +53,14 @@
   <div class="mx-auto flex w-full grow flex-col items-start justify-center px-10">
     <h1 class="h1">{$t("common.enter_invite_code")}</h1>
     <input
-      class="bg-surface-900 mt-2 w-full overflow-hidden text-ellipsis border-none pl-0.5 outline-none focus:outline-none focus:ring-0"
+      class="mt-2 w-full overflow-hidden text-ellipsis border-none bg-surface-900 pl-0.5 outline-none focus:outline-none focus:ring-0"
       type="text"
       placeholder="e.g. hLBjb252ZXJzYXRpb25OYW1lq0..."
       name="inviteCode"
       bind:value={inviteCode}
     />
     {#if error}
-      <p class="text-error-500 mt-2 text-sm">
+      <p class="mt-2 text-sm text-error-500">
         {$t("common.error_joining")}
       </p>
     {/if}
