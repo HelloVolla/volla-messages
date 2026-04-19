@@ -33,8 +33,10 @@ android {
         applicationId = "com.volla.messages.bundled"
         minSdk = 27
         targetSdk = 34
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = 12002
+        versionName = "0.12.2"
+        // versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
+        // versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
     buildTypes {
         getByName("debug") {
