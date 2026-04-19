@@ -34,6 +34,7 @@
   "files": "{{count}} {{count; 1:fil; default:filer;}}",
   "invalid_contact_code": "Ugyldig kode",
   "join_conversation": "Deltag i konversation",
+  "joined_the_conversation": "har tilsluttet sig samtalen",
   "jump_in": "Hop ind",
   "last": "Efternavn",
   "last_name": "Indtast efternavn",

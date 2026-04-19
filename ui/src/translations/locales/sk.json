@@ -31,6 +31,7 @@
   "files": "{{count}} {{count; 1:súbor; default:súbory;}}",
   "invalid_contact_code": "Neplatný kód kontaktu",
   "join_conversation": "Zapojte sa do konverzácie",
+  "joined_the_conversation": "sa pripojil ku konverzácii",
   "jump_in": "Jump In",
   "last": "Last",
   "last_name": "Priezvisko",

@@ -35,6 +35,7 @@
   "files": "{{count}} {{count; 1:bestand; default:bestanden;}}",
   "invalid_contact_code": "Ongeldige contactcode",
   "join_conversation": "Neem deel aan het gesprek",
+  "joined_the_conversation": "is lid geworden van het gesprek",
   "jump_in": "Stap in",
   "last": "Laatste",
   "last_name": "Achternaam",
