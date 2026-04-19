@@ -81,10 +81,16 @@ export interface MessageFile {
  */
 
 // Mirror of rust struct "File", renamed to avoid naming conflict with javascript native File
+export enum MessageType {
+  User = "User",
+  System = "System",
+}
+
 export interface Message {
   content: string;
   bucket: number;
   images: MessageFile[];
+  message_type: MessageType;
 }
 
 export interface MessageExtended {
