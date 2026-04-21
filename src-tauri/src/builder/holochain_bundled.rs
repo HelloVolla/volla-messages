@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Builder, EventLoopMessage, Listener, Manager, Runtime};
 use tauri_plugin_holochain::{HolochainExt, HolochainPluginConfig, vec_to_locked};
 use tauri_plugin_holochain::NetworkConfig;
+use holochain::conductor::config::{ReticulumInterfaceConfig, ReticulumTransportConfig};
 use uuid::Uuid;
 use serde_json::json;
 
@@ -137,7 +138,45 @@ fn network_config() -> NetworkConfig {
     config.bootstrap_url = url2::url2!("{}", BOOTSTRAP_URL);
     config.relay_url = url2::url2!("{}", IROH_RELAY_URL);
     config.webrtc_config = Some(json!({ "iceServers": [ { "urls": ICE_URLS }]}));
+    config.reticulum = Some(reticulum_config());
     config
+}
+
+// Reticulum interfaces are assembled from env vars so a single binary
+// can play any role in a rendezvous topology:
+//   VOLLA_RETICULUM_LISTEN=0.0.0.0:4242           -> adds a TcpServer
+//   VOLLA_RETICULUM_DIAL=host1:4242,host2:4242   -> adds one TcpClient per target
+// UDP multicast is always on for zero-config LAN discovery (silent no-op
+// where multicast is blocked). Identity is persisted so the ret:// URL
+// is stable across restarts.
+fn reticulum_config() -> ReticulumTransportConfig {
+    let mut interfaces = vec![ReticulumInterfaceConfig::Udp {
+        bind: "0.0.0.0:0".to_string(),
+        group: None,
+    }];
+
+    if let Ok(listen) = std::env::var("VOLLA_RETICULUM_LISTEN") {
+        let listen = listen.trim();
+        if !listen.is_empty() {
+            interfaces.push(ReticulumInterfaceConfig::TcpServer {
+                bind: listen.to_string(),
+            });
+        }
+    }
+
+    if let Ok(dial) = std::env::var("VOLLA_RETICULUM_DIAL") {
+        for target in dial.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            interfaces.push(ReticulumInterfaceConfig::TcpClient {
+                target: target.to_string(),
+            });
+        }
+    }
+
+    ReticulumTransportConfig {
+        interfaces,
+        identity_path: Some(holochain_dir().join("reticulum.identity")),
+        ..Default::default()
+    }
 }
 fn holochain_dir() -> PathBuf {
     if tauri::is_dev() {

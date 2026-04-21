@@ -20,11 +20,11 @@ tauri-build = { version = "2.2.0", default-features = false , features = [] }
 [dependencies]
 tauri = { version = "2.5.1", features = ["devtools"] }
 tauri-runtime = {version = "2.6.0", optional = true}
-tauri-plugin-holochain = { git = "https://github.com/darksoil-studio/tauri-plugin-holochain", branch = "main-0.6.1", optional = true }
+tauri-plugin-holochain = { path = "../../tauri-plugin-holochain/crates/tauri-plugin-holochain", optional = true }
 tauri-plugin-holochain-service-client = { git = "https://github.com/HelloVolla/volla-cloud-services", tag = "android-service-runtime-v0.3.2" , optional = true }
 
-# iroh
-holochain = {version = "0.6.1-rc.7", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh"] }
+# iroh + reticulum (feature-unified; reticulum branch wins at runtime via cfg gates)
+holochain = {version = "0.6.1-rc.7", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh", "transport-reticulum"] }
 
 # go-pion webrtc back-end
 #holochain = {version = "0.6.0", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "backend-go-pion"] }
@@ -56,3 +56,40 @@ default = []
 
 holochain_bundled = ["dep:tauri-plugin-holochain", "dep:tauri-runtime"]
 holochain_service = ["dep:tauri-plugin-holochain-service-client"]
+
+# Redirect holochain + kitsune2 to local sibling checkouts on the
+# transport-reticulum branches. Re-targets the entire holochain stack
+# to kitsune2-lrl 0.5.0-dev.0 so the `transport-reticulum` feature
+# compiles end-to-end.
+[patch.crates-io]
+holochain              = { path = "../../holochain-lrl/crates/holochain" }
+holochain_types        = { path = "../../holochain-lrl/crates/holochain_types" }
+holochain_client       = { path = "../../holochain-lrl/crates/client" }
+holochain_conductor_api = { path = "../../holochain-lrl/crates/holochain_conductor_api" }
+holochain_keystore     = { path = "../../holochain-lrl/crates/holochain_keystore" }
+holochain_util         = { path = "../../holochain-lrl/crates/holochain_util" }
+holochain_state        = { path = "../../holochain-lrl/crates/holochain_state" }
+holochain_sqlite       = { path = "../../holochain-lrl/crates/holochain_sqlite" }
+holochain_p2p          = { path = "../../holochain-lrl/crates/holochain_p2p" }
+holochain_cascade      = { path = "../../holochain-lrl/crates/holochain_cascade" }
+holo_hash              = { path = "../../holochain-lrl/crates/holo_hash" }
+mr_bundle              = { path = "../../holochain-lrl/crates/mr_bundle" }
+
+kitsune2                   = { path = "../../kitsune2-lrl/crates/kitsune2" }
+kitsune2_api               = { path = "../../kitsune2-lrl/crates/api" }
+kitsune2_core              = { path = "../../kitsune2-lrl/crates/core" }
+kitsune2_dht               = { path = "../../kitsune2-lrl/crates/dht" }
+kitsune2_gossip            = { path = "../../kitsune2-lrl/crates/gossip" }
+kitsune2_bootstrap_srv     = { path = "../../kitsune2-lrl/crates/bootstrap_srv" }
+kitsune2_bootstrap_client  = { path = "../../kitsune2-lrl/crates/bootstrap_client" }
+kitsune2_test_utils        = { path = "../../kitsune2-lrl/crates/test_utils" }
+kitsune2_transport_tx5     = { path = "../../kitsune2-lrl/crates/transport_tx5" }
+kitsune2_transport_iroh    = { path = "../../kitsune2-lrl/crates/transport_iroh" }
+kitsune2_transport_reticulum = { path = "../../kitsune2-lrl/crates/transport_reticulum" }
+
+# rusqlite 0.37 + UDP multicast fork of reticulum-rs-transport.
+reticulum-rs-transport = { git = "https://github.com/lightningrodlabs/LXMF-rs", branch = "udp-multicast" }
+
+# Inherited from volla workspace root — kept here because src-tauri is excluded from that workspace.
+wasmer-vm   = { git = "https://github.com/guillemcordoba/wasmer", branch = "fix-x86" }
+wasmer-types = { git = "https://github.com/guillemcordoba/wasmer", branch = "fix-x86" }
