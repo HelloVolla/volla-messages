@@ -43,10 +43,8 @@ npm install
 npm run start:desktop
 ```
 
-Runtime topology is controlled by env vars (see
-[../../README-reticulum.md](../../README-reticulum.md) if you've added
-one, or the `reticulum_config()` function in
-[../../src-tauri/src/builder/holochain_bundled.rs](../../src-tauri/src/builder/holochain_bundled.rs)):
+Runtime topology is controlled by env vars (see the `reticulum_config()`
+function in [../../src-tauri/src/builder/holochain_bundled.rs](../../src-tauri/src/builder/holochain_bundled.rs)):
 
 ```sh
 # pure LAN multicast (default — always on)
@@ -55,6 +53,11 @@ npm run start:desktop
 # direct TCP rendezvous
 VOLLA_RETICULUM_LISTEN=0.0.0.0:4242 npm run start:desktop   # server
 VOLLA_RETICULUM_DIAL=host:4242      npm run start:desktop   # client
+
+# speed up first-contact for debugging — default announce cadence is
+# 300s (5 min), which means up to ~5 min latency before a late-joiner
+# learns about an already-running peer
+VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 npm run start:desktop
 ```
 
 ## Beechat backend

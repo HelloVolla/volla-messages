@@ -149,6 +149,9 @@ fn network_config() -> NetworkConfig {
 // UDP multicast is always on for zero-config LAN discovery (silent no-op
 // where multicast is blocked). Identity is persisted so the ret:// URL
 // is stable across restarts.
+//
+// VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S overrides the per-space announce
+// cadence (default 300s -- too long for dev first-contact).
 fn reticulum_config() -> ReticulumTransportConfig {
     let mut interfaces = vec![ReticulumInterfaceConfig::Udp {
         bind: "0.0.0.0:0".to_string(),
@@ -172,11 +175,19 @@ fn reticulum_config() -> ReticulumTransportConfig {
         }
     }
 
-    ReticulumTransportConfig {
+    let mut config = ReticulumTransportConfig {
         interfaces,
         identity_path: Some(holochain_dir().join("reticulum.identity")),
         ..Default::default()
+    };
+
+    if let Ok(s) = std::env::var("VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S") {
+        if let Ok(interval) = s.trim().parse::<u32>() {
+            config.announce_interval_s = interval;
+        }
     }
+
+    config
 }
 fn holochain_dir() -> PathBuf {
     if tauri::is_dev() {
