@@ -153,13 +153,35 @@ you swap back doesn't break anything — they just become no-ops.
 
 ## Verifying the build
 
-After `npm run start:desktop`, conductor logs should show:
+Volla's default log level is `Warn`, which suppresses the reticulum
+`info!` lines that confirm the transport came up. Set
+`VOLLA_RUST_LOG` to raise it. The filter accepts env_logger-style
+directives: a bare level sets the base filter, and `module=level`
+pairs override per-module. Examples:
+
+```sh
+# just the reticulum + transport chatter you'd usually want
+VOLLA_RUST_LOG=warn,kitsune2_transport_reticulum=debug,rns_transport=debug \
+  npm run start:desktop 2>&1 | tee /tmp/volla.log
+
+# everything at info — louder, rarely needed
+VOLLA_RUST_LOG=info npm run start:desktop
+
+# turn the firehose on
+VOLLA_RUST_LOG=debug npm run start:desktop
+```
+
+With the first one in place, the terminal should show, shortly after
+`HOLOCHAIN_SETUP_END`:
 
 ```
-Started Reticulum UDP interface bind=0.0.0.0:0 ...
+kitsune2_transport_reticulum::node [INFO] Generated and persisted new Reticulum identity path=...
+kitsune2_transport_reticulum::backend_lxmf [INFO] Started Reticulum UDP interface bind=0.0.0.0:0 group=None
+kitsune2_transport_reticulum::node [INFO] ReticulumNode ready identity_hash=... num_interfaces=1
+rns_transport::iface::udp [INFO] udp_interface bound to <0.0.0.0:0>
 ```
 
-and, if you set the env vars:
+and, if you set the env vars for TCP:
 
 ```
 Started Reticulum TCP server interface bind=0.0.0.0:4242
