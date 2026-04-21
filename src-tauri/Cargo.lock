@@ -8312,7 +8312,7 @@ checksum = "1e061d1b48cb8d38042de4ae0a7a6401009d6143dc80d2e2d6f31f0bdd6470c7"
 [[package]]
 name = "reticulum-rs-core"
 version = "0.2.0"
-source = "git+https://github.com/lightningrodlabs/LXMF-rs?branch=udp-multicast#fea0715c1fff6d6cdd22c4a5d017be62b6dc7af1"
+source = "git+https://github.com/lightningrodlabs/LXMF-rs?branch=udp-multicast#03d40851f6bac733185eeb5eebd71ee40d2c22e7"
 dependencies = [
  "aes",
  "cbc",
@@ -8332,7 +8332,7 @@ dependencies = [
 [[package]]
 name = "reticulum-rs-transport"
 version = "0.2.0"
-source = "git+https://github.com/lightningrodlabs/LXMF-rs?branch=udp-multicast#fea0715c1fff6d6cdd22c4a5d017be62b6dc7af1"
+source = "git+https://github.com/lightningrodlabs/LXMF-rs?branch=udp-multicast#03d40851f6bac733185eeb5eebd71ee40d2c22e7"
 dependencies = [
  "aes",
  "bzip2 0.4.4",
