@@ -5056,7 +5056,7 @@ dependencies = [
 
 [[package]]
 name = "kitsune2"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 dependencies = [
  "bytes",
  "kitsune2_api",
@@ -5069,7 +5069,7 @@ dependencies = [
 
 [[package]]
 name = "kitsune2_api"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -5084,7 +5084,7 @@ dependencies = [
 
 [[package]]
 name = "kitsune2_bootstrap_client"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 dependencies = [
  "base64 0.22.1",
  "kitsune2_api",
@@ -5097,7 +5097,7 @@ dependencies = [
 
 [[package]]
 name = "kitsune2_core"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 dependencies = [
  "bytes",
  "ed25519-dalek 2.1.1",
@@ -5115,7 +5115,7 @@ dependencies = [
 
 [[package]]
 name = "kitsune2_dht"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 dependencies = [
  "bytes",
  "kitsune2_api",
@@ -5124,7 +5124,7 @@ dependencies = [
 
 [[package]]
 name = "kitsune2_gossip"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 dependencies = [
  "bytes",
  "futures",
@@ -5142,7 +5142,7 @@ dependencies = [
 
 [[package]]
 name = "kitsune2_transport_iroh"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 dependencies = [
  "bytes",
  "iroh",
@@ -5157,7 +5157,7 @@ dependencies = [
 
 [[package]]
 name = "kitsune2_transport_reticulum"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 dependencies = [
  "bytes",
  "flate2",
@@ -13357,15 +13357,15 @@ dependencies = [
 
 [[patch.unused]]
 name = "kitsune2_bootstrap_srv"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 
 [[patch.unused]]
 name = "kitsune2_test_utils"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 
 [[patch.unused]]
 name = "kitsune2_transport_tx5"
-version = "0.5.0-dev.0"
+version = "0.4.0-dev.11"
 
 [[patch.unused]]
 name = "wasmer-types"
