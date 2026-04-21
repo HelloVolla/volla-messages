@@ -25,7 +25,16 @@ export class MessageDatabase extends Dexie {
   constructor() {
     super("VollaMessagesDB");
 
-    this.version(2).stores({
+    // v1 used `++id` as the primary key. IndexedDB does not allow changing
+    // a store's keyPath in place, so switching to `actionHashB64` as the PK
+    // requires dropping and recreating the store. Cached messages are
+    // re-fetchable from the DHT, so the data loss on upgrade is acceptable.
+    this.version(1).stores({
+      messages:
+        "++id, actionHashB64, cellIdB64, timestamp, bucket, [cellIdB64+timestamp], [cellIdB64+bucket]",
+    });
+    this.version(2).stores({ messages: null });
+    this.version(3).stores({
       messages:
         "actionHashB64, cellIdB64, timestamp, bucket, [cellIdB64+timestamp], [cellIdB64+bucket]",
     });
