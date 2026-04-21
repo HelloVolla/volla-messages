@@ -153,17 +153,13 @@ fn network_config() -> NetworkConfig {
 // VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S overrides the per-space announce
 // cadence (default 300s -- too long for dev first-contact).
 fn reticulum_config() -> ReticulumTransportConfig {
-    // LXMF-rs's UdpInterface joins a multicast group only when the
-    // bind address itself is a multicast IP, and only spawns an
-    // outbound task when `group` (forward_addr) is Some(...). Both
-    // must point at the same group:port for send-and-receive on the
-    // same multicast destination. 224.0.0.0/24 is link-local scope —
-    // routers never forward it past the subnet, which is exactly
-    // what "LAN discovery" wants.
-    let multicast_addr = "224.0.0.224:4242".to_string();
+    // Link-local IPv4 multicast (224.0.0.0/24 — never forwarded past
+    // the local subnet). The kitsune2_transport_reticulum backend
+    // recognises multicast `group` values and joins + forwards to the
+    // same address; `bind` is ignored in that case, so use 0.0.0.0:0.
     let mut interfaces = vec![ReticulumInterfaceConfig::Udp {
-        bind: multicast_addr.clone(),
-        group: Some(multicast_addr),
+        bind: "0.0.0.0:0".to_string(),
+        group: Some("224.0.0.224:4242".to_string()),
     }];
 
     if let Ok(listen) = std::env::var("VOLLA_RETICULUM_LISTEN") {
