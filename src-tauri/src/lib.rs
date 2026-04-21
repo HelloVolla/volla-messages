@@ -11,6 +11,13 @@ mod config;
 fn build_log_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     let mut plugin = tauri_plugin_log::Builder::default().level(log::LevelFilter::Warn);
 
+    // Always-quiet targets: these emit per-operation spans that drown
+    // out everything else at INFO and above. Apply before user
+    // directives so an explicit override still wins.
+    for (target, level) in [("tracing::span", log::LevelFilter::Warn)] {
+        plugin = plugin.level_for(target.to_string(), level);
+    }
+
     if let Ok(spec) = std::env::var("VOLLA_RUST_LOG") {
         for directive in spec.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             match directive.split_once('=') {
