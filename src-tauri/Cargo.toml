@@ -23,8 +23,11 @@ tauri-runtime = {version = "2.6.0", optional = true}
 tauri-plugin-holochain = { path = "../../tauri-plugin-holochain/crates/tauri-plugin-holochain", optional = true }
 tauri-plugin-holochain-service-client = { git = "https://github.com/HelloVolla/volla-cloud-services", tag = "android-service-runtime-v0.3.2" , optional = true }
 
-# iroh + reticulum (feature-unified; reticulum branch wins at runtime via cfg gates)
-holochain = {version = "0.6.1-rc.7", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh", "transport-reticulum"] }
+# iroh + reticulum. The reticulum backend (LXMF-rs vs Beechat) is selected
+# by the `reticulum-lxmf` / `reticulum-beechat` features of this crate;
+# enabling neither will fail to compile because `ReticulumTransportConfig`
+# is imported unconditionally by the bundled builder.
+holochain = {version = "0.6.1-rc.7", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh"] }
 
 # go-pion webrtc back-end
 #holochain = {version = "0.6.0", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "backend-go-pion"] }
@@ -56,6 +59,17 @@ default = []
 
 holochain_bundled = ["dep:tauri-plugin-holochain", "dep:tauri-runtime"]
 holochain_service = ["dep:tauri-plugin-holochain-service-client"]
+
+# Reticulum backend selection. Exactly one of these must be enabled for
+# desktop builds — the `kitsune2_transport_reticulum` crate has a
+# compile-time check that the two are mutually exclusive, and the bundled
+# builder imports `ReticulumTransportConfig` unconditionally.
+#
+# `reticulum-beechat` additionally requires the kitsune2-lrl checkout to
+# be on the `transport-reticulum-chunking` branch (which provides the
+# Beechat path dep and the chunking layer the backend needs).
+reticulum-lxmf    = ["holochain/transport-reticulum"]
+reticulum-beechat = ["holochain/transport-reticulum-beechat"]
 
 # Redirect holochain + kitsune2 to local sibling checkouts on the
 # transport-reticulum branches. Re-targets the entire holochain stack
