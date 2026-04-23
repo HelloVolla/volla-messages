@@ -102,24 +102,78 @@ provides them differently.
 
 ### Chunking (gossip messages routinely exceed MDU)
 
-Reticulum's packet MDU is ~464 bytes, and kitsune2 gossip payloads
-routinely exceed that.
+Reticulum's packet MDU is ~464 bytes (LXMF's plaintext ceiling is
+400 after Fernet overhead), and kitsune2 gossip payloads — including
+preflight frames that carry a signed `AgentInfo` per local agent —
+routinely exceed that. `transport_reticulum::routers::send_over_link`
+picks a strategy per backend:
 
-- **LXMF backend.** `rns-transport` exposes Reticulum's `Resource`
-  abstraction: the transport splits, compresses, checksums, and
-  retransmits fragments under the hood, and kitsune2 just calls
-  `transport.send_resource(link_id, data)`. Incoming Resources are
-  reassembled and delivered whole via a resource-event bridge.
-- **Beechat backend.** Beechat has no `Resource` type, so chunking
-  happens above the transport in
-  `transport_reticulum/src/chunking.rs`. Oversized DATA frames are
-  tagged with a `TAG_CHUNKED` header carrying
-  `sequence_id`/`frag_index`/`frag_count`, sent as a burst of
-  MDU-sized packets via `Link::send_small` (paced at 100 ms apart so
-  the Beechat broadcast channel doesn't drop them), and reassembled
-  at the receiver into sparse per-link vectors with timeout-based
-  eviction. Simpler than the LXMF path — no compression, no
-  per-fragment retransmit — but sufficient for kitsune2 gossip.
+- **LXMF backend → rns `Resource`.** `rns-transport` exposes
+  Reticulum's `Resource` abstraction: `send_over_link` hands the
+  whole encoded frame to `Endpoint::send_resource`, and the
+  transport takes care of the advertise/request/fragments/proof
+  round-trip, retransmits missing fragments on demand, and
+  delivers the reassembled payload as a single
+  `ResourceEventKind::Complete` event. A resource-event bridge
+  funnels that into the same mpsc as single-packet frames, so the
+  receive path (`route_data` → `decode_frame`) is one code path
+  for both sizes.
+- **Beechat backend → chunker added inside kitsune2 as a workaround**
+  (`transport_reticulum/src/chunking.rs`). Beechat has no `Resource`
+  type, so fragmentation can't live in the Reticulum library — it
+  has to be bolted on above the transport trait, inside kitsune2's
+  own tree. Oversized `TAG_DATA` frames are split into MDU-sized
+  `TAG_CHUNKED` packets carrying `sequence_id` / `frag_index` /
+  `frag_count`, sent as a burst via `Link::send_small` and
+  reassembled at the receiver into sparse per-link vectors with
+  timeout-based eviction. Dispatch is capability-gated: the
+  `Endpoint::supports_resource_transfer()` trait method — `true`
+  for LXMF, `false` (default) for Beechat — decides which path
+  oversized frames take.
+
+**Capability gap.** The two paths are not equivalent, and the
+difference is a real protocol-library capability difference, not
+just an implementation choice:
+
+- The Beechat-backend chunker added to kitsune2 is strictly
+  **fire-and-forget**: no
+  proof-of-receipt, no per-fragment retransmit, no ACKs, no flow
+  control. A single dropped fragment silently kills the entire
+  payload at the 30 s reassembly timeout. On a clean localhost TCP
+  link that's rare; on a real lossy mesh (UDP multicast, radio
+  links, congested Wi-Fi) it will be a dominant performance
+  problem — a 131-fragment 50 KiB gossip message only needs to
+  lose one packet to be retried whole, 30 seconds later, when
+  kitsune2 reattempts at its own layer.
+- The chunker additionally paces fragments at **100 ms apart** as a
+  workaround for an upstream Beechat bug — its `LinkEvent::Data`
+  broadcast channel has a hard-coded 16-slot capacity, and bursts
+  of fragments overflow it and get silently `RecvError::Lagged`-
+  dropped. That pacing multiplies the cost of any dropped
+  fragment on the chunker path: the same 131-fragment payload
+  takes ~13 seconds to put on the wire even before considering
+  retries.
+- rns's `Resource` handles all of the above natively:
+  per-fragment proofs, selective retransmit of missing fragments
+  (not the whole payload), fragment batching with its own flow
+  control, and no artificial pacing floor. It's a mature piece of
+  the Reticulum protocol ecosystem that the LXMF backend gets for
+  free.
+- On the LXMF side there was a distinct bug in rns's resource
+  manager — the first `Resource` transfer on a freshly-Active link
+  could hit `DroppedNoRoute` because the internal `path_table`
+  hadn't yet learned the Link ID route. That's mitigated in this
+  PoC by setting `broadcast: true` on the `TransportConfig`
+  (`backend_lxmf.rs::create_endpoint_from_config`), which makes
+  rns fall back to sending on all interfaces when no route is
+  known — for a point-to-point TCP link that just means "deliver
+  to the one peer on the other end." `tests/two_node_tcp_preflight.rs`
+  regresses this.
+
+Net: for large payloads on unreliable links, LXMF/`rns-transport`
+is substantially better-suited than Beechat. The Beechat chunker
+is sufficient for LAN / localhost gossip but is a known weak spot
+for real-world mesh deployment.
 
 ### UDP multicast (zero-config LAN discovery)
 
