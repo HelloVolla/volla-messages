@@ -116,10 +116,12 @@ you're testing.
 
 ## Mode 1 — UDP multicast (zero-config LAN)
 
-UDP multicast on `224.0.0.224:4242` is **always on** for both backends;
-no env vars required beyond the shared ones above. Both peers must be on
-the same LAN subnet and the network must allow link-local multicast
-(most home LANs do; corporate WiFi and cloud VPCs often don't).
+UDP multicast on `224.0.0.224:4242` is enabled automatically when
+neither `VOLLA_RETICULUM_LISTEN` nor `VOLLA_RETICULUM_DIAL` is set —
+i.e. it's the default when you launch with no TCP env vars, exactly the
+case below. Both peers must be on the same LAN subnet and the network
+must allow link-local multicast (most home LANs do; corporate WiFi and
+cloud VPCs often don't).
 
 ### LXMF-rs
 
@@ -168,6 +170,12 @@ or when you want the path to go through a known rendezvous for debugging.
 One node listens, the other dials it. The listener must be reachable from
 the dialer at the chosen address and port.
 
+Setting `VOLLA_RETICULUM_LISTEN` or `VOLLA_RETICULUM_DIAL` also
+auto-disables UDP multicast for that node — running both paths to the
+same peer on the same LAN triggers an rns-transport Link iface-affinity
+drop that stalls gossip. See the "Link iface affinity" caveat in
+[brief.md](brief.md) for details.
+
 Pick the listener's IP (use `ip addr` / `ifconfig` — the LAN-routable
 address, not `127.0.0.1` unless both nodes are on the same box).
 
@@ -194,7 +202,7 @@ VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 VOLLA_RETICULUM_LISTEN=0.0.0.0:4242 \
 ```
 
 Node B — dialer:
-```sh
+```sh:
 VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 VOLLA_RETICULUM_DIAL=<A-ip>:4242 \
   npm run start:desktop:beechat
 ```

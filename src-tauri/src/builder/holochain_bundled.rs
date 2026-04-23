@@ -146,32 +146,47 @@ fn network_config() -> NetworkConfig {
 // can play any role in a rendezvous topology:
 //   VOLLA_RETICULUM_LISTEN=0.0.0.0:4242           -> adds a TcpServer
 //   VOLLA_RETICULUM_DIAL=host1:4242,host2:4242   -> adds one TcpClient per target
-// UDP multicast is always on for zero-config LAN discovery (silent no-op
-// where multicast is blocked). Identity is persisted so the ret:// URL
-// is stable across restarts.
+//
+// UDP multicast on 224.0.0.224:4242 is enabled automatically for
+// zero-config LAN discovery *only when neither LISTEN nor DIAL is set*.
+// Running both a TCP rendezvous path and multicast to the same peers on
+// the same LAN triggers an rns-transport Link iface-affinity drop:
+// Resource packets arriving on the "wrong" iface (the one the Link
+// wasn't established on) are rejected, stalling gossip. Opting out of
+// multicast when an explicit TCP topology is requested avoids this.
+// See docs/reticulum/brief.md (caveat: "Link iface affinity ...") for
+// the proper fix.
 //
 // VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S overrides the per-space announce
 // cadence (default 300s -- too long for dev first-contact).
 fn reticulum_config() -> ReticulumTransportConfig {
+    let listen = std::env::var("VOLLA_RETICULUM_LISTEN")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let dial = std::env::var("VOLLA_RETICULUM_DIAL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let mut interfaces: Vec<ReticulumInterfaceConfig> = Vec::new();
+
     // Link-local IPv4 multicast (224.0.0.0/24 — never forwarded past
     // the local subnet). The kitsune2_transport_reticulum backend
     // recognises multicast `group` values and joins + forwards to the
     // same address; `bind` is ignored in that case, so use 0.0.0.0:0.
-    let mut interfaces = vec![ReticulumInterfaceConfig::Udp {
-        bind: "0.0.0.0:0".to_string(),
-        group: Some("224.0.0.224:4242".to_string()),
-    }];
-
-    if let Ok(listen) = std::env::var("VOLLA_RETICULUM_LISTEN") {
-        let listen = listen.trim();
-        if !listen.is_empty() {
-            interfaces.push(ReticulumInterfaceConfig::TcpServer {
-                bind: listen.to_string(),
-            });
-        }
+    if listen.is_none() && dial.is_none() {
+        interfaces.push(ReticulumInterfaceConfig::Udp {
+            bind: "0.0.0.0:0".to_string(),
+            group: Some("224.0.0.224:4242".to_string()),
+        });
     }
 
-    if let Ok(dial) = std::env::var("VOLLA_RETICULUM_DIAL") {
+    if let Some(listen) = listen {
+        interfaces.push(ReticulumInterfaceConfig::TcpServer { bind: listen });
+    }
+
+    if let Some(dial) = dial {
         for target in dial.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             interfaces.push(ReticulumInterfaceConfig::TcpClient {
                 target: target.to_string(),

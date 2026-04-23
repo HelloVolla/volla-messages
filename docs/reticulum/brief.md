@@ -303,6 +303,22 @@ and would apply identically here.
   exercised in real app scenarios, and its chunker is simpler than
   LXMF's Resource path (no compression, no per-fragment retransmit),
   which may matter under loss — this needs measurement.
+- **Link iface affinity breaks multi-path reachability.** An
+  rns-transport `Link` is bound to the interface it was established
+  on, and packets arriving on any other interface for the same Link
+  are dropped with `dropping packet from iface X expected Y`. When a
+  peer is reachable via more than one interface simultaneously — e.g.
+  a node on the same LAN running both a TCP Dial/Listen path and UDP
+  multicast — the remote's path table may route Resource packets out
+  a different interface than the one the Link was established on, and
+  gossip stalls with `kitsune2_gossip::timeout` even though the link
+  is active. Volla works around this by only enabling UDP multicast
+  when neither `VOLLA_RETICULUM_LISTEN` nor `VOLLA_RETICULUM_DIAL` is
+  set, so an explicit TCP topology gets a single interface to each
+  peer. The proper fix is in `rns-transport`: relax the Link iface
+  check to accept packets on any interface the path table currently
+  marks as reachable for the remote destination, or have the
+  link-establishment handshake negotiate the iface for the session.
 - **No NAT traversal; every hop is on your dime.** Reticulum does no
   hole-punching — no STUN, no ICE, no relay→direct upgrade. If two
   peers are both `TcpClient`-only behind NAT, they never establish
