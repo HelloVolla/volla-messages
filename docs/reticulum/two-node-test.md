@@ -77,14 +77,20 @@ crate and its proto-generated code are new to the build cache.
 
 ## Shared launch settings
 
-Both nodes benefit from a faster announce cadence while testing (default
-is 300s, so a late-joining peer can wait up to 5 min to be discovered) and
-from a log filter that surfaces the reticulum info lines:
+**Announce cadence is essentially required for a usable test.** The
+default is 300 s, which means a late-joining peer can wait up to 5 min
+before it even hears the other's first announce — long enough that the
+examples below will look broken. Drop it to ~15 s while testing:
 
 ```sh
 export VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15
 export VOLLA_RUST_LOG=warn,kitsune2_transport_reticulum=debug,rns_transport=debug
 ```
+
+Run those `export`s in **every terminal** you'll launch a node from.
+The launch commands in the mode sections below also show the env vars
+inlined so you can copy-paste one line and get a working invocation
+even in a fresh shell.
 
 Each node must run from its own user profile / data directory, otherwise
 they'll share the same Holochain DB and Reticulum identity. On a single
@@ -119,24 +125,24 @@ the same LAN subnet and the network must allow link-local multicast
 
 Node A:
 ```sh
-npm run start:desktop
+VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 npm run start:desktop
 ```
 
 Node B (same LAN, different machine or different user):
 ```sh
-npm run start:desktop
+VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 npm run start:desktop
 ```
 
 ### Beechat
 
 Node A:
 ```sh
-npm run start:desktop:beechat
+VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 npm run start:desktop:beechat
 ```
 
 Node B:
 ```sh
-npm run start:desktop:beechat
+VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 npm run start:desktop:beechat
 ```
 
 ### What to look for
@@ -169,24 +175,28 @@ address, not `127.0.0.1` unless both nodes are on the same box).
 
 Node A — listener:
 ```sh
-VOLLA_RETICULUM_LISTEN=0.0.0.0:4242 npm run start:desktop
+VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 VOLLA_RETICULUM_LISTEN=0.0.0.0:4242 \
+  npm run start:desktop
 ```
 
 Node B — dialer:
 ```sh
-VOLLA_RETICULUM_DIAL=<A-ip>:4242 npm run start:desktop
+VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 VOLLA_RETICULUM_DIAL=<A-ip>:4242 \
+  npm run start:desktop
 ```
 
 ### Beechat
 
 Node A — listener:
 ```sh
-VOLLA_RETICULUM_LISTEN=0.0.0.0:4242 npm run start:desktop:beechat
+VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 VOLLA_RETICULUM_LISTEN=0.0.0.0:4242 \
+  npm run start:desktop:beechat
 ```
 
 Node B — dialer:
 ```sh
-VOLLA_RETICULUM_DIAL=<A-ip>:4242 npm run start:desktop:beechat
+VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 VOLLA_RETICULUM_DIAL=<A-ip>:4242 \
+  npm run start:desktop:beechat
 ```
 
 Substitute `<A-ip>` with A's reachable address. The env vars are read by
