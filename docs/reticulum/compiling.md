@@ -62,9 +62,9 @@ VOLLA_RETICULUM_ANNOUNCE_INTERVAL_S=15 npm run start:desktop
 
 ## Beechat backend
 
-Switching to Beechat requires one `Cargo.toml` edit plus a system
-dependency. Beechat targets mesh / multihop topologies; for a single
-direct LAN pair, LXMF-rs is lower-overhead.
+Switching to Beechat is a one-script change plus a system dependency.
+Beechat targets mesh / multihop topologies; for a single direct LAN pair,
+LXMF-rs is lower-overhead.
 
 ### Step 1 — install `protoc`
 
@@ -88,31 +88,25 @@ brew install protobuf
 
 Verify: `protoc --version` should print 3.x.
 
-### Step 2 — swap the holochain feature
-
-Edit [../../src-tauri/Cargo.toml](../../src-tauri/Cargo.toml), line with
-the `holochain` dep. Change `"transport-reticulum"` to
-`"transport-reticulum-beechat"`:
-
-```diff
-- holochain = {version = "0.6.1-rc.7", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh", "transport-reticulum"] }
-+ holochain = {version = "0.6.1-rc.7", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh", "transport-reticulum-beechat"] }
-```
-
-**Both features cannot coexist.** The
-`kitsune2_transport_reticulum` crate has a `compile_error!` guard that
-refuses a build with both `backend-lxmf` and `backend-beechat` enabled.
-Swap, don't append.
-
-### Step 3 — build
+### Step 2 — launch with the Beechat npm script
 
 ```sh
-npm install     # idempotent; skip if node_modules is fresh
-npm run start:desktop
+npm install                       # idempotent; skip if node_modules is fresh
+npm run start:desktop:beechat     # enables the reticulum-beechat feature
 ```
 
+The existing `start:desktop` script targets the LXMF-rs backend
+(`reticulum-lxmf` feature); `start:desktop:beechat` targets Beechat
+(`reticulum-beechat` feature). No `Cargo.toml` edits are required —
+feature selection flows from the script's `--features` flag.
+
+**Both features cannot coexist.** The `kitsune2_transport_reticulum`
+crate has a `compile_error!` guard that refuses a build with both
+`backend-lxmf` and `backend-beechat` enabled. Swap scripts, don't merge
+features.
+
 First Beechat build takes 3–5 min extra vs LXMF because the
-`reticulum-rs` crate and its proto-generated code are new to the build
+`reticulum` crate and its proto-generated code are new to the build
 cache.
 
 ## Backend comparison
@@ -195,24 +189,26 @@ To confirm which backend is actually live, grep for the backend module
 in the `Compiling` lines during `cargo check` / `cargo build`:
 
 - **LXMF-rs**: `reticulum-rs-transport v0.2.0 (github.com/lightningrodlabs/LXMF-rs?branch=udp-multicast#...)`
-- **Beechat**: `reticulum v... (github.com/lightningrodlabs/Reticulum-rs?rev=...)`
+- **Beechat**: `reticulum v... (github.com/lightningrodlabs/Reticulum-rs?branch=udp-multicast#...)`
 
 Only one of those will appear in a given build.
 
 ## Switching back
 
-The reverse — beechat → LXMF-rs — is the same edit in reverse.
+The reverse — Beechat → LXMF-rs — is just `npm run start:desktop`
+instead of `npm run start:desktop:beechat`. Cargo will recompile the
+changed feature flags on the next build.
 
-If you leave both reticulum features *off*, the build still succeeds
-but no reticulum code is compiled in; the conductor silently uses its
-configured iroh/tx5 URLs (the `relay2.volla.tech` / `iroh-relay.volla.tech`
-endpoints in [../../src-tauri/src/builder/holochain_bundled.rs](../../src-tauri/src/builder/holochain_bundled.rs))
+If you launch a custom `tauri dev` invocation with *neither* reticulum
+feature, the build still succeeds but no reticulum code is compiled in;
+the conductor silently uses its configured iroh/tx5 URLs (the
+`relay2.volla.tech` / `iroh-relay.volla.tech` endpoints in
+[../../src-tauri/src/builder/holochain_bundled.rs](../../src-tauri/src/builder/holochain_bundled.rs))
 and behaves like a normal non-reticulum build. The tell is a cargo
 warning: `warning: patch "kitsune2_transport_reticulum ..." was not
 used in the crate graph` — if you see that after a build you were
 expecting to be reticulum, the feature isn't on.
 
-If you try to enable *both* `transport-reticulum` and
-`transport-reticulum-beechat` at once, the build fails fast with a
-`compile_error!` from `kitsune2_transport_reticulum`. Swap, don't
-append.
+If you try to enable *both* `reticulum-lxmf` and `reticulum-beechat`
+at once, the build fails fast with a `compile_error!` from
+`kitsune2_transport_reticulum`. Swap, don't append.
