@@ -34,9 +34,21 @@ export interface MessageDeleted {
   from: AgentPubKey;
 }
 
+export interface PeerPingSignal {
+  type: "PeerPing";
+  from_agent: AgentPubKey;
+}
+
+export interface PeerPongSignal {
+  type: "PeerPong";
+  from_agent: AgentPubKey;
+}
+
 export type RelaySignal =
   | MessageSignal
   | MessageDeleted
+  | PeerPingSignal
+  | PeerPongSignal
   | {
       type: "EntryCreated";
       action: SignedActionHashed<Create>;

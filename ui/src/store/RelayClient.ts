@@ -386,4 +386,13 @@ export class RelayClient {
       payload,
     });
   }
+
+  public async pingAgents(cellId: CellId, agents: AgentPubKey[]): Promise<void> {
+    return this.client.callZome({
+      cell_id: cellId,
+      zome_name: ZOME_NAME,
+      fn_name: "ping_agents",
+      payload: agents,
+    });
+  }
 }
