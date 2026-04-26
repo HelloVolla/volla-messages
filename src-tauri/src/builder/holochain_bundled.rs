@@ -7,9 +7,11 @@ use tauri_plugin_holochain::NetworkConfig;
 use uuid::Uuid;
 use serde_json::json;
 
-pub const SIGNAL_URL: &'static str = "wss://relay.volla.tech/";
+pub const SIGNAL_URL: &'static str = "wss://relay2.volla.tech/";
 
-pub const BOOTSTRAP_URL: &'static str = "https://relay.volla.tech/";
+pub const BOOTSTRAP_URL: &'static str = "https://relay2.volla.tech/";
+
+pub const IROH_RELAY_URL: &'static str = "https://iroh-relay.volla.tech/";
 
 pub static ICE_URLS: &'static [&str] = &[
     "stun://stun.nextcloud.com:443"
@@ -63,14 +65,17 @@ where
                             window = window.title(String::from("Volla Messages"));
                         }
 
-                        window.build().expect("Failed to open main window");
+                        let main_window = window.build().expect("Failed to open main window");
+
+                        // Open devtools for debugging
+                        main_window.open_devtools();
 
                         #[cfg(desktop)]
                         {
                             // After it's done, close the splashscreen and display the main window
-                            let splashscreen_window =
-                                handle.get_webview_window("splashscreen").unwrap();
-                            splashscreen_window.close().unwrap();
+                            if let Some(splashscreen_window) = handle.get_webview_window("splashscreen") {
+                                let _ = splashscreen_window.close();
+                            }
                         }
 
                         // Load barcode scanner plugin if on supported platform
@@ -130,6 +135,7 @@ fn network_config() -> NetworkConfig {
     let mut config = NetworkConfig::default();
     config.signal_url = url2::url2!("{}", SIGNAL_URL);
     config.bootstrap_url = url2::url2!("{}", BOOTSTRAP_URL);
+    config.relay_url = url2::url2!("{}", IROH_RELAY_URL);
     config.webrtc_config = Some(json!({ "iceServers": [ { "urls": ICE_URLS }]}));
     config
 }

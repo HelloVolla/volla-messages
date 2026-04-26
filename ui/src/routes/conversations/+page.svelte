@@ -9,6 +9,9 @@
   import { type ConversationStore } from "$store/ConversationStore";
   import ConversationList from "./ConversationList.svelte";
   import { t } from "$translations";
+  import { type NetworkStatsStore } from "$store/NetworkStatsStore";
+  import NetworkStatusDot from "$lib/NetworkStatusDot.svelte";
+  import NetworkStatusPanel from "$lib/NetworkStatusPanel.svelte";
 
   const myPubKeyB64 = getContext<{ getMyPubKeyB64: () => AgentPubKeyB64 }>(
     "myPubKey",
@@ -16,6 +19,11 @@
   const conversationStore = getContext<{ getStore: () => ConversationStore }>(
     "conversationStore",
   ).getStore();
+  const networkStatsStore = getContext<{
+    getStore: () => NetworkStatsStore;
+  }>("networkStatsStore").getStore();
+
+  let showNetworkPanel = false;
 
   $: hasArchivedConversations =
     $conversationStore.list.filter(([, c]) => !c.cellInfo.enabled).length > 0;
@@ -26,6 +34,13 @@
     <Avatar size={24} agentPubKeyB64={myPubKeyB64} />
   </button>
 
+  <div slot="center">
+    <NetworkStatusDot
+      connectionCount={$networkStatsStore?.transportStats?.connections?.length || 0}
+      onClick={() => (showNetworkPanel = !showNetworkPanel)}
+    />
+  </div>
+
   <ButtonIconBare
     slot="right"
     on:click={() => goto("/create")}
@@ -34,6 +49,13 @@
     moreClassesButton="p-4"
   />
 </Header>
+
+{#if showNetworkPanel}
+  <NetworkStatusPanel
+    stats={$networkStatsStore}
+    onClose={() => (showNetworkPanel = false)}
+  />
+{/if}
 
 <ConversationList enabled={true}>
   {#if hasArchivedConversations}

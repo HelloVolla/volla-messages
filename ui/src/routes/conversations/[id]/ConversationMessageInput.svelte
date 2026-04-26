@@ -100,10 +100,15 @@
     replyToMessage = undefined;
     replyToActionHash = undefined;
     dispatch("cancelReply");
+
+    // reset textarea height after sending
+    if (ref) {
+      (ref as HTMLTextAreaElement).style.height = "auto";
+    }
   }
 </script>
 
-<div class="bg-tertiary-500 dark:bg-secondary-500 w-full flex-shrink-0 p-2">
+<div class="w-full flex-shrink-0 bg-tertiary-500 p-2 dark:bg-secondary-500">
   {#if replyToMessage}
     <ReplyContext {replyToMessage} {cellIdB64} on:cancel={cancelReply} />
   {/if}
@@ -118,12 +123,12 @@
 
     <div class="flex w-full flex-col">
       <!-- svelte-ignore a11y-autofocus -->
-      <input
+      <textarea
         autofocus
-        type="text"
         bind:this={ref}
         bind:value={text}
-        class="bg-tertiary-500 w-full border-0 placeholder:text-sm placeholder:text-gray-400 focus:border-gray-500 focus:ring-0"
+        rows="1"
+        class="max-h-32 w-full resize-none overflow-y-auto border-0 bg-tertiary-500 placeholder:text-sm placeholder:text-gray-400 focus:border-gray-500 focus:ring-0"
         placeholder={$t("common.message_placeholder")}
         on:keydown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
@@ -131,6 +136,11 @@
             const submitEvent = new SubmitEvent("submit");
             e.currentTarget.form?.dispatchEvent(submitEvent);
           }
+        }}
+        on:input={(e) => {
+          const target = e.currentTarget;
+          target.style.height = "auto";
+          target.style.height = Math.min(target.scrollHeight, 128) + "px";
         }}
       />
       <div class="mx-4 flex flex-row flex-wrap">

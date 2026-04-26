@@ -33,68 +33,124 @@ jobs:
     needs: create-release
     permissions: write-all
     environment: Relay Release
-    runs-on: [self-hosted, yolo]
-    container:
-      image: ubuntu:22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: [self-hosted, yolo]
+            target: x86_64-unknown-linux-gnu
+            container: ubuntu:22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            container: null
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install packages
+      - name: Install packages (container only)
+        if: matrix.container != null
         run: |
           apt-get update
           apt-get install -y sudo build-essential curl openjdk-11-jdk unzip git cmake clang libclang-dev
 
-      - name: setup node
-        uses: actions/setup-node@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
           node-version: 20
 
-      - name: install Rust stable
-        uses: actions-rs/toolchain@v1
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          override: true
-          toolchain: 1.88.0
+          toolchain: "1.89"
+          targets: ${{ matrix.target }}
 
-      - name: install Go stable
+      - name: Install Go
         uses: actions/setup-go@v4
         with:
-          go-version: "stable"
+          go-version: stable
 
       - name: install dependencies (ubuntu only)
         run: |
           sudo apt-get update
-          
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
 
-          # We must pin webkitgtk to 2.46, as we get a blank screen on later versions.
+          # Install ARM cross-compilation toolchain and libraries for armv7
+          if [ "${{ matrix.arch }}" = "armv7" ]; then
+              # Add armhf architecture
+              sudo dpkg --add-architecture armhf
+
+              # Restrict default sources.list to only amd64 architecture
+              sudo sed -i 's/^deb /deb [arch=amd64] /g' /etc/apt/sources.list
+              sudo sed -i 's/^deb-src /deb-src [arch=amd64] /g' /etc/apt/sources.list
+
+              # Add ARM ports repository for armhf packages
+              echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/armhf.list
+              echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/armhf.list
+              echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/armhf.list
+              echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/armhf.list
+
+              sudo apt-get update
+
+              # Install cross-compilation toolchain
+              sudo apt-get install -y \
+                gcc-arm-linux-gnueabihf \
+                g++-arm-linux-gnueabihf \
+                pkg-config \
+                build-essential \
+                curl \
+                wget \
+                file
+
+              # Install ARM libraries for cross-compilation
+              sudo apt-get install -y \
+                libwebkit2gtk-4.1-dev:armhf \
+                libsoup-3.0-dev:armhf \
+                libssl-dev:armhf \
+                libayatana-appindicator3-dev:armhf \
+                librsvg2-dev:armhf \
+                libxdo-dev:armhf \
+                libgtk-3-dev:armhf \
+                libgcc-11-dev:armhf \
+                libunwind-dev:armhf
+          else
+              # Standard dependencies for native builds
+              sudo apt-get install -y \
+                libsoup-3.0-dev \
+                libwebkit2gtk-4.1-dev \
+                build-essential \
+                curl \
+                wget \
+                file \
+                libxdo-dev \
+                libssl-dev \
+                libayatana-appindicator3-dev \
+                librsvg2-dev \
+                pkg-config
+          fi
+
+          # We must pin webkitgtk to 2.44 for x86_64, as we get a blank screen on later versions.
           # See https://github.com/tauri-apps/tauri/issues/12431
           #
-          # Because libwebkit2gtk-4.1-dev version 2.46 has been removed from the apt repositories,
-          # we must manually download the deb packages from launchpad to install it.
-
-          mkdir -p /tmp/ubuntu-packages
-          cd /tmp/ubuntu-packages
-          wget https://launchpadlibrarian.net/723972773/libwebkit2gtk-4.1-0_2.44.0-0ubuntu0.22.04.1_amd64.deb
-          wget https://launchpadlibrarian.net/723972761/libwebkit2gtk-4.1-dev_2.44.0-0ubuntu0.22.04.1_amd64.deb
-          wget https://launchpadlibrarian.net/723972770/libjavascriptcoregtk-4.1-0_2.44.0-0ubuntu0.22.04.1_amd64.deb
-          wget https://launchpadlibrarian.net/723972746/libjavascriptcoregtk-4.1-dev_2.44.0-0ubuntu0.22.04.1_amd64.deb
-          wget https://launchpadlibrarian.net/723972735/gir1.2-javascriptcoregtk-4.1_2.44.0-0ubuntu0.22.04.1_amd64.deb
-          wget https://launchpadlibrarian.net/723972739/gir1.2-webkit2-4.1_2.44.0-0ubuntu0.22.04.1_amd64.deb
-          wget https://launchpadlibrarian.net/606433947/libicu70_70.1-2ubuntu1_amd64.deb
-          wget https://launchpadlibrarian.net/606433941/libicu-dev_70.1-2ubuntu1_amd64.deb
-          wget https://launchpadlibrarian.net/606433945/icu-devtools_70.1-2ubuntu1_amd64.deb
-          wget https://launchpadlibrarian.net/595623693/libjpeg8_8c-2ubuntu10_amd64.deb
-          wget https://launchpadlibrarian.net/587202140/libjpeg-turbo8_2.1.2-0ubuntu1_amd64.deb
-          wget https://launchpadlibrarian.net/592959859/xdg-desktop-portal-gtk_1.14.0-1build1_amd64.deb
-          sudo apt-get install -y /tmp/ubuntu-packages/*.deb
+          # Only pin WebKitGTK on amd64 as these are arch-specific deb packages
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+              mkdir -p /tmp/ubuntu-packages
+              cd /tmp/ubuntu-packages
+              wget https://launchpadlibrarian.net/723972773/libwebkit2gtk-4.1-0_2.44.0-0ubuntu0.22.04.1_amd64.deb
+              wget https://launchpadlibrarian.net/723972761/libwebkit2gtk-4.1-dev_2.44.0-0ubuntu0.22.04.1_amd64.deb
+              wget https://launchpadlibrarian.net/723972770/libjavascriptcoregtk-4.1-0_2.44.0-0ubuntu0.22.04.1_amd64.deb
+              wget https://launchpadlibrarian.net/723972746/libjavascriptcoregtk-4.1-dev_2.44.0-0ubuntu0.22.04.1_amd64.deb
+              wget https://launchpadlibrarian.net/723972735/gir1.2-javascriptcoregtk-4.1_2.44.0-0ubuntu0.22.04.1_amd64.deb
+              wget https://launchpadlibrarian.net/723972739/gir1.2-webkit2-4.1_2.44.0-0ubuntu0.22.04.1_amd64.deb
+              wget https://launchpadlibrarian.net/606433947/libicu70_70.1-2ubuntu1_amd64.deb
+              wget https://launchpadlibrarian.net/606433941/libicu-dev_70.1-2ubuntu1_amd64.deb
+              wget https://launchpadlibrarian.net/606433945/icu-devtools_70.1-2ubuntu1_amd64.deb
+              wget https://launchpadlibrarian.net/595623693/libjpeg8_8c-2ubuntu10_amd64.deb
+              wget https://launchpadlibrarian.net/587202140/libjpeg-turbo8_2.1.2-0ubuntu1_amd64.deb
+              wget https://launchpadlibrarian.net/592959859/xdg-desktop-portal-gtk_1.14.0-1build1_amd64.deb
+              sudo apt-get install -y /tmp/ubuntu-packages/*.deb
+          fi
 
       - name: Install and prepare
         run: |
@@ -105,13 +161,24 @@ jobs:
         run: |
           cp -f src-tauri/tauri.desktop.conf.json src-tauri/tauri.conf.json
 
+      - name: Set up cross-compilation environment for armv7
+        if: matrix.arch == 'armv7'
+        run: |
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_SYSROOT_DIR=/" >> $GITHUB_ENV
+          echo "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
+
+          # Add library search paths and link libraries via RUSTFLAGS
+          echo "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUSTFLAGS=-L/usr/lib/gcc-cross/arm-linux-gnueabihf/11 -C link-arg=-Wl,--start-group -C link-arg=-lgcc_eh -C link-arg=-lunwind -C link-arg=-Wl,--end-group" >> $GITHUB_ENV
+
       - id: build-app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           releaseId: ${{ needs.create-release.outputs.releaseId }}
-          args: --verbose --features holochain_bundled
+          args: --verbose --features holochain_bundled --target ${{ matrix.target }}
 
   release-tauri-app-android:
     permissions: write-all
@@ -147,7 +214,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           override: true
-          toolchain: 1.88.0
+          toolchain: 1.89
 
       - name: Install nix
         uses: cachix/install-nix-action@v27
@@ -196,17 +263,17 @@ jobs:
       - name: Build android AAB
         run: |
           cargo clean
-          nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --aab --target aarch64 --target i686 --target x86_64"
+          nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --aab --target aarch64 --target x86_64"
 
       - name: Build android APK (aarch64)
         run: |
           cargo clean
           nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --apk --split-per-abi --target aarch64"
 
-      - name: Build android APK (i684)
-        run: |
-          cargo clean
-          nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --apk --split-per-abi --target i686"
+      # - name: Build android APK (i684)
+      #   run: |
+      #     cargo clean
+      #     nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --apk --split-per-abi --target i686"
       
       - name: Build android APK (x86_64)
         run: |
@@ -263,7 +330,7 @@ jobs:
         uses: lionel-faber/toolchain@038230242ab440f3b34fc2fbd7ae4111add9e690
         with:
           override: true
-          toolchain: 1.88.0
+          toolchain: 1.89
 
       - name: install Go stable
         uses: actions/setup-go@v4
@@ -330,10 +397,9 @@ jobs:
           # We use forward slashes for glob expressions, even though these are windows paths.
           # See the docs for the fast-glob library used by this gh action:
           # https://www.npmjs.com/package/fast-glob#how-to-write-patterns-on-windows
-          files: C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/target/release/bundle/msi/*;C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/target/release/bundle/nsis/*
+          files: C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/msi/*;C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/nsis/*
           
   release-tauri-app-macos:
-    if: false
     needs: create-release
     permissions: write-all
     environment: Relay Release
@@ -363,7 +429,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           override: true
-          toolchain: 1.88.0
+          toolchain: 1.89
 
       - name: install Go stable
         uses: actions/setup-go@v4

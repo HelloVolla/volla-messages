@@ -27,9 +27,14 @@
 
   $: chronologicalMessages = messages;
 
+  // Update virtualizer count when messages change
+  $: if ($virtualizer) {
+    $virtualizer.setOptions({ count: chronologicalMessages?.length });
+  }
   const MESSAGE_FIXED_HEIGHT = 40;
-  const UPDATE_TRIGGER_VIEW_OFFSET = 250;
+  const UPDATE_TRIGGER_VIEW_OFFSET = 1000;
   const BUFFER_COUNT = 10;
+  const SCROLL_DEBOUNCE_MS = 150; // Debounce scroll events to prevent multiple triggers
 
   let virtualizer = createVirtualizer({
     count: chronologicalMessages?.length,
@@ -65,6 +70,7 @@
   let wasAtBottom = true;
   let isAtTop = false;
   let wasAtTop = false;
+  let scrollDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   onMount(async () => {
     if (chronologicalMessages.length > 0 && containerEl) {
@@ -77,22 +83,27 @@
     }
   });
 
-  // to resolve glitch when (fetching older msgs from hc + loading msgs to store from localDB)
   let previousScrollHeight = 0;
+  let previousScrollTop = 0;
   let previousItemCount = 0;
   let shouldMaintainScroll = false;
-  let isFirstFetch = true;
+  // let isFirstFetch = true;
 
   beforeUpdate(() => {
-    // only capture the scrollHeight if a maintenance request is active.
-    if (shouldMaintainScroll && containerEl) {
+    if (shouldMaintainScroll && containerEl && previousScrollHeight === 0) {
       previousScrollHeight = containerEl.scrollHeight;
+      previousScrollTop = containerEl.scrollTop;
     }
   });
 
-  // applying manual scroll maintainance
   afterUpdate(() => {
-    if (shouldMaintainScroll && containerEl) {
+    if (shouldMaintainScroll && !loadingTop && containerEl && previousScrollHeight > 0) {
+      const heightDifference = containerEl.scrollHeight - previousScrollHeight;
+
+      // Seamlessly shift the scrollbar down by the exact height of the new messages
+      containerEl.scrollTop = previousScrollTop + heightDifference;
+
+      // Reset the locks for the next time the user scrolls up
       shouldMaintainScroll = false;
 
       const newScrollHeight = containerEl.scrollHeight;
@@ -106,29 +117,36 @@
     }
   });
 
+  function handleScroll() {
+    if (!containerEl || !initialScrollReady) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = containerEl;
+    const scrollBottom = scrollHeight - scrollTop - clientHeight;
+
+    const isAtBottom = scrollBottom < 5;
+    const isAtTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
+
+    // Trigger Infinite Scroll
+    if (isAtTop && !wasAtTop && !loadingTop) {
+      if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
+
+      scrollDebounceTimer = setTimeout(() => {
+        shouldMaintainScroll = true;
+        dispatch("scrollAtTop");
+        scrollDebounceTimer = undefined;
+      }, SCROLL_DEBOUNCE_MS);
+    }
+
+    wasAtBottom = isAtBottom;
+    wasAtTop = isAtTop;
+  }
+
   // logic for triggering fetch event, newly_added_items-scroll-down logic
   $: {
-    const currentItemCount = chronologicalMessages.length;
+    const currentItemCount = chronologicalMessages?.length || 0;
 
-    if (containerEl && initialScrollReady) {
-      const { scrollTop, scrollHeight, clientHeight } = containerEl;
-      const scrollBottom = scrollHeight - scrollTop - clientHeight;
-
-      const isAtBottom = scrollBottom < 5;
-      const isAtTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
-
-      if (wasAtBottom && currentItemCount > previousItemCount) {
-        scrollToBottom("smooth");
-      }
-
-      if (isAtTop && !wasAtTop && !loadingTop) {
-        shouldMaintainScroll = true;
-
-        dispatch("scrollAtTop");
-      }
-
-      wasAtBottom = isAtBottom;
-      wasAtTop = isAtTop;
+    if (initialScrollReady && wasAtBottom && currentItemCount > previousItemCount) {
+      scrollToBottom("smooth");
     }
 
     previousItemCount = currentItemCount;
@@ -223,12 +241,21 @@
 <div
   class="flex h-full w-full flex-col overflow-y-auto overflow-x-hidden"
   bind:this={containerEl}
+  on:scroll={handleScroll}
   style={`overflow-anchor: none; ${initialScrollReady ? "opacity: 1" : "opacity: 0"}`}
 >
-  <!-- Fixed Conversation Header (not virtualized) -->
   <div class="flex h-4 items-center justify-center"></div>
   <ConversationHeader {cellIdB64} />
   <div class="flex h-4 items-center justify-center"></div>
+
+  <!-- Loading indicator when fetching older messages -->
+  {#if loadingTop}
+    <div class="flex h-12 items-center justify-center">
+      <div
+        class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"
+      ></div>
+    </div>
+  {/if}
 
   <!-- This inner div effectively holds the virtualizer's content scroll height -->
   <div style="height: {$virtualizer.getTotalSize()}px; position: relative; width: 100%;">
@@ -245,7 +272,7 @@
         <div class="flex flex-shrink-0 flex-col">
           <!-- Day separator -->
           {#if shouldShowDaySeparator(currentIndex)}
-            <div class="text-secondary-400 dark:text-secondary-300 my-4 px-4 text-center text-xs">
+            <div class="my-4 px-4 text-center text-xs text-secondary-400 dark:text-secondary-300">
               {new Date(messageExtended.timestamp / 1000).toLocaleDateString("en-US", {
                 weekday: "long",
                 month: "long",

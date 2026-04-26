@@ -41,6 +41,9 @@
   import InlineConferenceInvite from "./InlineConferenceInvite.svelte";
   import type { SimplePeerConferenceStore } from "$store/SimplePeerConferenceStore";
   import { sendConferenceStartedLog, sendConferenceEndedLog } from "$lib/conferenceLogging";
+  import { deriveConversationNetworkStore, type NetworkStatsStore } from "$store/NetworkStatsStore";
+  import NetworkStatusDot from "$lib/NetworkStatusDot.svelte";
+  import NetworkStatusPanel from "$lib/NetworkStatusPanel.svelte";
 
   const conversationStore = getContext<{ getStore: () => ConversationStore }>(
     "conversationStore",
@@ -64,6 +67,9 @@
   const conferenceStore = getContext<{ getStore: () => SimplePeerConferenceStore }>(
     "conferenceStore",
   ).getStore();
+  const networkStatsStore = getContext<{
+    getStore: () => NetworkStatsStore;
+  }>("networkStatsStore").getStore();
 
   let conversation = deriveCellConversationStore(conversationStore, $page.params.id);
   let messages = deriveCellConversationMessageStore(conversationMessageStore, $page.params.id);
@@ -78,6 +84,8 @@
     $page.params.id,
     myPubKeyB64,
   );
+  let conversationNetwork = deriveConversationNetworkStore(networkStatsStore, $page.params.id);
+  let showConversationNetworkPanel = false;
 
   let configTimeout: NodeJS.Timeout;
   let agentTimeout: NodeJS.Timeout;
@@ -131,7 +139,7 @@
    * Fetch agent profiles every 2s, until at least 2 profiles are received.
    */
   async function loadProfiles() {
-    await profiles.load(isFirstProfilesLoad);
+    await profiles.load(true);
     isFirstProfilesLoad = false;
     clearTimeout(agentTimeout);
 
@@ -153,7 +161,7 @@
    * navigating away from and back to this page.
    */
   async function loadConfig() {
-    await conversation.loadConfig(isFirstConfigLoad);
+    await conversation.loadConfig(true);
     isFirstConfigLoad = false;
     clearTimeout(configTimeout);
 
@@ -173,7 +181,7 @@
    */
   async function loadMessages() {
     clearTimeout(messageTimeout);
-    await loadMessagesInCurrentBucket(isFirstLoadMessages);
+    await loadMessagesInCurrentBucket(true); // allways load local because we don't want to trigger a network get that can take a long time.
     isFirstLoadMessages = false;
 
     if ($messages.count === 0) {
@@ -198,7 +206,7 @@
 
     loadingMessagesOld = true;
     try {
-      await messages.loadMessagesInPreviousBucketTargetCount(false); //TODO: is this ok to always be from network?
+      await messages.loadMessagesInPreviousBucketTargetCount(true); // allways load local because we don't want to trigger a network get that can take a long time.
     } catch (e) {
       console.error(e);
     }
@@ -377,12 +385,29 @@
     clearTimeout(configTimeout);
     clearTimeout(messageTimeout);
   });
+
+  async function dumpAll() {
+    console.log("Dumping all");
+
+    // Import and dump IndexedDB contents
+    const { messageDB } = await import("$store/db/MessageDatabase");
+    await messageDB.debugDumpAll();
+
+    // Also get all messages from Holochain
+    messages.debugGetAllMessages();
+  }
 </script>
 
 <Header backUrl="/conversations">
-  <h1 slot="center" class="overflow-hidden text-ellipsis whitespace-nowrap p-4 text-center">
-    {$conversationTitle}
-  </h1>
+  <div slot="center" class="flex items-center justify-center gap-1 overflow-hidden px-4">
+    <NetworkStatusDot
+      connectionCount={$conversationNetwork?.peerCount || 0}
+      onClick={() => (showConversationNetworkPanel = !showConversationNetworkPanel)}
+    />
+    <h1 class="overflow-hidden text-ellipsis whitespace-nowrap text-center">
+      {$conversationTitle}
+    </h1>
+  </div>
 
   <div class="flex items-center justify-center" slot="right">
     <ButtonIconBare
@@ -394,6 +419,12 @@
       title="Start video call"
     />
 
+    <ButtonIconBare
+      moreClasses="!w-[18px] !h-auto"
+      moreClassesButton="p-4"
+      icon="archive"
+      on:click={dumpAll}
+    />
     <ButtonIconBare
       moreClasses="!w-[18px] !h-auto"
       moreClassesButton="p-4"
@@ -411,6 +442,14 @@
     {/if}
   </div>
 </Header>
+
+{#if showConversationNetworkPanel}
+  <NetworkStatusPanel
+    stats={$networkStatsStore}
+    conversationInfo={$conversationNetwork}
+    onClose={() => (showConversationNetworkPanel = false)}
+  />
+{/if}
 
 <div class="mx-auto flex w-full flex-1 flex-col items-center justify-center overflow-hidden">
   <div class="relative flex w-full grow flex-col items-center overflow-hidden pt-6">

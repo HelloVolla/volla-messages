@@ -61,3 +61,6 @@ export const INVITATION_TIMEOUT_MS = 60000;
 export const MEDIA_STATE_DEBOUNCE_MS = 200;
 export const SDP_BUFFER_EXPIRY_MS = 30000;
 export const ROLE_CACHE_TTL_MS = 30000;
+
+// Network stats polling interval (ms)
+export const NETWORK_STATS_POLL_INTERVAL = 30 * 1000;

@@ -51,6 +51,7 @@
     createSimplePeerConferenceStore,
     type SimplePeerConferenceStore,
   } from "$store/SimplePeerConferenceStore";
+  import { createNetworkStatsStore, type NetworkStatsStore } from "$store/NetworkStatsStore";
   import Dialog from "$lib/Dialog.svelte";
   // Use the refactored ConferenceView with extracted components
   import { ConferenceView, ResizablePip } from "$lib/conference";
@@ -89,6 +90,7 @@
   let mergedProfileContactInviteUnjoinedStore: MergedProfileContactInviteUnjoinedStore;
   let mergedProfileContactInviteJoinedStore: MergedProfileContactInviteJoinedStore;
   let conferenceStore: SimplePeerConferenceStore;
+  let networkStatsStore: NetworkStatsStore;
 
   // Is the holochain client connected?
   let isClientConnected = false;
@@ -308,6 +310,10 @@
       );
       conferenceStore = createSimplePeerConferenceStore(relayClient);
 
+      // Initialize network stats store
+      networkStatsStore = createNetworkStatsStore(client);
+      networkStatsStore.start();
+
       // Initialize store data
       await contactStore.initialize();
       await profileStore.initialize();
@@ -393,6 +399,10 @@
 
   setContext("conferenceStore", {
     getStore: () => conferenceStore,
+  });
+
+  setContext("networkStatsStore", {
+    getStore: () => networkStatsStore,
   });
 </script>
 

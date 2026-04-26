@@ -2,11 +2,11 @@
   description = "Template for Holochain app development";
 
   inputs = {
+    p2p-shipyard.url = "github:darksoil-studio/tauri-plugin-holochain/main-0.6.1";
+    p2p-shipyard.inputs.holonix.follows = "holonix";
     holonix.url = "github:holochain/holonix/main-0.6";
-    p2p-shipyard.url = "github:darksoil-studio/tauri-plugin-holochain/main-0.6";
 
     nixpkgs.follows = "holonix/nixpkgs";
-    scaffolding.url = "github:darksoil-studio/scaffolding/main-0.6";
   };
 
   outputs = inputs @ { ... }:
@@ -18,8 +18,8 @@
         { inputs', pkgs, system, ...}: {
           devShells.default = pkgs.mkShell {
             inputsFrom = [
-              inputs'.p2p-shipyard.devShells.holochainTauriDev
               inputs'.holonix.devShells.default
+              inputs'.p2p-shipyard.devShells.holochainTauriDev
             ];
 
           };

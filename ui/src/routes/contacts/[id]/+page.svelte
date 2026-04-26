@@ -59,7 +59,7 @@
   async function loadProfiles() {
     if (!profiles) return;
 
-    await profiles.load(isFirstProfilesLoad);
+    await profiles.load(true); // allways load local because we don't want to trigger a network get that can take a long time.
     isFirstProfilesLoad = false;
 
     if (!hasAgentJoinedDht) {
@@ -112,7 +112,7 @@
       </div>
       <div class="mt-2 flex items-center justify-center">
         <span
-          class="text-secondary-400 dark:text-tertiary-700 mr-1 w-64 overflow-hidden text-ellipsis text-nowrap"
+          class="mr-1 w-64 overflow-hidden text-ellipsis text-nowrap text-secondary-400 dark:text-tertiary-700"
         >
           {$contact.publicKeyB64}
         </span>
