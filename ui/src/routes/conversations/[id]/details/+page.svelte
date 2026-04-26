@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { getContext } from "svelte";
-  import { type AgentPubKeyB64 } from "@holochain/client";
+  import { getContext, onDestroy, onMount } from "svelte";
+  import { type AgentPubKeyB64, decodeHashFromBase64 } from "@holochain/client";
   import { page } from "$app/stores";
   import Header from "$lib/Header.svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
@@ -29,9 +29,15 @@
     type MergedProfileContactInviteJoinedStore,
     type MergedProfileContactInviteUnjoinedStore,
   } from "$store/MergedProfileContactInviteJoinedStore";
+  import type { RelayClient } from "$store/RelayClient";
+  import type { Writable } from "svelte/store";
 
   const conversationStore = getContext<{ getStore: () => ConversationStore }>(
     "conversationStore",
+  ).getStore();
+  const relayClient = getContext<{ getClient: () => RelayClient }>("relayClient").getClient();
+  const onlinePeers = getContext<{ getStore: () => Writable<Set<AgentPubKeyB64>> }>(
+    "onlinePeers",
   ).getStore();
   const mergedProfileContactInviteStore = getContext<{
     getStore: () => MergedProfileContactInviteStore;
@@ -80,6 +86,29 @@
   let editingTitle = false;
 
   $: iAmProgenitor = myPubKeyB64 === $conversation.dnaProperties.progenitor;
+
+  let pingInterval: ReturnType<typeof setInterval>;
+
+  const pingParticipants = () => {
+    onlinePeers.set(new Set());
+    const agents = $joined.list
+      .map(([key]) => key)
+      .filter((key) => key !== myPubKeyB64)
+      .map((key) => decodeHashFromBase64(key));
+    if (agents.length === 0) return;
+    relayClient
+      .pingAgents($conversation.cellInfo.cell_id, agents)
+      .catch((e) => console.warn("Ping failed:", e));
+  };
+
+  onMount(() => {
+    pingParticipants();
+    pingInterval = setInterval(pingParticipants, 10_000);
+  });
+
+  onDestroy(() => {
+    clearInterval(pingInterval);
+  });
 
   const saveTitle = async (newTitle: string) => {
     conversation.updateConfig({ title: newTitle.trim(), image });
@@ -155,11 +184,13 @@
       {#if $conversation.dnaProperties.privacy === Privacy.Public && $conversation.publicInviteCode !== undefined}
         <li class="variant-filled-primary mb-2 flex flex-row items-center rounded-full p-2 text-xl">
           <span
-            class="bg-tertiary-500 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tertiary-500"
           >
             <SvgIcon icon="addPerson" moreClasses="text-primary-600" />
           </span>
-          <span class="ml-2 min-w-0 flex-1 truncate text-sm font-bold sm:ml-4">{$t("common.add_members")}</span>
+          <span class="ml-2 min-w-0 flex-1 truncate text-sm font-bold sm:ml-4"
+            >{$t("common.add_members")}</span
+          >
 
           <ButtonsCopyShareInline
             text={$conversation.publicInviteCode}
@@ -169,7 +200,7 @@
         </li>
       {:else}
         {#if $unjoined.count > 0}
-          <h3 class="text-md text-secondary-300 mb-2 font-light">
+          <h3 class="text-md mb-2 font-light text-secondary-300">
             {$t("common.unconfirmed_invitations")}
           </h3>
 
@@ -186,7 +217,7 @@
           {/each}
         {/if}
 
-        <h3 class="text-md text-secondary-300 mb-2 mt-4 font-light">
+        <h3 class="text-md mb-2 mt-4 font-light text-secondary-300">
           {$t("common.members")}
         </h3>
       {/if}
