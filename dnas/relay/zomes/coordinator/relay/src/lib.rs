@@ -6,36 +6,52 @@ pub mod ping;
 use hdk::prelude::*;
 use relay_integrity::*;
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "signal_type")]
+pub enum RemoteSignalPayload {
+    Message(MessageRecord),
+    PeerPing { from_agent: AgentPubKey },
+    PeerPong { from_agent: AgentPubKey },
+}
+
 #[hdk_extern]
-fn recv_remote_signal(message_record: MessageRecord) -> ExternResult<()> {
-    let info: CallInfo = call_info()?;
+fn recv_remote_signal(payload: RemoteSignalPayload) -> ExternResult<()> {
+    match payload {
+        RemoteSignalPayload::Message(message_record) => {
+            let info: CallInfo = call_info()?;
 
-    let is_deletion = match message_record.signed_action.action() {
-        Action::Delete(_) => true,
-        _ => false,
-    };
+            let is_deletion = match message_record.signed_action.action() {
+                Action::Delete(_) => true,
+                _ => false,
+            };
 
-    if is_deletion {
-        let signal = Signal::MessageDeleted {
-            action: message_record.signed_action.clone(),
-            original_action: message_record.original_action.clone(),
-            from: info.provenance,
-        };
-
-        debug!("recv_remote_signal: signal: {:?}", signal);
-
-        emit_signal(signal)
-    } else if let Some(message) = message_record.message {
-        let signal = Signal::Message {
-            action: message_record.signed_action.clone(),
-            message,
-            from: info.provenance,
-        };
-        emit_signal(signal)
-    } else {
-        Err(wasm_error!(WasmErrorInner::Guest(
-            "Invalid message record".to_string()
-        )))
+            if is_deletion {
+                let signal = Signal::MessageDeleted {
+                    action: message_record.signed_action.clone(),
+                    original_action: message_record.original_action.clone(),
+                    from: info.provenance,
+                };
+                debug!("recv_remote_signal: signal: {:?}", signal);
+                emit_signal(signal)
+            } else if let Some(message) = message_record.message {
+                let signal = Signal::Message {
+                    action: message_record.signed_action.clone(),
+                    message,
+                    from: info.provenance,
+                };
+                emit_signal(signal)
+            } else {
+                Err(wasm_error!(WasmErrorInner::Guest(
+                    "Invalid message record".to_string()
+                )))
+            }
+        }
+        RemoteSignalPayload::PeerPing { from_agent } => {
+            ping::handle_peer_ping(from_agent)
+        }
+        RemoteSignalPayload::PeerPong { from_agent } => {
+            ping::handle_peer_pong(from_agent)
+        }
     }
 }
 
@@ -64,6 +80,12 @@ pub enum Signal {
         action: SignedActionHashed,
         original_action: ActionHash,
         from: AgentPubKey,
+    },
+    PeerPing {
+        from_agent: AgentPubKey,
+    },
+    PeerPong {
+        from_agent: AgentPubKey,
     },
     LinkCreated {
         action: SignedActionHashed,

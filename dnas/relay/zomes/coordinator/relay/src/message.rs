@@ -35,11 +35,11 @@ pub fn create_message(input: SendMessageInput) -> ExternResult<Record> {
         .filter(|a| a != &my_pub_key)
         .collect();
     let _ = send_remote_signal(
-        MessageRecord {
+        crate::RemoteSignalPayload::Message(MessageRecord {
             message: Some(input.message),
             original_action: message_hash.clone(),
             signed_action: record.signed_action().clone(),
-        },
+        }),
         agents,
     );
 
@@ -98,11 +98,6 @@ pub fn get_message_links_for_buckets(buckets: Vec<u32>) -> ExternResult<Vec<Link
         links.append(&mut l);
     }
     Ok(links)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct GetAgenProfileInput {
-    agent_key: AgentPubKey,
 }
 
 #[hdk_extern]
@@ -306,11 +301,11 @@ pub fn delete_message(input: DeleteMessageInput) -> ExternResult<ActionHash> {
         .filter(|a| a != &my_pub_key)
         .collect();
     let _ = send_remote_signal(
-        MessageRecord {
+        crate::RemoteSignalPayload::Message(MessageRecord {
             message: None,
             original_action: input.original_message_hash,
             signed_action: delete_record.signed_action().clone(),
-        },
+        }),
         agents,
     );
 
