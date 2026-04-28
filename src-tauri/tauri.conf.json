@@ -1,5 +1,5 @@
 {
-  "productName": "Volla Messages",
+  "productName": "Volla Messages (Standalone)",
   "identifier": "com.volla.messages.bundled",
   "version": "0.12.2",
   "build": {
