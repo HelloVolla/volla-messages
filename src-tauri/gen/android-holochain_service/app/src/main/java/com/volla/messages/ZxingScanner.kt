@@ -24,7 +24,7 @@ import app.tauri.plugin.Plugin
 import com.google.zxing.BarcodeFormat
 import com.journeyapps.barcodescanner.BarcodeCallback
 import com.journeyapps.barcodescanner.BarcodeResult
-import com.journeyapps.barcodescanner.CameraSettings
+import com.journeyapps.barcodescanner.camera.CameraSettings
 import com.journeyapps.barcodescanner.DecoratedBarcodeView
 import com.journeyapps.barcodescanner.DefaultDecoderFactory
 
