@@ -400,7 +400,7 @@ jobs:
           # https://www.npmjs.com/package/fast-glob#how-to-write-patterns-on-windows
           files: C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/msi/*;C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/nsis/*
           
-  release-tauri-app-macos:
+  # release-tauri-app-macos:
     needs: create-release
     permissions: write-all
     environment: Relay Release
