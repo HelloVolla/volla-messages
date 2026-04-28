@@ -401,64 +401,64 @@ jobs:
           files: C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/msi/*;C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/nsis/*
           
   # release-tauri-app-macos:
-    needs: create-release
-    permissions: write-all
-    environment: Relay Release
+    # needs: create-release
+    # permissions: write-all
+    # environment: Relay Release
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'macos-latest' # for Arm based macs (M1 and above).
-            args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest' # for Intel based macs.
-            args: '--target x86_64-apple-darwin'
-    env:
-      MACOSX_DEPLOYMENT_TARGET: 10.13
+    # strategy:
+    #   fail-fast: false
+    #   matrix:
+    #     include:
+    #       - platform: 'macos-latest' # for Arm based macs (M1 and above).
+    #         args: '--target aarch64-apple-darwin'
+    #       - platform: 'macos-latest' # for Intel based macs.
+    #         args: '--target x86_64-apple-darwin'
+    # env:
+    #   MACOSX_DEPLOYMENT_TARGET: 10.13
 
-    runs-on: ${{ matrix.platform }}
+    # runs-on: ${{ matrix.platform }}
 
-    steps:
-      - uses: actions/checkout@v3
+    # steps:
+    #   - uses: actions/checkout@v3
 
-      - name: setup node
-        uses: actions/setup-node@v1
-        with:
-          node-version: 20
+    #   - name: setup node
+    #     uses: actions/setup-node@v1
+    #     with:
+    #       node-version: 20
 
-      - name: install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          override: true
-          toolchain: 1.89
+    #   - name: install Rust stable
+    #     uses: actions-rs/toolchain@v1
+    #     with:
+    #       override: true
+    #       toolchain: 1.89
 
-      - name: install Go stable
-        uses: actions/setup-go@v4
-        with:
-          go-version: stable
+    #   - name: install Go stable
+    #     uses: actions/setup-go@v4
+    #     with:
+    #       go-version: stable
 
-      - name: Install and prepare
-        run: |
-          npm install
-          npm run setup:happ-release
+    #   - name: Install and prepare
+    #     run: |
+    #       npm install
+    #       npm run setup:happ-release
 
-      - name: Copy variant tauri config
-        run: |
-          cp -f src-tauri/tauri.desktop.conf.json src-tauri/tauri.conf.json
-          ls -la
-          ls -la src-tauri
+    #   - name: Copy variant tauri config
+    #     run: |
+    #       cp -f src-tauri/tauri.desktop.conf.json src-tauri/tauri.conf.json
+    #       ls -la
+    #       ls -la src-tauri
 
-      - name: Build the App
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+    #   - name: Build the App
+    #     uses: tauri-apps/tauri-action@v0
+    #     env:
+    #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    #       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+    #       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+    #       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+    #       APPLE_ID: ${{ secrets.APPLE_ID }}
+    #       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    #       APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
 
-        with:
-          releaseId: ${{ needs.create-release.outputs.releaseId }}
-          args: --verbose --features holochain_bundled
+    #     with:
+    #       releaseId: ${{ needs.create-release.outputs.releaseId }}
+    #       args: --verbose --features holochain_bundled
