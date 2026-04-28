@@ -10,6 +10,7 @@
   import Button from "$lib/Button.svelte";
   import { t } from "$translations";
   import { scanStore } from "$store/ScanStore";
+  import { getPlatform } from "$lib/utils";
   import { onDestroy } from "svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
   import toast from "svelte-french-toast";
@@ -33,7 +34,10 @@
 
   async function executeScan() {
     try {
-      const res = await scan({ windowed: true, formats: [Format.QRCode] });
+      // Our Android-local ZXing implementation currently renders reliably in fullscreen mode.
+      // Keep windowed mode for other platforms that support transparent webview overlay.
+      const isAndroid = getPlatform() === "android";
+      const res = await scan({ windowed: !isAndroid, formats: [Format.QRCode] });
       scanStore.complete(res.content);
     } catch (e) {
       console.error("executeScan error", e);
