@@ -64,6 +64,16 @@
 
   async function load() {
     await ensurePermissions();
+
+    // On Android fullscreen scanner flow, if permission is denied we should
+    // immediately return to the previous page to avoid leaving the stale
+    // /scan webview frame visible.
+    if (needsPermission && isAndroid) {
+      scanStore.complete();
+      return;
+    }
+
+    if (needsPermission) return;
     await executeScan();
   }
 
