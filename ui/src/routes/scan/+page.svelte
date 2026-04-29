@@ -10,21 +10,27 @@
   import Button from "$lib/Button.svelte";
   import { t } from "$translations";
   import { scanStore } from "$store/ScanStore";
+  import { getPlatform } from "$lib/utils";
   import { onDestroy } from "svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
   import toast from "svelte-french-toast";
 
   let needsPermission = false;
+  const isAndroid = getPlatform() === "android";
+  const usesWindowedOverlay = !isAndroid;
 
   async function ensurePermissions() {
-    let permissionsState = await checkPermissions();
-    if (permissionsState === "granted") return;
-
     try {
+      let permissionsState = await checkPermissions();
+      if (permissionsState === "granted") return;
+
       permissionsState = await requestPermissions();
       if (permissionsState === "granted") return;
     } catch (e) {
-      console.error("requestPermissions error", e);
+      // Do not abort scan flow here. On some custom Android plugin setups,
+      // permission helper calls can fail while invoke scan() still works and
+      // reports permission status from native side.
+      console.error("check/request permissions error", e);
       toast.error($t("common.camera_permission_error"));
     }
 
@@ -33,9 +39,15 @@
 
   async function executeScan() {
     try {
-      const res = await scan({ windowed: true, formats: [Format.QRCode] });
+      // Our Android-local ZXing implementation currently renders reliably in fullscreen mode.
+      // Keep windowed mode for other platforms that support transparent webview overlay.
+      const res = await scan({ windowed: usesWindowedOverlay, formats: [Format.QRCode] });
       scanStore.complete(res.content);
     } catch (e) {
+      if (String(e).includes("cancelled")) {
+        scanStore.complete();
+        return;
+      }
       console.error("executeScan error", e);
       toast.error($t("common.scan_error"));
     }
@@ -68,12 +80,16 @@
     return reset;
   }
 
-  // tauri-plugin-barcode-scanner is launched in its own View BEHIND the current webview
-  // Thus we must set the body background color to transparent for this page only,
-  // to expose the View behind it.
-  let resetBackgroundColor = setBackgroundColor("transparent");
+  // For platforms using windowed overlay mode (e.g. iOS), the scanner runs behind
+  // the webview so we need a transparent body to expose camera preview.
+  // Android currently runs scanner fullscreen (windowed=false), so this is unnecessary there.
+  let resetBackgroundColor: (() => void) | undefined;
+  if (usesWindowedOverlay) {
+    resetBackgroundColor = setBackgroundColor("transparent");
+  }
+
   onDestroy(() => {
-    resetBackgroundColor();
+    resetBackgroundColor?.();
   });
 </script>
 
