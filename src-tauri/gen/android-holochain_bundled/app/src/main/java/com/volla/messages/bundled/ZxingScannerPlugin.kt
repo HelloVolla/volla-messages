@@ -1,4 +1,4 @@
-package com.volla.messages
+package com.volla.messages.bundled
 
 import android.Manifest
 import android.app.Activity
@@ -9,9 +9,12 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
+import androidx.appcompat.widget.AppCompatButton
 import androidx.activity.result.ActivityResult
 import app.tauri.PermissionState
 import app.tauri.annotation.ActivityCallback
@@ -51,7 +54,12 @@ class ZxingScannerPlugin(private val activity: Activity) : Plugin(activity) {
     private var barcodeView: DecoratedBarcodeView? = null
     private var savedInvoke: Invoke? = null
     private var webViewBackground: Drawable? = null
+    private var webViewPreviousVisibility: Int = View.VISIBLE
     private var windowed = false
+
+    private fun dp(value: Int): Int {
+        return (value * activity.resources.displayMetrics.density).toInt()
+    }
 
     override fun load(webView: WebView) {
         super.load(webView)
@@ -114,6 +122,28 @@ class ZxingScannerPlugin(private val activity: Activity) : Plugin(activity) {
                     webView.bringToFront()
                     webViewBackground = webView.background
                     webView.setBackgroundColor(Color.TRANSPARENT)
+                    webView.visibility = View.VISIBLE
+                } else {
+                    // Fullscreen mode: place scanner above webview and hide webview.
+                    webViewPreviousVisibility = webView.visibility
+                    webView.visibility = View.INVISIBLE
+                    scannerView.bringToFront()
+
+                    val cancelButton = AppCompatButton(activity).apply {
+                        text = "Cancel"
+                        setOnClickListener {
+                            Log.d(TAG, "native cancel button clicked")
+                            cancelActiveScan()
+                        }
+                    }
+                    val cancelParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                        bottomMargin = dp(48)
+                    }
+                    scannerView.addView(cancelButton, cancelParams)
                 }
 
                 val cameraSettings: CameraSettings = scannerView.barcodeView.cameraSettings
@@ -198,6 +228,8 @@ class ZxingScannerPlugin(private val activity: Activity) : Plugin(activity) {
             } else {
                 webView.setBackgroundColor(Color.WHITE)
             }
+        } else {
+            webView.visibility = webViewPreviousVisibility
         }
 
         windowed = false
@@ -209,6 +241,22 @@ class ZxingScannerPlugin(private val activity: Activity) : Plugin(activity) {
         activity.runOnUiThread {
             destroyScannerViewInternal()
         }
+    }
+
+    private fun cancelActiveScan() {
+        val scanInvoke = savedInvoke
+        savedInvoke = null
+        destroyScannerView()
+        // Resolve (instead of reject) so JS scan flow can navigate back cleanly
+        // without showing stale scan overlay in the webview.
+        if (scanInvoke != null) {
+            val payload = JSObject()
+            payload.put("content", null)
+            payload.put("format", null)
+            payload.put("bounds", null)
+            scanInvoke.resolve(payload)
+        }
+        Log.d(TAG, "cancelActiveScan: scan invoke resolved as cancelled")
     }
 
     @Command
@@ -241,11 +289,7 @@ class ZxingScannerPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun cancel(invoke: Invoke) {
         Log.d(TAG, "cancel: called")
-        val scanInvoke = savedInvoke
-        savedInvoke = null
-        destroyScannerView()
-        scanInvoke?.reject("cancelled")
-        Log.d(TAG, "cancel: scan invoke rejected as cancelled")
+        cancelActiveScan()
         invoke.resolve()
     }
 
