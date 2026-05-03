@@ -31,6 +31,7 @@
   "files": "{{count}} {{count; 1:fișier; default:fișiere;}}",
   "invalid_contact_code": "Cod de contact invalid",
   "join_conversation": "Participați la conversație",
+  "joined_the_conversation": "s-a alăturat conversației",
   "jump_in": "Jump In",
   "last": "Încărcare",
   "last_name": "Numele de familie",

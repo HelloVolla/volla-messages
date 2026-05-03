@@ -1,6 +1,6 @@
 [package]
 name = "volla_messages"
-version = "0.11.6"
+version = "0.12.2"
 description = "Volla Messages"
 authors = ["Tibet Sprague", "Eric Harris-Braun"]
 license = ""
@@ -21,17 +21,17 @@ tauri-build = { version = "2.2.0", default-features = false , features = [] }
 tauri = { version = "2.5.1", features = ["devtools"] }
 tauri-runtime = {version = "2.6.0", optional = true}
 tauri-plugin-holochain = { git = "https://github.com/darksoil-studio/tauri-plugin-holochain", branch = "main-0.6.1", optional = true }
-# tauri-plugin-holochain-service-client = { git = "https://github.com/HelloVolla/volla-cloud-services", tag = "android-service-runtime-v0.2.0" , optional = true }
+tauri-plugin-holochain-service-client = { git = "https://github.com/HelloVolla/volla-cloud-services", tag = "android-service-runtime-v0.3.2" , optional = true }
 
 # iroh
-holochain = {version = "0.6.1-rc.3", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh"] }
+holochain = {version = "0.6.1-rc.7", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "transport-iroh"] }
 
 # go-pion webrtc back-end
 #holochain = {version = "0.6.0", default-features = false, features = ["sqlite-encrypted", "wasmer_sys", "backend-go-pion"] }
 
-holochain_types = "0.6.1-rc.3"
+holochain_types = "0.6.1-rc.7"
 lair_keystore = "0.6.3"
-holochain_client = "0.8.1-rc.3"
+holochain_client = "0.8.1-rc.7"
 
 log = "0.4"
 tauri-plugin-log = "2.4.0"
@@ -55,4 +55,4 @@ base64ct = "=1.7.3"
 default = []
 
 holochain_bundled = ["dep:tauri-plugin-holochain", "dep:tauri-runtime"]
-# holochain_service = ["dep:tauri-plugin-holochain-service-client"]
+holochain_service = ["dep:tauri-plugin-holochain-service-client"]
