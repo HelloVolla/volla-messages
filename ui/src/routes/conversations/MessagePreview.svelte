@@ -30,12 +30,12 @@
       <Avatar agentPubKeyB64={messageExtended.authorAgentPubKeyB64} {cellIdB64} size={14} />
       <span class="ml-1"
         ><AgentNickname {cellIdB64} agentPubKeyB64={messageExtended.authorAgentPubKeyB64} /></span
-      >
+      ><span>:</span>
     </span>
     <span>{@html DOMPurify.sanitize(messageExtended.message.content)}</span>
 
     {#if hasImages || hasFiles}
-      <div class="italic text-secondary-400">
+      <span class="italic text-secondary-400">
         ({#if hasImages}
           {$t("common.images", {
             count: imageFiles.length,
@@ -48,7 +48,7 @@
             count: otherFiles.length,
           })}
         {/if})
-      </div>
+      </span>
     {/if}
   </div>
 {/if}
