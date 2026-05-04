@@ -64,6 +64,30 @@ It has two different flows:
     - QR code scanning is handled via `routes/scan`, which is managed by `ScanStore.ts`
     - Creating a contact also creates a private conversation and redirects to the conversation page.
 
+#### QR / Barcode Scanner Flow (Updated)
+
+The scanner implementation is now **platform-specific**:
+
+- **Android** uses a local offline ZXing implementation (no Google Play Services dependency)
+- **iOS** continues to use the standard `@tauri-apps/plugin-barcode-scanner` flow
+
+Main flow:
+
+1. User taps QR icon in `src/routes/contacts/new/+page.svelte` and calls `scanStore.scan()`.
+2. `ScanStore` stores the current route and navigates to `/scan`.
+3. `src/routes/scan/+page.svelte` calls `scan({ ... })` from `@tauri-apps/plugin-barcode-scanner`.
+4. On Android, plugin calls are routed through Rust bridge `src-tauri/src/android_barcode_scanner.rs`.
+5. Rust bridge registers Android native class `ZxingScannerPlugin` under plugin id `barcode-scanner`.
+6. Native Kotlin scanner uses ZXing embedded camera scanner, decodes QR content, and resolves payload.
+7. `scanStore.complete(result)` navigates back to the originating page (`/contacts/new`).
+8. `scanStore.readResult()` reads the value and populates contact public key.
+
+Important Android behavior:
+
+- Scanner runs in **fullscreen** mode (`windowed = false`) for reliable preview
+- Webview is hidden while scanner is active
+- Cancel resolves scanner flow and returns to previous route cleanly
+
 - FileUploads are managed by `FileStore`
 - Notifications are managed by `enqueNotification` defined in `utils.ts`
 
@@ -150,6 +174,9 @@ Every feature of the app is managed by a store, which is a Svelte Store. Each st
 - Handles navigation to/from the scan page
 - Stores scan results and supports reading/resetting them
 - Detects platform support for scanning
+- Works with `/scan` route and platform-specific scanner behavior:
+  - Android fullscreen native scanner (local ZXing)
+  - iOS windowed scanner overlay
 - `scan()` initiates the scan flow
 - `complete(newValue)` completes the scan and navigates back
 - `reset()` resets the scan state
