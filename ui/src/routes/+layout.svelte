@@ -192,7 +192,7 @@
       );
 
       // Initialize network stats store
-      networkStatsStore = createNetworkStatsStore(client);
+      networkStatsStore = createNetworkStatsStore(client, relayClient);
       networkStatsStore.start();
 
       // Initialize store data

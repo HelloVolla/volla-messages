@@ -13,13 +13,17 @@ export function createSignalHandler(
   conversationMessageStore: ConversationMessageStore,
   onlinePeers: Writable<Set<AgentPubKeyB64>>,
 ) {
-  client.client.on("signal", _handleSignalReceived);
-
-  async function _handleSignalReceived(signal: Signal) {
+  const _handleSignalReceived = async (signal: Signal) => {
     if (signal.type !== SignalType.App) return;
 
     const payload = signal.value.payload as RelaySignal;
     const cellIdB64 = encodeCellIdToBase64(signal.value.cell_id);
+    const fromB64 = "from" in payload ? encodeHashToBase64((payload as MessageSignal).from) : undefined;
+
+    console.log(
+      `[SIG] type=${payload.type} cell=${cellIdB64.slice(0, 8)}..` +
+      (fromB64 ? ` from=${fromB64.slice(0, 8)}..` : "")
+    );
 
     if (payload.type === "PeerPing" || payload.type === "PeerPong") {
       const fromAgent = encodeHashToBase64(payload.from_agent);
@@ -41,5 +45,7 @@ export function createSignalHandler(
       const originalActionHashB64 = encodeHashToBase64(originalActionHash);
       conversationMessageStore.handleMessageDeletedSignalReceived(cellIdB64, originalActionHashB64);
     }
-  }
+  };
+
+  client.client.on("signal", _handleSignalReceived);
 }

@@ -210,6 +210,50 @@ fn get_entry_for_action(action_hash: &ActionHash) -> ExternResult<Option<EntryTy
     EntryTypes::deserialize_from_type(*zome_index, *entry_index, entry)
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NetworkDiagnostics {
+    pub agent: AgentPubKey,
+    pub source_chain_length: usize,
+    pub create_count: usize,
+    pub update_count: usize,
+    pub delete_count: usize,
+    pub create_link_count: usize,
+    pub delete_link_count: usize,
+}
+
+#[hdk_extern]
+pub fn get_network_diagnostics(_: ()) -> ExternResult<NetworkDiagnostics> {
+    let agent = agent_info()?.agent_initial_pubkey;
+    let all_records = query(ChainQueryFilter::new())?;
+
+    let mut create_count = 0;
+    let mut update_count = 0;
+    let mut delete_count = 0;
+    let mut create_link_count = 0;
+    let mut delete_link_count = 0;
+
+    for record in &all_records {
+        match record.action() {
+            Action::Create(_) => create_count += 1,
+            Action::Update(_) => update_count += 1,
+            Action::Delete(_) => delete_count += 1,
+            Action::CreateLink(_) => create_link_count += 1,
+            Action::DeleteLink(_) => delete_link_count += 1,
+            _ => {}
+        }
+    }
+
+    Ok(NetworkDiagnostics {
+        agent,
+        source_chain_length: all_records.len(),
+        create_count,
+        update_count,
+        delete_count,
+        create_link_count,
+        delete_link_count,
+    })
+}
+
 #[hdk_extern]
 pub fn generate_membrane_proof(input: MembraneProofData) -> ExternResult<SerializedBytes> {
     let me: HoloHash<holo_hash::hash_type::Agent> = agent_info()?.agent_initial_pubkey;
