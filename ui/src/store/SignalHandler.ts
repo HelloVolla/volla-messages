@@ -1,16 +1,17 @@
-import { encodeHashToBase64, type Signal, SignalType } from "@holochain/client";
+import { encodeHashToBase64, type Signal, SignalType, type AgentPubKeyB64 } from "@holochain/client";
 import { RelayClient } from "$store/RelayClient";
 import { type RelaySignal, type MessageSignal } from "$lib/types";
 import { encodeCellIdToBase64 } from "$lib/utils";
 import { type ConversationStore } from "./ConversationStore";
 import type { ConversationMessageStore } from "./ConversationMessageStore";
 import { page } from "$app/stores";
-import { get } from "svelte/store";
+import { get, type Writable } from "svelte/store";
 
 export function createSignalHandler(
   client: RelayClient,
   conversationStore: ConversationStore,
   conversationMessageStore: ConversationMessageStore,
+  onlinePeers: Writable<Set<AgentPubKeyB64>>,
 ) {
   client.client.on("signal", _handleSignalReceived);
 
@@ -20,13 +21,17 @@ export function createSignalHandler(
     const payload = signal.value.payload as RelaySignal;
     const cellIdB64 = encodeCellIdToBase64(signal.value.cell_id);
 
+    if (payload.type === "PeerPing" || payload.type === "PeerPong") {
+      const fromAgent = encodeHashToBase64(payload.from_agent);
+      onlinePeers.update((set) => new Set([...set, fromAgent]));
+      return;
+    }
+
     if (payload.type === "Message") {
       await conversationMessageStore.handleMessageSignalReceived(
         cellIdB64,
         signal.value.payload as MessageSignal,
       );
-      // Mark conversation as unread
-      // Unless user is currently viewing the conversation page.
       const $page = get(page);
       if ($page.params.id !== cellIdB64 || $page.route.id !== "/conversations/[id]") {
         await conversationStore.updateUnread(cellIdB64, true);
