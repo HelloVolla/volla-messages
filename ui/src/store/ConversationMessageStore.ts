@@ -78,6 +78,18 @@ export function createConversationMessageStore(
   mergedProfileContactInviteStore: MergedProfileContactInviteStore,
   fileStore: FileStore,
 ): ConversationMessageStore {
+  function _cid(cellIdB64: CellIdB64) {
+    return cellIdB64.slice(0, 10);
+  }
+
+  function _log(stage: string, details?: { [key: string]: unknown }) {
+    if (details) {
+      console.log(`[MessageFlow] ${stage}`, details);
+    } else {
+      console.log(`[MessageFlow] ${stage}`);
+    }
+  }
+
   // In-memory store holds only active messages (limited by pagination)
   const messages = createGenericKeyKeyValueStore<MessageExtended>();
 
@@ -134,6 +146,7 @@ export function createConversationMessageStore(
   );
 
   async function initialize() {
+    _log("initialize:start");
     const cellInfos = await client.getRelayClonedCellInfos();
     // Log all Cell IDs for debugging
     cellInfos.forEach((cellInfo, index) => {
@@ -160,12 +173,17 @@ export function createConversationMessageStore(
       cellInfos.map(async (cellInfo) => {
         const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
 
+        _log("initialize:conversation:start", { cell: _cid(cellIdB64) });
+
         await _loadMessagesFromDB(cellIdB64, 1); // Load first page
 
         // If no messages in DB, try to fetch from network
         const currentState = get(paginationState)[cellIdB64];
 
         if (currentState.totalMessages === 0) {
+          _log("initialize:conversation:db-empty -> backfill-current-buckets", {
+            cell: _cid(cellIdB64),
+          });
           // when first initializing go local
           await loadMessagesInCurrentBucketTargetCount(
             true,
@@ -175,6 +193,13 @@ export function createConversationMessageStore(
             50,
           );
         }
+
+        const finalState = get(paginationState)[cellIdB64];
+        _log("initialize:conversation:done", {
+          cell: _cid(cellIdB64),
+          loadedPages: finalState?.loadedPages,
+          totalMessages: finalState?.totalMessages,
+        });
       }),
     );
 
@@ -185,7 +210,7 @@ export function createConversationMessageStore(
       }
     });
 
-    console.log(" Initialization complete");
+    _log("initialize:complete", { conversations: cellInfos.length });
   }
 
   /**
@@ -195,12 +220,13 @@ export function createConversationMessageStore(
   async function _loadMessagesFromDB(cellIdB64: CellIdB64, pagesToLoad: number): Promise<void> {
     try {
       const limit = pagesToLoad * MESSAGES_PER_PAGE;
+      _log("db:load:start", { cell: _cid(cellIdB64), pagesToLoad, limit });
 
       // Check if agent changed and clear cache if needed
       const cacheCleared = await messageDB.clearCacheOnAgentChange(cellIdB64);
 
       const dbMessages = await messageDB.getMessages(cellIdB64, limit);
-      console.log(` Retrieved ${dbMessages.length} messages from IndexedDB`);
+      _log("db:load:result", { cell: _cid(cellIdB64), count: dbMessages.length });
 
       if (dbMessages.length > 0) {
         // Sort messages by timestamp (newest to oldest) for natural chat order
@@ -232,8 +258,13 @@ export function createConversationMessageStore(
             oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) message in memory
           },
         }));
+        _log("db:load:memory-updated", {
+          cell: _cid(cellIdB64),
+          loadedPages: pagesToLoad,
+          memoryCount: messagesToKeep.length,
+        });
       } else {
-        console.warn(`No messages found in IndexedDB for cell ${cellIdB64.substring(0, 10)}...`);
+        _log("db:load:empty", { cell: _cid(cellIdB64) });
       }
     } catch (error) {
       console.error(" Error loading messages from DB:", error);
@@ -246,12 +277,19 @@ export function createConversationMessageStore(
   async function loadMoreMessages(cellIdB64: CellIdB64): Promise<number> {
     const currentState = get(paginationState)[cellIdB64];
     if (!currentState?.oldestLoadedTimestamp) {
+      _log("scroll-up:skip:no-oldest-timestamp", { cell: _cid(cellIdB64) });
       return 0;
     }
 
+    _log("scroll-up:start", {
+      cell: _cid(cellIdB64),
+      oldestLoadedTimestamp: currentState.oldestLoadedTimestamp,
+      loadedPages: currentState.loadedPages,
+    });
+
     try {
       // First, try to load from IndexedDB
-      const olderMessages = await messageDB.getOlderMessages(
+      let olderMessages = await messageDB.getOlderMessages(
         cellIdB64,
         currentState.oldestLoadedTimestamp,
         MESSAGES_PER_PAGE,
@@ -259,105 +297,140 @@ export function createConversationMessageStore(
 
       let loadedCount = 0;
 
+      _log("scroll-up:db-check", { cell: _cid(cellIdB64), olderDbCount: olderMessages.length });
+
       if (olderMessages.length > 0) {
-        // Get current messages and sort them by timestamp (newest to oldest) for natural chat order
-        const currentMessages = get(messages).data[cellIdB64] || {};
-        const currentMessagesList = Object.entries(currentMessages).sort(
-          ([, a], [, b]) => b.timestamp - a.timestamp,
-        );
-
-        // Combine older messages with current ones - older messages go at the end (bottom)
-        const allMessages = [...currentMessagesList, ...olderMessages];
-
-        // Calculate new loaded pages count
-        const newLoadedPages = currentState.loadedPages + 1;
-        const maxMessagesInMemory = newLoadedPages * MESSAGES_PER_PAGE;
-
-        // Apply memory management: keep only the most recent messages within limit
-        const messagesToKeep = allMessages.slice(0, maxMessagesInMemory);
-        const updatedMessages = Object.fromEntries(messagesToKeep);
-        messages.update((m) => ({
-          ...m,
-          [cellIdB64]: updatedMessages,
-        }));
-
-        paginationState.update((state) => ({
-          ...state,
-          [cellIdB64]: {
-            ...state[cellIdB64],
-            loadedPages: newLoadedPages,
-            totalMessages: messagesToKeep.length,
-            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp,
-          },
-        }));
+        _appendOlderMessagesToMemory(cellIdB64, olderMessages);
+        loadedCount = olderMessages.length;
+        _log("scroll-up:served-from-db", { cell: _cid(cellIdB64), loadedCount });
       }
 
-      // This shouldn't be done, it will only likely trigger timeouts.  Unless the node is zero-arc (which we are not doing in Volla), all loading should be local.
-      // Data will be synced quickly and so it's not worth trying to get it from the network.
+      // If local DB has no older rows, backfill DB using the standard
+      // bucket -> hashes -> missing entries pipeline, then try local DB again.
       if (olderMessages.length === 0) {
-        console.log(`Local DB empty. Using reliable backend sync...`);
+        _log("scroll-up:db-empty -> pipeline-backfill", { cell: _cid(cellIdB64) });
 
         try {
-          const cellId = decodeCellIdFromBase64(cellIdB64);
+          const backfilledCount = await _backfillOlderMessagesToDB(cellIdB64);
+          _log("scroll-up:pipeline-backfill:result", {
+            cell: _cid(cellIdB64),
+            backfilledCount,
+          });
 
-          // 1. Get the actual oldest message from memory to find its exact bucket
-          const currentMessages = get(messages).data[cellIdB64] || {};
-          const messagesList = Object.entries(currentMessages).sort(
-            ([, a], [, b]) => a.timestamp - b.timestamp,
-          );
-          const oldestMessage = messagesList[0]?.[1];
-
-          if (!oldestMessage) return 0;
-
-          // 2. Read the bucket directly from the message object (No timestamp math!)
-          const oldestBucket = oldestMessage.message.bucket;
-
-          // 3. Safely ask for just the next 3 older buckets
-          const targetBuckets = [oldestBucket - 1, oldestBucket - 2, oldestBucket - 3].filter(
-            (b) => b >= 0,
-          );
-
-          if (targetBuckets.length > 0) {
-            console.log(`Fetching buckets directly from DHT:`, targetBuckets);
-
-            const messageRecords = await client.getMessagesForBuckets(cellId, targetBuckets);
-
-            if (messageRecords.length > 0) {
-              const messageEntries = await Promise.allSettled(
-                messageRecords.map(
-                  async (m) =>
-                    [
-                      encodeHashToBase64(m.original_action),
-                      await _makeMessageExtended(cellId, m),
-                    ] as [ActionHashB64, MessageExtended],
-                ),
-              );
-
-              const validMessages = messageEntries
-                .filter((p) => p.status === "fulfilled")
-                .map((p: any) => p.value);
-
-              await messageDB.storeMessages(cellIdB64, validMessages);
-              await _loadMessagesFromDB(cellIdB64, currentState.loadedPages + 1);
-              _applyMemoryManagement(cellIdB64);
-
-              loadedCount = validMessages.length;
-              console.log(`[Network Fetch] Success! Downloaded and saved ${loadedCount} messages.`);
-            } else {
-              console.log(`[Network Fetch] DHT returned 0 messages for those buckets.`);
+          if (backfilledCount > 0) {
+            const stateAfterBackfill = get(paginationState)[cellIdB64];
+            if (!stateAfterBackfill?.oldestLoadedTimestamp) {
+              return loadedCount;
             }
+            olderMessages = await messageDB.getOlderMessages(
+              cellIdB64,
+              stateAfterBackfill.oldestLoadedTimestamp,
+              MESSAGES_PER_PAGE,
+            );
+            _log("scroll-up:db-retry-after-backfill", {
+              cell: _cid(cellIdB64),
+              olderDbCount: olderMessages.length,
+            });
+
+            if (olderMessages.length > 0) {
+              _appendOlderMessagesToMemory(cellIdB64, olderMessages);
+              loadedCount = olderMessages.length;
+              _log("scroll-up:served-after-backfill", {
+                cell: _cid(cellIdB64),
+                backfilledCount,
+                loadedCount,
+              });
+            }
+          } else {
+            _log("scroll-up:backfill-no-data", { cell: _cid(cellIdB64) });
           }
         } catch (error) {
-          console.error(` [Network Fetch] FAILED:`, error);
+          console.error(` [Pipeline Backfill] FAILED:`, error);
           loadedCount = 0;
         }
       }
+
+      _log("scroll-up:done", { cell: _cid(cellIdB64), loadedCount });
 
       return loadedCount;
     } catch (error) {
       console.error("Error loading more messages:", error);
       return 0;
     }
+  }
+
+  function _appendOlderMessagesToMemory(
+    cellIdB64: CellIdB64,
+    olderMessages: [ActionHashB64, MessageExtended][],
+  ) {
+    const currentState = get(paginationState)[cellIdB64] || { loadedPages: 0, totalMessages: 0 };
+
+    // Get current messages and sort them by timestamp (newest to oldest) for natural chat order
+    const currentMessages = get(messages).data[cellIdB64] || {};
+    const currentMessagesList = Object.entries(currentMessages).sort(([, a], [, b]) => b.timestamp - a.timestamp);
+    _log("memory:append-older:start", {
+      cell: _cid(cellIdB64),
+      currentMemoryCount: currentMessagesList.length,
+      olderIncomingCount: olderMessages.length,
+    });
+
+    // Combine older messages with current ones - older messages go at the end (bottom)
+    const allMessages = [...currentMessagesList, ...olderMessages];
+
+    // Calculate new loaded pages count
+    const newLoadedPages = currentState.loadedPages + 1;
+    const maxMessagesInMemory = newLoadedPages * MESSAGES_PER_PAGE;
+
+    // Apply memory management: keep only the most recent messages within limit
+    const messagesToKeep = allMessages.slice(0, maxMessagesInMemory);
+    const updatedMessages = Object.fromEntries(messagesToKeep);
+    messages.update((m) => ({
+      ...m,
+      [cellIdB64]: updatedMessages,
+    }));
+
+    paginationState.update((state) => ({
+      ...state,
+      [cellIdB64]: {
+        ...state[cellIdB64],
+        loadedPages: newLoadedPages,
+        totalMessages: messagesToKeep.length,
+        oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp,
+      },
+    }));
+
+    _log("memory:append-older:done", {
+      cell: _cid(cellIdB64),
+      newLoadedPages,
+      keptInMemory: messagesToKeep.length,
+    });
+  }
+
+  async function _backfillOlderMessagesToDB(cellIdB64: CellIdB64): Promise<number> {
+    const currentMessages = get(messages).data[cellIdB64] || {};
+    const messagesList = Object.entries(currentMessages).sort(([, a], [, b]) => a.timestamp - b.timestamp);
+    const oldestMessage = messagesList[0]?.[1];
+
+    if (!oldestMessage) return 0;
+
+    const oldestBucket = oldestMessage.message.bucket;
+    if (oldestBucket <= 0) return 0;
+
+    // Use the same underlying bucket/hash/entry pipeline used elsewhere.
+    _log("pipeline-backfill:start", {
+      cell: _cid(cellIdB64),
+      fromBucket: oldestBucket - 1,
+      oldestBucket,
+    });
+
+    return _loadMessagesFromBucketTargetCount(
+      true,
+      cellIdB64,
+      oldestBucket - 1,
+      TARGET_MESSAGES_COUNT,
+      3,
+      3,
+    );
   }
 
   async function sendMessage(key1: CellIdB64, content: string, files: LocalFile[]) {
@@ -699,6 +772,15 @@ export function createConversationMessageStore(
     bucketChunkSize: number = 3,
     maxBucketsToFetch?: number,
   ): Promise<number> {
+    _log("pipeline:bucket-target:start", {
+      cell: _cid(key1),
+      local,
+      bucket,
+      targetCount,
+      bucketChunkSize,
+      maxBucketsToFetch,
+    });
+
     // Fetch the list of buckets that contain the target count
     const bucketsToFetch = await _fetchBucketsTargetCount(
       key1,
@@ -708,13 +790,25 @@ export function createConversationMessageStore(
       bucketChunkSize,
       maxBucketsToFetch,
     );
+    _log("pipeline:bucket-target:fetched-buckets", {
+      cell: _cid(key1),
+      bucketsFetched: bucketsToFetch.length,
+      totalHashes: sum(bucketsToFetch.map(({ actionHashB64s }) => actionHashB64s.length)),
+    });
+
     const actionHashB64s = flatten(bucketsToFetch.map(({ actionHashB64s }) => actionHashB64s));
 
     // Filter only messages we are not storing already (check IndexedDB)
     const missingActionHashB64s = await _filterMissingMessagesFromDB(key1, actionHashB64s);
+    _log("pipeline:bucket-target:missing-after-db-filter", {
+      cell: _cid(key1),
+      totalHashes: actionHashB64s.length,
+      missingCount: missingActionHashB64s.length,
+    });
 
     // Fetch and save missing message data
     const count = await _loadMessages(key1, missingActionHashB64s);
+    _log("pipeline:bucket-target:done", { cell: _cid(key1), loadedCount: count });
 
     return count;
   }
@@ -740,6 +834,7 @@ export function createConversationMessageStore(
       (maxBucketsToFetch === undefined || bucketsToFetch.length <= maxBucketsToFetch)
     ) {
       const bucketsChunk = range(bucket, bucket - bucketChunkSize).filter((b) => b >= 0);
+      _log("pipeline:bucket-scan:chunk", { cell: _cid(key1), bucketsChunk, local });
       bucketsToFetch = [
         ...bucketsToFetch,
         ...(await Promise.all(
@@ -791,7 +886,12 @@ export function createConversationMessageStore(
   }
 
   async function _loadMessages(key1: CellIdB64, actionHashB64s: ActionHashB64[]): Promise<number> {
-    if (actionHashB64s.length === 0) return 0;
+    if (actionHashB64s.length === 0) {
+      _log("pipeline:load-messages:skip-no-missing-hashes", { cell: _cid(key1) });
+      return 0;
+    }
+
+    _log("pipeline:load-messages:start", { cell: _cid(key1), missingHashes: actionHashB64s.length });
 
     const cellId = decodeCellIdFromBase64(key1);
 
@@ -801,6 +901,10 @@ export function createConversationMessageStore(
       actionHashB64s.map((a) => decodeHashFromBase64(a)),
       false,
     );
+    _log("pipeline:load-messages:fetched-records", {
+      cell: _cid(key1),
+      fetchedRecords: messageRecords.length,
+    });
 
     // Transform Messages into MessageExtendeds
     const messageEntries = await Promise.allSettled(
@@ -817,7 +921,10 @@ export function createConversationMessageStore(
       .filter((p) => p.status === "fulfilled")
       .map((p) => p.value);
 
-    if (validMessages.length === 0) return 0;
+    if (validMessages.length === 0) {
+      _log("pipeline:load-messages:no-valid-messages", { cell: _cid(key1) });
+      return 0;
+    }
 
     console.group(" SAVING TO INDEXEDDB");
     console.log(`Cell ID: ${key1.substring(0, 15)}...`);
@@ -827,12 +934,17 @@ export function createConversationMessageStore(
 
     // Store in IndexedDB first
     await messageDB.storeMessages(key1, validMessages);
+    _log("pipeline:load-messages:stored-to-db", {
+      cell: _cid(key1),
+      storedCount: validMessages.length,
+    });
 
     // Load appropriate messages into memory store based on current pagination
     await _loadMessagesFromDB(key1, get(paginationState)[key1]?.loadedPages || 1);
 
     // Apply memory management to keep only recent messages
     _applyMemoryManagement(key1);
+    _log("pipeline:load-messages:done", { cell: _cid(key1), loadedCount: validMessages.length });
 
     return validMessages.length;
   }
@@ -1002,7 +1114,7 @@ export function deriveCellConversationMessageStore(
   conversationMessageStore: ConversationMessageStore,
   key: CellIdB64,
 ) {
-  const data = deriveGenericKeyValueStore(conversationMessageStore, key, [([, m]) => -m.timestamp]);
+  const data = deriveGenericKeyValueStore(conversationMessageStore, key, [([, m]) => m.timestamp]);
 
   return {
     ...data,

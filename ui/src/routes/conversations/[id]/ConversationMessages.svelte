@@ -6,7 +6,7 @@
   import NoticeMessage from "./NoticeMessage.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
-  import { afterUpdate, beforeUpdate, createEventDispatcher, onMount, tick } from "svelte";
+  import { afterUpdate, createEventDispatcher, onMount, tick } from "svelte";
 
   const dispatch = createEventDispatcher<{
     scrollAtTop: null;
@@ -23,14 +23,10 @@
 
   $: chronologicalMessages = messages;
 
-  // Update virtualizer count when messages change
-  $: if ($virtualizer) {
-    $virtualizer.setOptions({ count: chronologicalMessages?.length });
-  }
   const MESSAGE_FIXED_HEIGHT = 40;
   const UPDATE_TRIGGER_VIEW_OFFSET = 1000;
   const BUFFER_COUNT = 10;
-  const SCROLL_DEBOUNCE_MS = 150; // Debounce scroll events to prevent multiple triggers
+  const SCROLL_DEBOUNCE_MS = 150;
 
   let virtualizer = createVirtualizer({
     count: chronologicalMessages?.length,
@@ -39,6 +35,7 @@
     overscan: BUFFER_COUNT,
     useAnimationFrameWithResizeObserver: true,
   });
+
   // Update virtualizer count when messages change
   $: if ($virtualizer) $virtualizer.setOptions({ count: chronologicalMessages?.length });
 
@@ -64,46 +61,48 @@
 
   let isAtBottom = true;
   let wasAtBottom = true;
-  let isAtTop = false;
-  let wasAtTop = false;
   let scrollDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // ── Scroll-anchor state for prepending older messages ──
+  let anchorScrollTop = 0;
+  let anchorScrollHeight = 0;
+  let needsScrollAnchor = false;
+  let previousItemCount = 0;
+  // Track whether the previous loadingTop was true so we can detect the
+  // transition from loading → done and apply the scroll anchor at that moment.
+  let prevLoadingTop = false;
 
   onMount(async () => {
     if (chronologicalMessages.length > 0 && containerEl) {
       isAtBottom = true;
       wasAtBottom = true;
-      isAtTop = false;
-      wasAtTop = false;
-
       await scrollToBottom();
     }
   });
 
-  let previousScrollHeight = 0;
-  let previousScrollTop = 0;
-  let previousItemCount = 0;
-  let shouldMaintainScroll = false;
-  // let isFirstFetch = true;
-
-
-beforeUpdate(() => {
-    if (shouldMaintainScroll && containerEl && previousScrollHeight === 0) {
-      previousScrollHeight = containerEl.scrollHeight;
-      previousScrollTop = containerEl.scrollTop;
+  // ── Scroll-anchor restoration ──
+  // We captured scrollTop / scrollHeight *before* the load started (no spinner,
+  // fewer messages).  We restore when the load finishes (loadingTop transitions
+  // true → false) so the spinner height cancels out and we only compensate for
+  // the new messages that were prepended.
+  //
+  // IMPORTANT: needsScrollAnchor must be cleared *before* assigning scrollTop.
+  // Setting scrollTop fires the scroll event synchronously in the browser.
+  // If needsScrollAnchor were still true at that point, handleScroll would see
+  // it and skip the debounce, leaving the user stranded in the trigger zone
+  // without an automatic re-trigger for the next page.
+  afterUpdate(() => {
+    if (needsScrollAnchor && containerEl && prevLoadingTop && !loadingTop) {
+      const newScrollHeight = containerEl.scrollHeight;
+      const heightDiff = newScrollHeight - anchorScrollHeight;
+      // Clear the flag first so the synchronous scroll event fired by the
+      // scrollTop assignment below can start the next debounce immediately.
+      needsScrollAnchor = false;
+      if (heightDiff > 0) {
+        containerEl.scrollTop = anchorScrollTop + heightDiff;
+      }
     }
-  });
-
-afterUpdate(() => {
-    if (shouldMaintainScroll && !loadingTop && containerEl && previousScrollHeight > 0) {
-      const heightDifference = containerEl.scrollHeight - previousScrollHeight;
-      
-      // Seamlessly shift the scrollbar down by the exact height of the new messages
-      containerEl.scrollTop = previousScrollTop + heightDifference;
-
-      // Reset the locks for the next time the user scrolls up
-      shouldMaintainScroll = false;
-      previousScrollHeight = 0;
-    }
+    prevLoadingTop = loadingTop;
   });
 
   function handleScroll() {
@@ -112,32 +111,38 @@ afterUpdate(() => {
     const { scrollTop, scrollHeight, clientHeight } = containerEl;
     const scrollBottom = scrollHeight - scrollTop - clientHeight;
 
-    const isAtBottom = scrollBottom < 5;
-    const isAtTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
+    const atBottom = scrollBottom < 5;
+    const atTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
 
-    // Trigger Infinite Scroll
-    if (isAtTop && !wasAtTop && !loadingTop) {
+    // Trigger infinite-scroll when near the top.
+    // Guards: not already loading, no pending anchor restoration.
+    if (atTop && !loadingTop && !needsScrollAnchor) {
       if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
-      
+
       scrollDebounceTimer = setTimeout(() => {
-        shouldMaintainScroll = true;
+        // Capture scroll state *before* the spinner appears or data loads
+        if (containerEl) {
+          anchorScrollTop = containerEl.scrollTop;
+          anchorScrollHeight = containerEl.scrollHeight;
+          needsScrollAnchor = true;
+        }
         dispatch("scrollAtTop");
         scrollDebounceTimer = undefined;
       }, SCROLL_DEBOUNCE_MS);
     }
 
-    wasAtBottom = isAtBottom;
-    wasAtTop = isAtTop;
+    wasAtBottom = atBottom;
   }
 
-  // logic for triggering fetch event, newly_added_items-scroll-down logic
- $: {
- const currentItemCount = chronologicalMessages?.length || 0;
-    
-    if (initialScrollReady && wasAtBottom && currentItemCount > previousItemCount) {
+  // Auto-scroll to bottom when new messages arrive while the user was already
+  // at the bottom (e.g. incoming message or own send).
+  $: {
+    const currentItemCount = chronologicalMessages?.length || 0;
+
+    if (initialScrollReady && wasAtBottom && currentItemCount > previousItemCount && !needsScrollAnchor) {
       scrollToBottom("smooth");
     }
-    
+
     previousItemCount = currentItemCount;
   }
 

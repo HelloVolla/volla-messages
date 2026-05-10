@@ -306,7 +306,7 @@
         <ConversationMessages
           loadingTop={loadingMessagesOld}
           cellIdB64={$page.params.id}
-          messages={$messages.list.reverse()}
+          messages={$messages.list}
           on:delete={(e) => {
             deleteMessageActionHashB64 = e.detail;
             showDeleteDialog = true;
