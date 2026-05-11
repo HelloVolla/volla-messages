@@ -23,7 +23,10 @@
 
   $: chronologicalMessages = messages;
 
-  const MESSAGE_FIXED_HEIGHT = 40;
+  // A conservatively large estimated height. Real heights are measured
+  // by ResizeObserver; this value only affects the very first render frame.
+  const MESSAGE_ESTIMATED_HEIGHT = 80;
+  // How close to the top (px) before we start loading older messages.
   const UPDATE_TRIGGER_VIEW_OFFSET = 1000;
   const BUFFER_COUNT = 10;
   const SCROLL_DEBOUNCE_MS = 150;
@@ -31,75 +34,77 @@
   let virtualizer = createVirtualizer({
     count: chronologicalMessages?.length,
     getScrollElement: () => containerEl,
-    estimateSize: () => MESSAGE_FIXED_HEIGHT,
+    estimateSize: () => MESSAGE_ESTIMATED_HEIGHT,
     overscan: BUFFER_COUNT,
     useAnimationFrameWithResizeObserver: true,
   });
 
-  // Update virtualizer count when messages change
   $: if ($virtualizer) $virtualizer.setOptions({ count: chronologicalMessages?.length });
 
   function measure(node: HTMLElement) {
     const index = Number(node.dataset.index);
     if (isNaN(index)) return;
-
     if (!$virtualizer) return;
+
     const observer = new ResizeObserver(() => {
       requestAnimationFrame(() => {
         $virtualizer.measureElement(node);
       });
     });
-
     observer.observe(node);
 
-    return {
-      destroy() {
-        observer.disconnect();
-      },
-    };
+    return { destroy() { observer.disconnect(); } };
   }
 
-  let isAtBottom = true;
   let wasAtBottom = true;
   let scrollDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-
-  // ── Scroll-anchor state for prepending older messages ──
-  let anchorScrollTop = 0;
-  let anchorScrollHeight = 0;
-  let needsScrollAnchor = false;
   let previousItemCount = 0;
-  // Track whether the previous loadingTop was true so we can detect the
-  // transition from loading → done and apply the scroll anchor at that moment.
+
+  // ── Scroll-up anchor ────────────────────────────────────────────────────────
+  //
+  // Instead of raw scrollHeight arithmetic (which relies on estimated heights
+  // that are inaccurate until ResizeObserver fires), we anchor to the HASH of
+  // the first item visible at the trigger moment.  After older messages are
+  // prepended and measured, we call virtualizer.scrollToIndex() for that item's
+  // new index, which uses the virtualizer's own (measurement-aware) positioning.
+  //
+  // Flow:
+  //   1. debounce fires → capture anchorHash = first-visible item hash
+  //                      → needsScrollAnchor = true, dispatch("scrollAtTop")
+  //   2. loadMoreMessages runs (loadingTop: false→true→false)
+  //   3. afterUpdate detects the false→true→false transition
+  //      → find anchorHash's new index in chronologicalMessages
+  //      → scrollToIndex(newIndex, { align:'start' })
+  //
+  // Clearing needsScrollAnchor before scrollToIndex ensures the synchronous
+  // scroll event from scrollToIndex can safely restart the debounce.
+  // ──────────────────────────────────────────────────────────────────────────
+  let anchorHash: ActionHashB64 | null = null;
+  let needsScrollAnchor = false;
   let prevLoadingTop = false;
 
   onMount(async () => {
     if (chronologicalMessages.length > 0 && containerEl) {
-      isAtBottom = true;
       wasAtBottom = true;
       await scrollToBottom();
     }
   });
 
-  // ── Scroll-anchor restoration ──
-  // We captured scrollTop / scrollHeight *before* the load started (no spinner,
-  // fewer messages).  We restore when the load finishes (loadingTop transitions
-  // true → false) so the spinner height cancels out and we only compensate for
-  // the new messages that were prepended.
-  //
-  // IMPORTANT: needsScrollAnchor must be cleared *before* assigning scrollTop.
-  // Setting scrollTop fires the scroll event synchronously in the browser.
-  // If needsScrollAnchor were still true at that point, handleScroll would see
-  // it and skip the debounce, leaving the user stranded in the trigger zone
-  // without an automatic re-trigger for the next page.
   afterUpdate(() => {
-    if (needsScrollAnchor && containerEl && prevLoadingTop && !loadingTop) {
-      const newScrollHeight = containerEl.scrollHeight;
-      const heightDiff = newScrollHeight - anchorScrollHeight;
-      // Clear the flag first so the synchronous scroll event fired by the
-      // scrollTop assignment below can start the next debounce immediately.
+    // Detect the loadingTop true→false transition (load just completed).
+    if (needsScrollAnchor && prevLoadingTop && !loadingTop && anchorHash) {
+      const newIndex = chronologicalMessages.findIndex(([hash]) => hash === anchorHash);
+
+      // Clear before scrollToIndex so the resulting scroll event can
+      // immediately restart the debounce for the next page.
       needsScrollAnchor = false;
-      if (heightDiff > 0) {
-        containerEl.scrollTop = anchorScrollTop + heightDiff;
+      anchorHash = null;
+
+      if (newIndex >= 0) {
+        // scrollToIndex is measurement-aware: it uses the virtualizer's
+        // internally cached item sizes (updated by ResizeObserver), not
+        // the raw estimated heights.
+        $virtualizer.scrollToIndex(newIndex, { align: "start", behavior: "auto" });
       }
     }
     prevLoadingTop = loadingTop;
@@ -114,18 +119,29 @@
     const atBottom = scrollBottom < 5;
     const atTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
 
-    // Trigger infinite-scroll when near the top.
-    // Guards: not already loading, no pending anchor restoration.
+    // Trigger infinite-scroll upward.
+    // Guards: not already loading, no pending anchor restore.
     if (atTop && !loadingTop && !needsScrollAnchor) {
       if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
 
       scrollDebounceTimer = setTimeout(() => {
-        // Capture scroll state *before* the spinner appears or data loads
-        if (containerEl) {
-          anchorScrollTop = containerEl.scrollTop;
-          anchorScrollHeight = containerEl.scrollHeight;
-          needsScrollAnchor = true;
+        // Capture the first visible item's hash as the scroll anchor.
+        // This is measurement-independent: we scroll to this item's new
+        // index after the load, regardless of estimated item heights.
+        if (containerEl && $virtualizer) {
+          const items = $virtualizer.getVirtualItems();
+          // Find the first item whose bottom edge is past the scrollTop
+          // (i.e., actually in the viewport, not just overscan).
+          const currentScrollTop = containerEl.scrollTop;
+          const firstVisible = items.find(
+            (item) => item.start + item.size > currentScrollTop,
+          );
+          if (firstVisible != null) {
+            anchorHash = chronologicalMessages[firstVisible.index]?.[0] ?? null;
+          }
         }
+
+        needsScrollAnchor = true;
         dispatch("scrollAtTop");
         scrollDebounceTimer = undefined;
       }, SCROLL_DEBOUNCE_MS);
@@ -134,12 +150,16 @@
     wasAtBottom = atBottom;
   }
 
-  // Auto-scroll to bottom when new messages arrive while the user was already
-  // at the bottom (e.g. incoming message or own send).
+  // Auto-scroll to bottom when new messages arrive while the user is at bottom.
   $: {
     const currentItemCount = chronologicalMessages?.length || 0;
 
-    if (initialScrollReady && wasAtBottom && currentItemCount > previousItemCount && !needsScrollAnchor) {
+    if (
+      initialScrollReady &&
+      wasAtBottom &&
+      currentItemCount > previousItemCount &&
+      !needsScrollAnchor
+    ) {
       scrollToBottom("smooth");
     }
 
@@ -152,22 +172,15 @@
     const lastIndex = chronologicalMessages.length - 1;
     if (lastIndex < 0) return;
 
+    // Overshoot to guarantee we land at the very bottom of the container.
     let attempts = 0;
     while (attempts < 5) {
-      // making sure the initial scroll lands completely at bottom edge of the container
-      $virtualizer.scrollToIndex(lastIndex + 999, {
-        align: "start",
-        behavior,
-      });
-
+      $virtualizer.scrollToIndex(lastIndex + 999, { align: "start", behavior });
       await new Promise((resolve) => setTimeout(resolve, 50));
-
       attempts++;
     }
 
-    requestAnimationFrame(() => {
-      initialScrollReady = true;
-    });
+    requestAnimationFrame(() => { initialScrollReady = true; });
   }
 
   async function waitForListLoad() {
@@ -176,14 +189,12 @@
     return new Promise((resolve) => {
       const check = () => {
         const lastIndex = chronologicalMessages?.length - 1;
-
         if ($virtualizer.getVirtualItems().length > 0 && lastIndex >= 0) {
           resolve({});
         } else {
-          requestAnimationFrame(check); // keep checking on next frame
+          requestAnimationFrame(check);
         }
       };
-
       check();
     });
   }
@@ -193,38 +204,29 @@
     selected = selected === actionHashB64 ? undefined : isMobile() ? undefined : actionHashB64;
   }
 
-  function handleClickOutside() {
-    selected = undefined;
-  }
+  function handleClickOutside() { selected = undefined; }
 
   function handlePress(actionHashB64: ActionHashB64) {
-    if (isMobile()) {
-      selected = actionHashB64;
-    }
+    if (isMobile()) selected = actionHashB64;
   }
 
   function shouldShowDaySeparator(currentIndex: number) {
     if (currentIndex === 0) return true;
-
     const currentMsg = chronologicalMessages?.[currentIndex]?.[1];
     const prevMsg = chronologicalMessages?.[currentIndex - 1]?.[1];
-
     if (!currentMsg || !prevMsg) return true;
-
-    return !isSameDay(new Date(currentMsg.timestamp / 1000), new Date(prevMsg.timestamp / 1000));
+    return !isSameDay(
+      new Date(currentMsg.timestamp / 1000),
+      new Date(prevMsg.timestamp / 1000),
+    );
   }
 
   function shouldShowAuthor(currentIndex: number) {
     if (currentIndex === 0) return true;
-
     const currentMsg = chronologicalMessages[currentIndex][1];
     const prevMsg = chronologicalMessages[currentIndex - 1][1];
-
     if (!currentMsg || !prevMsg) return true;
-
-    // Always show author after a system notice
     if (prevMsg.message.message_type === MessageType.System) return true;
-
     return (
       currentMsg.authorAgentPubKeyB64 !== prevMsg.authorAgentPubKeyB64 ||
       !isWithinFiveMinutes(
@@ -245,16 +247,15 @@
   <ConversationHeader {cellIdB64} />
   <div class="flex h-4 items-center justify-center"></div>
 
-   <!-- Loading indicator when fetching older messages -->
+  <!-- Loading indicator when fetching older messages -->
   {#if loadingTop}
     <div class="flex h-12 items-center justify-center">
       <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"></div>
     </div>
   {/if}
 
-  <!-- This inner div effectively holds the virtualizer's content scroll height -->
+  <!-- Virtualizer content container -->
   <div style="height: {$virtualizer.getTotalSize()}px; position: relative; width: 100%;">
-    <!-- Virtualized message items -->
     {#each $virtualizer.getVirtualItems() as virtualRow (virtualRow.key)}
       {@const currentIndex = virtualRow.index}
       {@const [actionHashB64, messageExtended] = chronologicalMessages[currentIndex]}
@@ -265,7 +266,6 @@
         use:measure
       >
         <div class="flex flex-shrink-0 flex-col">
-          <!-- Day separator -->
           {#if shouldShowDaySeparator(currentIndex)}
             <div class="text-secondary-400 dark:text-secondary-300 my-4 px-4 text-center text-xs">
               {new Date(messageExtended.timestamp / 1000).toLocaleDateString("en-US", {
@@ -276,7 +276,6 @@
             </div>
           {/if}
 
-          <!-- Message content -->
           {#if messageExtended.message.message_type === MessageType.System}
             <NoticeMessage {cellIdB64} message={messageExtended} />
           {:else}
@@ -295,7 +294,6 @@
             </div>
           {/if}
 
-          <!-- Padding at the very end of the chat -->
           {#if currentIndex === chronologicalMessages?.length - 1}
             <div class="flex h-4 items-center justify-center"></div>
           {/if}
