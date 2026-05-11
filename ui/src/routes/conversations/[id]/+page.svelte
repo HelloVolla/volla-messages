@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { decodeHashFromBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
+  import type { ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import { getContext, onDestroy, onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
@@ -26,7 +26,6 @@
     type MergedProfileContactInviteJoinedStore,
   } from "$store/MergedProfileContactInviteJoinedStore";
   import { POLLING_INTERVAL_FAST, POLLING_INTERVAL_SLOW } from "$config";
-  import SvgIcon from "$lib/SvgIcon.svelte";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
   import {
@@ -39,19 +38,25 @@
   const conversationStore = getContext<{ getStore: () => ConversationStore }>(
     "conversationStore",
   ).getStore();
+
   const profileStore = getContext<{ getStore: () => ProfileStore }>("profileStore").getStore();
+
   const mergedProfileContactInviteJoinedStore = getContext<{
     getStore: () => MergedProfileContactInviteJoinedStore;
   }>("mergedProfileContactInviteJoinedStore").getStore();
+
   const myPubKeyB64 = getContext<{ getMyPubKeyB64: () => AgentPubKeyB64 }>(
     "myPubKey",
   ).getMyPubKeyB64();
+
   const conversationTitleStore = getContext<{
     getStore: () => ConversationTitleStore;
   }>("conversationTitleStore").getStore();
+
   const conversationMessageStore = getContext<{
     getStore: () => ConversationMessageStore;
   }>("conversationMessageStore").getStore();
+
   const networkStatsStore = getContext<{
     getStore: () => NetworkStatsStore;
   }>("networkStatsStore").getStore();
@@ -65,19 +70,21 @@
     $page.params.id,
   );
   let conversationNetwork = deriveConversationNetworkStore(networkStatsStore, $page.params.id);
+
   let showConversationNetworkPanel = false;
 
-  let configTimeout: NodeJS.Timeout;
-  let agentTimeout: NodeJS.Timeout;
-  let messageTimeout: NodeJS.Timeout;
+  let configTimeout: ReturnType<typeof setTimeout>;
+  let agentTimeout: ReturnType<typeof setTimeout>;
+  let messageTimeout: ReturnType<typeof setTimeout>;
 
   let conversationMessageInputRef: HTMLInputElement;
   let sending = false;
   let loadingMessagesNew = false;
   let loadingMessagesOld = false;
+  let userIsPagingHistory = false;
 
   let showDeleteDialog = false;
-  let deleteMessageActionHashB64: undefined | ActionHashB64 = undefined;
+  let deleteMessageActionHashB64: ActionHashB64 | undefined = undefined;
   let isDeletingMessage = false;
 
   let isFirstConfigLoad = true;
@@ -91,7 +98,7 @@
 
     isDeletingMessage = true;
     try {
-      await messages.deleteMessage($page.params.id, deleteMessageActionHashB64);
+      await messages.deleteMessage(deleteMessageActionHashB64);
       toast.success($t("common.delete_message_success"));
     } catch (err) {
       console.error(err);
@@ -102,11 +109,8 @@
     deleteMessageActionHashB64 = undefined;
   }
 
-  /**
-   * Fetch agent profiles every 2s, until at least 2 profiles are received.
-   */
   async function loadProfiles() {
-    await profiles.load(true); 
+    await profiles.load(true);
     isFirstProfilesLoad = false;
     clearTimeout(agentTimeout);
 
@@ -121,14 +125,8 @@
     }
   }
 
-  /**
-   * Fetch config every 2s, until it is received.
-   *
-   * Note that if the config is updated, the latest version will not appear until
-   * navigating away from and back to this page.
-   */
   async function loadConfig() {
-    await conversation.loadConfig(true); 
+    await conversation.loadConfig(true);
     isFirstConfigLoad = false;
     clearTimeout(configTimeout);
 
@@ -143,23 +141,18 @@
     }
   }
 
-  /**
-   * Fetch messages from current bucket every 2s, until any messages are received.
-   */
   async function loadMessages() {
-    clearTimeout(messageTimeout);
-    await loadMessagesInCurrentBucket(true); // allways load local because we don't want to trigger a network get that can take a long time.
-    isFirstLoadMessages = false;
+     clearTimeout(messageTimeout);
 
-    if ($messages.count === 0) {
-      messageTimeout = setTimeout(() => {
-        loadMessages();
-      }, POLLING_INTERVAL_FAST);
-    } else {
-      messageTimeout = setTimeout(() => {
-        loadMessages();
-      }, POLLING_INTERVAL_SLOW);
-    }
+  if (!loadingMessagesOld && !userIsPagingHistory && !loadingMessagesNew) {
+    await loadMessagesInCurrentBucket(true);
+    isFirstLoadMessages = false;
+  }
+
+  messageTimeout = setTimeout(
+    loadMessages,
+    $messages.count === 0 ? POLLING_INTERVAL_FAST : POLLING_INTERVAL_SLOW,
+  );
   }
 
   const loadData = () => {
@@ -168,33 +161,29 @@
     loadMessages();
   };
 
-  async function loadMessagesInPreviousBucket() {
-    if (loadingMessagesOld) return;
+async function loadMoreMessages() {
+  if (loadingMessagesOld) return;
 
-    loadingMessagesOld = true;
-    try {
-      await messages.loadMessagesInPreviousBucketTargetCount(true); // allways load local because we don't want to trigger a network get that can take a long time.
-    } catch (e) {
-      console.error(e);
-    }
+  loadingMessagesOld = true;
+  userIsPagingHistory = true;
+
+  try {
+    const loadedCount = await messages.loadMoreMessages();
+    console.log("loadedCount:", loadedCount);
+  } catch (e) {
+    console.error("Error loading more messages:", e);
+  } finally {
     loadingMessagesOld = false;
-  }
 
-  async function loadMoreMessages() {
-    if (loadingMessagesOld) return;
-
-    loadingMessagesOld = true;
-    try {
-      const loadedCount = await messages.loadMoreMessages();
-      console.log(`Loaded ${loadedCount} more messages for infinite scroll`);
-    } catch (e) {
-      console.error("Error loading more messages:", e);
-    }
-    loadingMessagesOld = false;
+    setTimeout(() => {
+      userIsPagingHistory = false;
+    }, 1200);
   }
+}
 
   async function loadMessagesInCurrentBucket(local: boolean) {
     if (loadingMessagesNew) return;
+
     console.log("loadMessagesInCurrentBucket");
     loadingMessagesNew = true;
     try {
@@ -208,8 +197,7 @@
   async function sendMessage(text: string, files: LocalFile[]) {
     if (sending) return;
 
-    // Focus on input field to ensure the keyboard remains open after sending message on android
-    conversationMessageInputRef.focus();
+    conversationMessageInputRef?.focus();
 
     sending = true;
     try {
@@ -222,14 +210,11 @@
   }
 
   onMount(() => {
-    conversationMessageInputRef.focus();
-
+    conversationMessageInputRef?.focus();
     loadData();
-
     conversation.updateUnread(false);
   });
 
-  // Cleanup
   onDestroy(() => {
     clearTimeout(agentTimeout);
     clearTimeout(configTimeout);
@@ -238,13 +223,11 @@
 
   async function dumpAll() {
     console.log("Dumping all");
-    
-    // Import and dump IndexedDB contents
+
     const { messageDB } = await import("$store/db/MessageDatabase");
     await messageDB.debugDumpAll();
-    
-    // Also get all messages from Holochain
-    messages.debugGetAllMessages();
+
+    await messages.debugGetAllMessages();
   }
 </script>
 
@@ -295,13 +278,10 @@
 <div class="mx-auto flex w-full flex-1 flex-col items-center justify-center overflow-hidden">
   <div class="relative flex w-full grow flex-col items-center overflow-hidden pt-6">
     {#if $messages.count === 0 && iAmProgenitor && $joined.count === 1}
-      <!-- No messages yet, no one has joined, and this is a conversation I created. Display a helpful message to invite others -->
       <ConversationEmpty cellIdB64={$page.params.id} />
     {:else if $messages.count === 0}
-      <!-- No messages yet, display conversation header -->
       <ConversationHeader cellIdB64={$page.params.id} />
     {:else}
-      <!-- Display conversation messages with proper height container -->
       <div class="w-full flex-1 overflow-hidden">
         <ConversationMessages
           loadingTop={loadingMessagesOld}
