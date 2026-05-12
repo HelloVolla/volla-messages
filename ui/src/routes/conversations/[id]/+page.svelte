@@ -91,7 +91,13 @@
   let isFirstProfilesLoad = true;
   let isFirstLoadMessages = true;
 
+  let noMoreOlderMessages = false;
+
   $: iAmProgenitor = $conversation.dnaProperties.progenitor === myPubKeyB64;
+
+  $: if ($page.params.id) {
+  noMoreOlderMessages = false;
+}
 
   async function handleDeleteMessage() {
     if (deleteMessageActionHashB64 === undefined) return;
@@ -162,7 +168,7 @@
   };
 
 async function loadMoreMessages() {
-  if (loadingMessagesOld) return;
+  if (loadingMessagesOld || noMoreOlderMessages) return;
 
   loadingMessagesOld = true;
   userIsPagingHistory = true;
@@ -170,6 +176,11 @@ async function loadMoreMessages() {
   try {
     const loadedCount = await messages.loadMoreMessages();
     console.log("loadedCount:", loadedCount);
+
+    if (loadedCount === 0) {
+      noMoreOlderMessages = true;
+      console.log("History exhausted at UI level");
+    }
   } catch (e) {
     console.error("Error loading more messages:", e);
   } finally {

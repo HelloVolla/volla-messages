@@ -42,7 +42,8 @@ interface PaginationState {
 
 const HARD_MEMORY_LIMIT = 500;
 
-export interface ConversationMessageStore extends GenericKeyValueStore<MessageExtended> {
+export interface ConversationMessageStore
+  extends GenericKeyValueStore<Record<ActionHashB64, MessageExtended>> {
     initialize: () => Promise<void>;
   loadMessagesInCurrentBucketTargetCount: (
     local: boolean,
@@ -93,8 +94,8 @@ export function createConversationMessageStore(
     return _getSortedMemoryEntries(cellIdB64)[0]?.[1];
   }
 
-const messages = createGenericKeyValueStore<MessageExtended>();
-  const paginationState = writable<Record<string, PaginationState>>({});
+const messages = createGenericKeyValueStore<Record<ActionHashB64, MessageExtended>>();
+const paginationState = writable<Record<string, PaginationState>>({});
 
   const { subscribe } = derived(
     [messages, mergedProfileContactInviteStore],
@@ -218,6 +219,11 @@ const messages = createGenericKeyValueStore<MessageExtended>();
       return 0;
     }
 
+    if (state.dbExhausted && state.networkExhausted) {
+      console.log("Skip: history exhausted");
+      console.groupEnd();
+    return 0;
+}
     console.log("paginationState(before):", state);
 
     const memoryBefore = _getSortedMemoryEntries(cellIdB64);
@@ -332,63 +338,86 @@ const messages = createGenericKeyValueStore<MessageExtended>();
     }
 
     console.log("No older messages found locally.");
+    markHistoryExhausted(cellIdB64);
     console.groupEnd();
     return 0;
   }
 
-  async function loadMessagesInPreviousBucketTargetCount(
-    local: boolean,
-    key1: CellIdB64,
-    targetCount = TARGET_MESSAGES_COUNT,
-    bucketChunkSize = 3,
-    maxBucketsToFetch?: number,
-  ): Promise<number> {
-    console.group(`[MessageFlow][previousBucket] ${_cid(key1)}`);
-    console.log("local:", local);
+  function markHistoryExhausted(cellIdB64: CellIdB64): void {
+  _setPaginationPartial(cellIdB64, {
+    dbExhausted: true,
+    networkExhausted: true,
+  });
 
-    const memory = _getSortedMemoryEntries(key1);
-    const oldestMessage = memory[0]?.[1];
+  _log("pagination:exhausted", { cell: _cid(cellIdB64) });
+}
 
-    console.log(
-      "memory oldest:",
-      oldestMessage
-        ? {
-            timestamp: oldestMessage.timestamp,
-            bucket: oldestMessage.message.bucket,
-            hash: memory[0][0],
-          }
-        : null,
-    );
+ async function loadMessagesInPreviousBucketTargetCount(
+  local: boolean,
+  key1: CellIdB64,
+  targetCount = TARGET_MESSAGES_COUNT,
+  bucketChunkSize = 3,
+  maxBucketsToFetch?: number,
+): Promise<number> {
+  const cursor = get(paginationState)[key1]?.oldestMemoryTimestamp;
 
-    if (!oldestMessage) {
-      console.log("No oldest message in memory");
-      console.groupEnd();
-      return 0;
-    }
+  console.group(`[MessageFlow][previousBucket] ${_cid(key1)}`);
+  console.log("local:", local);
+  console.log("cursor:", cursor);
 
-    const oldestBucket = oldestMessage.message.bucket;
-    console.log("using oldest message.bucket:", oldestBucket);
-    console.log("requesting start bucket:", oldestBucket - 1);
-
-    if (oldestBucket <= 0) {
-      console.log("Already at earliest bucket");
-      console.groupEnd();
-      return 0;
-    }
-
-    const result = await _loadFromBucketPipeline(
-      local,
-      key1,
-      oldestBucket - 1,
-      targetCount,
-      bucketChunkSize,
-      maxBucketsToFetch,
-    );
-
-    console.log("result:", result);
+  if (!cursor) {
+    console.log("No cursor");
     console.groupEnd();
-    return result;
+    return 0;
   }
+
+  const memory = Object.entries(get(messages).data[key1] || {}).sort(
+    ([, a], [, b]) => a.timestamp - b.timestamp,
+  );
+
+  const oldestMsg = memory[0]?.[1];
+
+  console.log(
+    "memory oldest:",
+    oldestMsg
+      ? {
+          timestamp: oldestMsg.timestamp,
+          bucket: oldestMsg.message.bucket,
+        }
+      : null,
+  );
+
+  if (!oldestMsg) {
+    console.log("No oldest message in memory");
+    console.groupEnd();
+    return 0;
+  }
+
+  const oldestBucket = oldestMsg.message.bucket;
+  console.log("using oldest message.bucket:", oldestBucket);
+
+  if (oldestBucket <= 0) {
+    console.log("Already at earliest bucket");
+    markHistoryExhausted(key1);
+    console.groupEnd();
+    return 0;
+  }
+
+  console.log("requesting start bucket:", oldestBucket - 1);
+
+  const result = await _loadFromBucketPipeline(
+    local,
+    key1,
+    oldestBucket - 1,
+    targetCount,
+    bucketChunkSize,
+    maxBucketsToFetch,
+  );
+
+  console.log("result:", result);
+  console.groupEnd();
+  return result;
+}
 
   function _mergeOlderIntoMemory(
     cellIdB64: CellIdB64,
@@ -973,7 +1002,7 @@ const messages = createGenericKeyValueStore<MessageExtended>();
 }
 
 export interface CellConversationMessageStore
-  extends GenericKeyValueStoreReadable<MessageExtended> {
+  extends GenericKeyValueStoreReadable<Record<ActionHashB64, MessageExtended>> {
   initialize: () => Promise<void>;
   loadMessagesInCurrentBucketTargetCount: (
     local: boolean,
