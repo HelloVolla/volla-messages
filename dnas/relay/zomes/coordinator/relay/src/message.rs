@@ -45,11 +45,11 @@ pub fn create_message(input: SendMessageInput) -> ExternResult<Record> {
         .filter(|a| a != &my_pub_key)
         .collect();
     let _ = send_remote_signal(
-        MessageRecord {
+        crate::RemoteSignalPayload::Message(MessageRecord {
             message: Some(input.message),
             original_action: message_hash.clone(),
             signed_action: record.signed_action().clone(),
-        },
+        }),
         agents,
     );
 
@@ -311,11 +311,11 @@ pub fn delete_message(input: DeleteMessageInput) -> ExternResult<ActionHash> {
         .filter(|a| a != &my_pub_key)
         .collect();
     let _ = send_remote_signal(
-        MessageRecord {
+        crate::RemoteSignalPayload::Message(MessageRecord {
             message: None,
             original_action: input.original_message_hash,
             signed_action: delete_record.signed_action().clone(),
-        },
+        }),
         agents,
     );
 

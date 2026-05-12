@@ -57,6 +57,7 @@
   "files": "{{count}} {{count; 1:Datei; default:Dateien;}}",
   "invalid_contact_code": "Ungültiger Kontakt-Code",
   "join_conversation": "An der Konversation teilnehmen",
+  "joined_the_conversation": "ist der Unterhaltung beigetreten",
   "jump_in": "Hineinspringen",
   "large_file_error": "Anhänge dürfen maximal {{maxSize}} groß sein",
   "last": "Letzter",

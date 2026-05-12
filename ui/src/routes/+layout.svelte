@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AgentPubKeyB64, AppClient, CellId } from "@holochain/client";
   import { AppWebsocket, CellType, encodeHashToBase64 } from "@holochain/client";
+  import { writable, type Writable } from "svelte/store";
   import { onMount, setContext } from "svelte";
   import { t } from "$translations";
   import { createSignalHandler } from "$store/SignalHandler";
@@ -91,6 +92,8 @@
   let mergedProfileContactInviteJoinedStore: MergedProfileContactInviteJoinedStore;
   let conferenceStore: SimplePeerConferenceStore;
   let networkStatsStore: NetworkStatsStore;
+  let relayClient: RelayClient;
+  let onlinePeers: Writable<Set<AgentPubKeyB64>> = writable(new Set());
 
   // Is the holochain client connected?
   let isClientConnected = false;
@@ -267,7 +270,7 @@
   async function initStores() {
     try {
       // Setup stores
-      const relayClient = new RelayClient(client, provisionedRelayCellId);
+      relayClient = new RelayClient(client, provisionedRelayCellId);
       myPubKeyB64 = encodeHashToBase64(client.myPubKey);
       contactStore = createContactStore(relayClient);
       profileStore = createProfileStore(relayClient);
@@ -311,7 +314,7 @@
       conferenceStore = createSimplePeerConferenceStore(relayClient);
 
       // Initialize network stats store
-      networkStatsStore = createNetworkStatsStore(client);
+      networkStatsStore = createNetworkStatsStore(client, relayClient);
       networkStatsStore.start();
 
       // Initialize store data
@@ -319,6 +322,9 @@
       await profileStore.initialize();
       await conversationStore.initialize();
       await conversationMessageStore.initialize();
+
+      // Initialize signal handler
+      createSignalHandler(relayClient, conversationStore, conversationMessageStore, onlinePeers);
 
       isStoresSetup = true;
 
@@ -403,6 +409,14 @@
 
   setContext("networkStatsStore", {
     getStore: () => networkStatsStore,
+  });
+
+  setContext("onlinePeers", {
+    getStore: () => onlinePeers,
+  });
+
+  setContext("relayClient", {
+    getClient: () => relayClient,
   });
 </script>
 

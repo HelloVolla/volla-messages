@@ -8,17 +8,17 @@ use hdk::prelude::*;
 use relay_integrity::*;
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum RemoteSignal {
+#[serde(tag = "signal_type")]
+pub enum RemoteSignalPayload {
     Message(MessageRecord),
     Conference(ConferenceRecord),
+    PeerPing { from_agent: AgentPubKey },
+    PeerPong { from_agent: AgentPubKey },
 }
 
 #[hdk_extern]
-fn recv_remote_signal(signal: RemoteSignal) -> ExternResult<()> {
-    info!("[Rust] ========== recv_remote_signal() called ==========");
-    
-    match signal {
+fn recv_remote_signal(payload: RemoteSignalPayload) -> ExternResult<()> {
+    match payload {
         RemoteSignal::Conference(conference_record) => {
             info!("[Rust] ========== Processing ConferenceRecord signal ==========");
             info!("[Rust] Signal type: {:?}", conference_record.signal_type);
@@ -182,22 +182,21 @@ fn recv_remote_signal(signal: RemoteSignal) -> ExternResult<()> {
                 }
             }
         }
-        RemoteSignal::Message(message_record) => {
-            info!("[Rust] Processing MessageRecord signal");
+        RemoteSignalPayload::Message(message_record) => {
             let info: CallInfo = call_info()?;
+
             let is_deletion = match message_record.signed_action.action() {
                 Action::Delete(_) => true,
                 _ => false,
             };
+
             if is_deletion {
                 let signal = Signal::MessageDeleted {
                     action: message_record.signed_action.clone(),
                     original_action: message_record.original_action.clone(),
                     from: info.provenance,
                 };
-
-                info!("recv_remote_signal: signal: {:?}", signal);
-
+                debug!("recv_remote_signal: signal: {:?}", signal);
                 emit_signal(signal)
             } else if let Some(message) = message_record.message {
                 let signal = Signal::Message {
@@ -211,6 +210,12 @@ fn recv_remote_signal(signal: RemoteSignal) -> ExternResult<()> {
                     "Invalid message record".to_string()
                 )))
             }
+        }
+        RemoteSignalPayload::PeerPing { from_agent } => {
+            ping::handle_peer_ping(from_agent)
+        }
+        RemoteSignalPayload::PeerPong { from_agent } => {
+            ping::handle_peer_pong(from_agent)
         }
     }
 }
@@ -240,6 +245,12 @@ pub enum Signal {
         action: SignedActionHashed,
         original_action: ActionHash,
         from: AgentPubKey,
+    },
+    PeerPing {
+        from_agent: AgentPubKey,
+    },
+    PeerPong {
+        from_agent: AgentPubKey,
     },
     LinkCreated {
         action: SignedActionHashed,
@@ -401,6 +412,50 @@ fn get_entry_for_action(action_hash: &ActionHash) -> ExternResult<Option<EntryTy
         }
     };
     EntryTypes::deserialize_from_type(*zome_index, *entry_index, entry)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NetworkDiagnostics {
+    pub agent: AgentPubKey,
+    pub source_chain_length: usize,
+    pub create_count: usize,
+    pub update_count: usize,
+    pub delete_count: usize,
+    pub create_link_count: usize,
+    pub delete_link_count: usize,
+}
+
+#[hdk_extern]
+pub fn get_network_diagnostics(_: ()) -> ExternResult<NetworkDiagnostics> {
+    let agent = agent_info()?.agent_initial_pubkey;
+    let all_records = query(ChainQueryFilter::new())?;
+
+    let mut create_count = 0;
+    let mut update_count = 0;
+    let mut delete_count = 0;
+    let mut create_link_count = 0;
+    let mut delete_link_count = 0;
+
+    for record in &all_records {
+        match record.action() {
+            Action::Create(_) => create_count += 1,
+            Action::Update(_) => update_count += 1,
+            Action::Delete(_) => delete_count += 1,
+            Action::CreateLink(_) => create_link_count += 1,
+            Action::DeleteLink(_) => delete_link_count += 1,
+            _ => {}
+        }
+    }
+
+    Ok(NetworkDiagnostics {
+        agent,
+        source_chain_length: all_records.len(),
+        create_count,
+        update_count,
+        delete_count,
+        create_link_count,
+        delete_link_count,
+    })
 }
 
 #[hdk_extern]

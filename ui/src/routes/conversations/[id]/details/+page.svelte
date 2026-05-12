@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { getContext } from "svelte";
-  import { type AgentPubKeyB64 } from "@holochain/client";
+  import { getContext, onDestroy, onMount } from "svelte";
+  import { type AgentPubKeyB64, decodeHashFromBase64 } from "@holochain/client";
   import { page } from "$app/stores";
   import Header from "$lib/Header.svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
@@ -31,9 +31,15 @@
     type MergedProfileContactInviteJoinedStore,
     type MergedProfileContactInviteUnjoinedStore,
   } from "$store/MergedProfileContactInviteJoinedStore";
+  import type { RelayClient } from "$store/RelayClient";
+  import type { Writable } from "svelte/store";
 
   const conversationStore = getContext<{ getStore: () => ConversationStore }>(
     "conversationStore",
+  ).getStore();
+  const relayClient = getContext<{ getClient: () => RelayClient }>("relayClient").getClient();
+  const onlinePeers = getContext<{ getStore: () => Writable<Set<AgentPubKeyB64>> }>(
+    "onlinePeers",
   ).getStore();
   const mergedProfileContactInviteStore = getContext<{
     getStore: () => MergedProfileContactInviteStore;
@@ -85,6 +91,29 @@
 
   $: iAmProgenitor = myPubKeyB64 === $conversation.dnaProperties.progenitor;
   $: isGroupConversation = $joined.count > 2;
+
+  let pingInterval: ReturnType<typeof setInterval>;
+
+  const pingParticipants = () => {
+    onlinePeers.set(new Set());
+    const agents = $joined.list
+      .map(([key]) => key)
+      .filter((key) => key !== myPubKeyB64)
+      .map((key) => decodeHashFromBase64(key));
+    if (agents.length === 0) return;
+    relayClient
+      .pingAgents($conversation.cellInfo.cell_id, agents)
+      .catch((e) => console.warn("Ping failed:", e));
+  };
+
+  onMount(() => {
+    pingParticipants();
+    pingInterval = setInterval(pingParticipants, 10_000);
+  });
+
+  onDestroy(() => {
+    clearInterval(pingInterval);
+  });
 
   const saveTitle = async (newTitle: string) => {
     conversation.updateConfig({

@@ -7,6 +7,7 @@ import {
   type MessageRecord,
   type MessageSignal,
   type ProfileExtended,
+  MessageType,
 } from "$lib/types";
 import { encodeCellIdToBase64, decodeCellIdFromBase64, enqueueNotification } from "$lib/utils";
 import { EntryRecord } from "@holochain-open-dev/utils";
@@ -106,6 +107,11 @@ export function createConversationMessageStore(
           const filtered = messagesArray.filter(([actionHash, messageExtended]) => {
             // If profiles not loaded yet, don't filter anything out
             if (!profilesLoadedForCell) {
+              return true;
+            }
+
+            // Always show system messages
+            if (messageExtended.message.message_type === MessageType.System) {
               return true;
             }
 
@@ -476,6 +482,7 @@ export function createConversationMessageStore(
         bucket: conversationStore.getBucket(key1, new Date().getTime()),
         images: messageFiles,
         reply_to: replyTo ? decodeHashFromBase64(replyTo) : undefined,
+        message_type: MessageType.User,
       },
       agents: agentPubKeys,
     };
@@ -543,6 +550,53 @@ export function createConversationMessageStore(
         },
       };
     });
+  }
+
+  async function sendJoinNotice(key1: CellIdB64): Promise<void> {
+    const cellId = decodeCellIdFromBase64(key1);
+
+    // We just joined, so the local cache won't have other agents yet.
+    // If this fails, fall back to self, the message still lands on the DHT
+    // and others will see it when they next load messages.
+    let agentPubKeys;
+    try {
+      agentPubKeys = await client.getAgentsWithProfile(cellId);
+    } catch {
+      agentPubKeys = [client.client.myPubKey];
+    }
+
+    const message: Message = {
+      content: "",
+      bucket: conversationStore.getBucket(key1, new Date().getTime()),
+      images: [],
+      message_type: MessageType.System,
+    };
+
+    const record = await client.createMessage(cellId, {
+      message,
+      agents: agentPubKeys,
+    });
+
+    const entryMessage = new EntryRecord<Message>(record).entry;
+    if (entryMessage === undefined) throw new Error("Failed to decode Message entry from record");
+
+    const messageExtended = await _makeMessageExtended(cellId, {
+      message: entryMessage,
+      original_action: record.signed_action.hashed.hash,
+      signed_action: record.signed_action,
+    });
+
+    const actionHashB64 = encodeHashToBase64(record.signed_action.hashed.hash);
+
+    await messageDB.storeMessage(key1, actionHashB64, messageExtended);
+
+    messages.update((m) => ({
+      ...m,
+      [key1]: {
+        ...(m[key1] || {}),
+        [actionHashB64]: messageExtended,
+      },
+    }));
   }
 
   async function deleteMessage(key1: CellIdB64, actionHashB64: ActionHashB64): Promise<void> {
@@ -939,6 +993,8 @@ export function createConversationMessageStore(
     messageExtended: MessageExtended,
     fromProfile?: ProfileExtended,
   ) {
+    if (messageExtended.message.message_type === MessageType.System) return;
+
     const content =
       messageExtended.message.content.length > 125
         ? messageExtended.message.content.slice(0, 50) + "..."
@@ -1049,6 +1105,7 @@ export function createConversationMessageStore(
     loadMoreMessages,
     sendMessage,
     getReplyCount,
+    sendJoinNotice,
     handleMessageSignalReceived,
     subscribe,
     deleteMessage,
@@ -1074,6 +1131,7 @@ export interface CellConversationMessageStore
   ) => Promise<number>;
   loadMoreMessages: () => Promise<number>;
   sendMessage: (content: string, files: LocalFile[], replyTo?: ActionHashB64) => Promise<void>;
+  sendJoinNotice: () => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
   getReplyCount: (messageHash: ActionHashB64) => Promise<number>;
   debugGetAllMessages: () => Promise<Record[]>;
@@ -1116,6 +1174,7 @@ export function deriveCellConversationMessageStore(
     loadMoreMessages: () => conversationMessageStore.loadMoreMessages(key),
     sendMessage: (content: string, files: LocalFile[], replyTo?: ActionHashB64) =>
       conversationMessageStore.sendMessage(key, content, files, replyTo),
+    sendJoinNotice: () => conversationMessageStore.sendJoinNotice(key),
     handleMessageSignalReceived: (signal: MessageSignal) =>
       conversationMessageStore.handleMessageSignalReceived(key, signal),
     deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>

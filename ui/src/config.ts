@@ -64,3 +64,4 @@ export const ROLE_CACHE_TTL_MS = 30000;
 
 // Network stats polling interval (ms)
 export const NETWORK_STATS_POLL_INTERVAL = 30 * 1000;
+export const NETWORK_STATS_POLL_INTERVAL_FAST = 5 * 1000;

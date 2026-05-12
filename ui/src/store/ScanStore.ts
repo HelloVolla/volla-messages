@@ -3,9 +3,10 @@ import { goto } from "$app/navigation";
 import { page } from "$app/stores";
 import { getPlatform } from "$lib/utils";
 
-// tarui-plugin-barcode-scanner launches the scanner as a fullscreen View
-// In order to display our overlay upon it, we must have a fully transparent background.
-// Thus we must navigate to a new page with only the overlay and a transparent background before opening the scanner.
+// tauri-plugin-barcode-scanner runs in two modes:
+// - windowed overlay mode (used on iOS): scanner is behind the webview, so /scan makes the UI transparent.
+// - fullscreen mode (currently used on Android): scanner replaces the webview for reliable preview.
+// We still navigate to /scan to keep a consistent request -> scan -> return flow.
 // This store handles navigation and passing data from the requesting page -> scan page -> requesting page.
 
 

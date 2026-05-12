@@ -234,9 +234,15 @@ export class RelayClient {
     return records;
   }
 
-  /**
-   * Fetch all AgentPubKeys of agents with profiles
-   */
+  public async getNetworkDiagnostics(cell_id: CellId): Promise<any> {
+    return this.client.callZome({
+      cell_id,
+      zome_name: ZOME_NAME,
+      fn_name: "get_network_diagnostics",
+      payload: null,
+    });
+  }
+
   public async getAllAgents(cell_id: CellId): Promise<{ [key: AgentPubKeyB64]: Profile }> {
     const agentsResponse: AgentPubKey[] = await this.client.callZome({
       cell_id,
@@ -642,11 +648,7 @@ export class RelayClient {
     return result;
   }
 
-  public async transferHost(
-    room_id: string,
-    new_host: AgentPubKey,
-    cellId: CellId,
-  ): Promise<void> {
+  public async transferHost(room_id: string, new_host: AgentPubKey, cellId: CellId): Promise<void> {
     console.log("[RelayClient] transferHost() - Transferring host role");
     const input: TransferHostInput = { room_id, new_host };
     await this.client.callZome({
@@ -689,5 +691,14 @@ export class RelayClient {
       payload: input,
     });
     console.log("[RelayClient] changeParticipantRole() complete");
+  }
+
+  public async pingAgents(cellId: CellId, agents: AgentPubKey[]): Promise<void> {
+    return this.client.callZome({
+      cell_id: cellId,
+      zome_name: ZOME_NAME,
+      fn_name: "ping_agents",
+      payload: agents,
+    });
   }
 }

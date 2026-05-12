@@ -37,9 +37,21 @@ export interface MessageDeleted {
   from: AgentPubKey;
 }
 
+export interface PeerPingSignal {
+  type: "PeerPing";
+  from_agent: AgentPubKey;
+}
+
+export interface PeerPongSignal {
+  type: "PeerPong";
+  from_agent: AgentPubKey;
+}
+
 export type RelaySignal =
   | MessageSignal
   | MessageDeleted
+  | PeerPingSignal
+  | PeerPongSignal
   | {
       type: "EntryCreated";
       action: SignedActionHashed<Create>;
@@ -134,11 +146,17 @@ export interface MessageFile {
  */
 
 // Mirror of rust struct "File", renamed to avoid naming conflict with javascript native File
+export enum MessageType {
+  User = "User",
+  System = "System",
+}
+
 export interface Message {
   content: string;
   bucket: number;
   images: MessageFile[];
   reply_to?: ActionHash;
+  message_type: MessageType;
 }
 
 export interface MessageExtended {
@@ -384,9 +402,9 @@ export interface FileExtended {
  * Lower numeric value = higher privilege level.
  */
 export enum ConferenceRole {
-  Host = 0,    // Full control, 1 per conference
-  CoHost = 1,  // Can kick members, end conference
-  Member = 2,  // Basic participant
+  Host = 0, // Full control, 1 per conference
+  CoHost = 1, // Can kick members, end conference
+  Member = 2, // Basic participant
 }
 
 export interface ConferenceParticipantRecord {
