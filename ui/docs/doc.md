@@ -124,6 +124,25 @@ Every feature of the app is managed by a store, which is a Svelte Store. Each st
 - `handleMessageDeletedSignalReceived(key, actionHashB64)` handles message deletion signals
 - `subscribe(run)` svelte store subscription for message data
 
+    4.1 **Conversation History Loading & Pagination**
+    - On initialization, recent messages are first hydrated from IndexedDB before requesting more data from Holochain
+    - Recent conversation data is loaded from the current bucket, while older history is loaded through upward pagination
+    - Upward pagination first checks IndexedDB for older cached rows using the current oldest in-memory timestamp as the cursor
+    - If IndexedDB has no older rows, the store fetches previous message buckets from Holochain and stores the results back into IndexedDB
+    - Bucket loading is done in chunks so the UI can progressively load enough history without scanning the full conversation at once
+    - Message fetching uses Holochain bucket based retrieval with `local = true` for fast local-first history access during pagination
+    - Newly fetched records are stored in IndexedDB and then merged into memory, avoiding duplicate inserts
+    - The store tracks pagination state per conversation, including the oldest loaded timestamp and whether local/network history is exhausted
+    - When the earliest available bucket is reached, pagination is marked as exhausted so top-scroll loading stops repeating
+    - A hard in-memory limit is applied to keep only the newest bounded set of messages in memory while older history remains available in IndexedDB
+
+    4.2 **Scroll Behaviour for Older Messages**
+    - The conversation page listens for top-scroll events from the message list to trigger older history loading
+    - Before older messages are prepended, the current top visible message is captured as an anchor
+    - After older messages are inserted, the scroll position is restored relative to that anchor so the viewport does not jump unexpectedly
+    - Once the message history is exhausted, the UI stops requesting further loads from the top-scroll trigger
+
+
 5. **ConversationLatestMessageStore.ts**
 - Provides a derived store that tracks the latest message in each conversation
 - Combines data from the conversation and message stores
