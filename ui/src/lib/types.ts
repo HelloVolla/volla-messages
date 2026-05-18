@@ -369,7 +369,6 @@ export enum Alignment {
 }
 
 export type CellIdB64 = string;
-export type ActionHashB64 = string;
 
 export interface LocalFile {
   file: File;

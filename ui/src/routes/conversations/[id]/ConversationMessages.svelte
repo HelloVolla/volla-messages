@@ -106,15 +106,7 @@
 
       // Reset the locks for the next time the user scrolls up
       shouldMaintainScroll = false;
-
-      const newScrollHeight = containerEl.scrollHeight;
-
-      const heightDifference =
-        newScrollHeight - previousScrollHeight + (!isFirstFetch ? 20 * 40 : 0);
-
-      if (isFirstFetch) isFirstFetch = false;
-
-      containerEl.scrollTop = heightDifference;
+      previousScrollHeight = 0;
     }
   });
 

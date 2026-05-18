@@ -324,16 +324,15 @@
       await conversationMessageStore.initialize();
 
       // Initialize signal handler
-      createSignalHandler(relayClient, conversationStore, conversationMessageStore, onlinePeers);
-
-      isStoresSetup = true;
-
       createSignalHandler(
         relayClient,
         conversationStore,
         conversationMessageStore,
         conferenceStore,
+        onlinePeers,
       );
+
+      isStoresSetup = true;
     } catch (e) {
       console.error("Failed to init stores", e);
       toast.error(`${$t("common.stores_setup_error")}: ${e}`);

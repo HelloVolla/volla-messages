@@ -17,7 +17,6 @@ import {
   type ActionHashB64,
   type CellId,
   type HoloHash,
-  type Record,
 } from "@holochain/client";
 import { difference, flatten, range, sortBy, sum } from "lodash-es";
 import type { ConversationStore } from "./ConversationStore";
@@ -67,6 +66,7 @@ export interface ConversationMessageStore extends GenericKeyKeyValueStore<Messag
     files: LocalFile[],
     replyTo?: ActionHashB64,
   ) => Promise<void>;
+  sendJoinNotice: (key1: CellIdB64) => Promise<void>;
   getReplyCount: (key1: CellIdB64, messageHash: ActionHashB64) => Promise<number>;
   deleteMessage: (key1: CellIdB64, messageContent: string) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
@@ -1134,7 +1134,7 @@ export interface CellConversationMessageStore
   sendJoinNotice: () => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
   getReplyCount: (messageHash: ActionHashB64) => Promise<number>;
-  debugGetAllMessages: () => Promise<Record[]>;
+  debugGetAllMessages: () => Promise<MessageRecord[]>;
 }
 
 export function deriveCellConversationMessageStore(
