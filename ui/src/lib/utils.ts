@@ -8,8 +8,8 @@ import { platform } from "@tauri-apps/plugin-os";
 import { setModeCurrent } from "@skeletonlabs/skeleton";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Base64 } from "js-base64";
-import type { CellId } from "@holochain/client";
-import type { CellIdB64 } from "./types";
+import type { AgentPubKeyB64, CellId } from "@holochain/client";
+import { DeliveryStatus, type CellIdB64, type MessageExtended } from "./types";
 import { format } from "date-fns";
 
 /**
@@ -155,4 +155,21 @@ export function isWithinFiveMinutes(d1: Date, d2?: Date): boolean {
   if (d2 === undefined) return false;
 
   return Math.abs(d1.getTime() - d2.getTime()) <= 5 * 60 * 1000;
+}
+
+export function computeDeliveryStatus(
+  message: MessageExtended,
+  recipients: AgentPubKeyB64[],
+): DeliveryStatus {
+  if (recipients.length === 0) return DeliveryStatus.DeliveredAll;
+
+  const recipientSet = new Set(recipients);
+  let ackCount = 0;
+  for (const a of message.deliveredTo) {
+    if (recipientSet.has(a)) ackCount++;
+  }
+
+  if (ackCount === 0) return DeliveryStatus.Sent;
+  if (ackCount < recipients.length) return DeliveryStatus.DeliveredPartial;
+  return DeliveryStatus.DeliveredAll;
 }
