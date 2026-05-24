@@ -306,6 +306,9 @@ async function loadMoreMessages() {
           loadingTop={loadingMessagesOld}
           cellIdB64={$page.params.id}
           messages={$messages.list}
+          recipientPubKeyB64s={$joined.list
+            .map(([k]) => k)
+            .filter((k) => k !== myPubKeyB64)}
           on:delete={(e) => {
             deleteMessageActionHashB64 = e.detail;
             showDeleteDialog = true;
