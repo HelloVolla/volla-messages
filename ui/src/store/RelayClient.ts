@@ -29,6 +29,7 @@ import type {
   CreateConversationInput,
   SendMessageInput,
   DeleteMessageInput,
+  NotifyMessageDeliveryInput,
 } from "$lib/types";
 import { ZOME_NAME, ROLE_NAME } from "$config";
 import { encodeCellIdToBase64 } from "$lib/utils";
@@ -273,6 +274,18 @@ export class RelayClient {
       cell_id,
       zome_name: ZOME_NAME,
       fn_name: "create_message",
+      payload,
+    });
+  }
+
+  public async notifyMessageDelivery(
+    cell_id: CellId,
+    payload: NotifyMessageDeliveryInput,
+  ): Promise<boolean> {
+    return this.client.callZome({
+      cell_id,
+      zome_name: ZOME_NAME,
+      fn_name: "notify_message_delivery",
       payload,
     });
   }
