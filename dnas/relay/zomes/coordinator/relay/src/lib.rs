@@ -19,7 +19,7 @@ pub enum RemoteSignalPayload {
 #[hdk_extern]
 fn recv_remote_signal(payload: RemoteSignalPayload) -> ExternResult<()> {
     match payload {
-        RemoteSignal::Conference(conference_record) => {
+        RemoteSignalPayload::Conference(conference_record) => {
             info!("[Rust] ========== Processing ConferenceRecord signal ==========");
             info!("[Rust] Signal type: {:?}", conference_record.signal_type);
             info!("[Rust] Full conference record: {:?}", conference_record);
