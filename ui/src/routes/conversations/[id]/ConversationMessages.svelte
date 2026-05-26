@@ -5,15 +5,11 @@
   import BaseMessage from "./Message.svelte";
   import NoticeMessage from "./NoticeMessage.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
-  import { createVirtualizer } from "@tanstack/svelte-virtual";
-  import { afterUpdate, beforeUpdate, createEventDispatcher, onMount, tick } from "svelte";
+  import { afterUpdate, createEventDispatcher, onMount, tick } from "svelte";
 
   const dispatch = createEventDispatcher<{
     scrollAtTop: null;
     scrollAtBottom: null;
-    reply: ActionHashB64;
-    openThread: ActionHashB64;
-    scrollToMessage: ActionHashB64;
   }>();
 
   export let messages: [ActionHashB64, MessageExtended][];
@@ -26,164 +22,208 @@
   let containerEl: HTMLDivElement | null = null;
   let initialScrollReady = false;
 
-  $: chronologicalMessages = messages;
+  $: chronologicalMessages = messages ?? [];
 
-  // Update virtualizer count when messages change
-  $: if ($virtualizer) {
-    $virtualizer.setOptions({ count: chronologicalMessages?.length });
-  }
-  const MESSAGE_FIXED_HEIGHT = 40;
-  const UPDATE_TRIGGER_VIEW_OFFSET = 1000;
-  const BUFFER_COUNT = 10;
-  const SCROLL_DEBOUNCE_MS = 150; // Debounce scroll events to prevent multiple triggers
+  const TOP_TRIGGER_PX = 160;
+  const BOTTOM_EPSILON_PX = 8;
+  const SCROLL_DEBOUNCE_MS = 120;
 
-  let virtualizer = createVirtualizer({
-    count: chronologicalMessages?.length,
-    getScrollElement: () => containerEl,
-    estimateSize: () => MESSAGE_FIXED_HEIGHT,
-    overscan: BUFFER_COUNT,
-    useAnimationFrameWithResizeObserver: true,
-  });
-  // Update virtualizer count when messages change
-  $: if ($virtualizer) $virtualizer.setOptions({ count: chronologicalMessages?.length });
-
-  function measure(node: HTMLElement) {
-    const index = Number(node.dataset.index);
-    if (isNaN(index)) return;
-
-    if (!$virtualizer) return;
-    const observer = new ResizeObserver(() => {
-      requestAnimationFrame(() => {
-        $virtualizer.measureElement(node);
-      });
-    });
-
-    observer.observe(node);
-
-    return {
-      destroy() {
-        observer.disconnect();
-      },
-    };
-  }
-
-  let isAtBottom = true;
   let wasAtBottom = true;
-  let isAtTop = false;
-  let wasAtTop = false;
+  let previousItemCount = 0;
   let scrollDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  let anchorHash: ActionHashB64 | null = null;
+  let anchorTopBeforeLoad = 0;
+  let pendingAnchorRestore = false;
+  let prevLoadingTop = false;
+
+  const rowElements = new Map<ActionHashB64, HTMLElement>();
+
+  $: {
+  console.log("[ConversationMessages] received messages:", chronologicalMessages.length);
+  if (chronologicalMessages.length > 0) {
+    console.log("[ConversationMessages] oldest:", {
+      hash: chronologicalMessages[0][0],
+      timestamp: chronologicalMessages[0][1].timestamp,
+      bucket: chronologicalMessages[0][1].message.bucket,
+    });
+    console.log("[ConversationMessages] newest:", {
+      hash: chronologicalMessages[chronologicalMessages.length - 1][0],
+      timestamp: chronologicalMessages[chronologicalMessages.length - 1][1].timestamp,
+      bucket: chronologicalMessages[chronologicalMessages.length - 1][1].message.bucket,
+    });
+  }
+}
+
+function registerRow(node: HTMLElement, hash: ActionHashB64) {
+  rowElements.set(hash, node);
+
+  return {
+    update(newHash: ActionHashB64) {
+      if (newHash !== hash) {
+        rowElements.delete(hash);
+        hash = newHash;
+        rowElements.set(hash, node);
+      }
+    },
+    destroy() {
+      rowElements.delete(hash);
+    },
+  };
+}
+
+  function clearScrollDebounce() {
+    if (scrollDebounceTimer) {
+      clearTimeout(scrollDebounceTimer);
+      scrollDebounceTimer = undefined;
+    }
+  }
+
+  function getDistanceFromBottom() {
+    if (!containerEl) return 0;
+    return containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight;
+  }
+
+  function updateBottomState() {
+    wasAtBottom = getDistanceFromBottom() <= BOTTOM_EPSILON_PX;
+  }
+
+  function getFirstVisibleAnchor(): { hash: ActionHashB64; top: number } | null {
+    if (!containerEl) return null;
+
+    const containerTop = containerEl.getBoundingClientRect().top;
+    for (const [hash] of chronologicalMessages) {
+      const node = rowElements.get(hash);
+      if (!node) continue;
+
+      const rect = node.getBoundingClientRect();
+      if (rect.bottom > containerTop) {
+        return {
+          hash,
+          top: rect.top - containerTop,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  async function restoreAnchorPosition() {
+    if (!containerEl || !anchorHash) return;
+
+    await tick();
+
+    let attempts = 0;
+    while (attempts < 8) {
+      const node = rowElements.get(anchorHash);
+      if (node) {
+        const containerTop = containerEl.getBoundingClientRect().top;
+        const currentTop = node.getBoundingClientRect().top - containerTop;
+        const delta = currentTop - anchorTopBeforeLoad;
+        containerEl.scrollTop += delta;
+          console.log("[ConversationMessages] anchor restored", {
+          anchorHash,
+          currentTop,
+          anchorTopBeforeLoad,
+          delta,
+          newScrollTop: containerEl.scrollTop,
+        });
+        break;
+      }
+
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+      attempts++;
+    }
+
+    pendingAnchorRestore = false;
+    anchorHash = null;
+  }
 
   onMount(async () => {
     if (chronologicalMessages.length > 0 && containerEl) {
-      isAtBottom = true;
-      wasAtBottom = true;
-      isAtTop = false;
-      wasAtTop = false;
-
-      await scrollToBottom();
+      await scrollToBottom("auto");
+      updateBottomState();
+    } else {
+      initialScrollReady = true;
     }
   });
 
-  let previousScrollHeight = 0;
-  let previousScrollTop = 0;
-  let previousItemCount = 0;
-  let shouldMaintainScroll = false;
-  // let isFirstFetch = true;
-
-  beforeUpdate(() => {
-    if (shouldMaintainScroll && containerEl && previousScrollHeight === 0) {
-      previousScrollHeight = containerEl.scrollHeight;
-      previousScrollTop = containerEl.scrollTop;
+  afterUpdate(async () => {
+    if (pendingAnchorRestore && prevLoadingTop && !loadingTop) {
+      await restoreAnchorPosition();
+      updateBottomState();
     }
-  });
 
-  afterUpdate(() => {
-    if (shouldMaintainScroll && !loadingTop && containerEl && previousScrollHeight > 0) {
-      const heightDifference = containerEl.scrollHeight - previousScrollHeight;
-
-      // Seamlessly shift the scrollbar down by the exact height of the new messages
-      containerEl.scrollTop = previousScrollTop + heightDifference;
-
-      // Reset the locks for the next time the user scrolls up
-      shouldMaintainScroll = false;
-      previousScrollHeight = 0;
-    }
+    prevLoadingTop = loadingTop;
   });
 
   function handleScroll() {
     if (!containerEl || !initialScrollReady) return;
 
-    const { scrollTop, scrollHeight, clientHeight } = containerEl;
-    const scrollBottom = scrollHeight - scrollTop - clientHeight;
+    updateBottomState();
 
-    const isAtBottom = scrollBottom < 5;
-    const isAtTop = scrollTop <= UPDATE_TRIGGER_VIEW_OFFSET;
-
-    // Trigger Infinite Scroll
-    if (isAtTop && !wasAtTop && !loadingTop) {
-      if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
-
-      scrollDebounceTimer = setTimeout(() => {
-        shouldMaintainScroll = true;
-        dispatch("scrollAtTop");
-        scrollDebounceTimer = undefined;
-      }, SCROLL_DEBOUNCE_MS);
+    if (wasAtBottom) {
+      dispatch("scrollAtBottom");
     }
 
-    wasAtBottom = isAtBottom;
-    wasAtTop = isAtTop;
+    const atTop = containerEl.scrollTop <= TOP_TRIGGER_PX;
+    if (!atTop || loadingTop || pendingAnchorRestore) {
+      clearScrollDebounce();
+      return;
+    }
+
+    clearScrollDebounce();
+    scrollDebounceTimer = setTimeout(() => {
+      if (!containerEl || loadingTop || pendingAnchorRestore) return;
+      if (containerEl.scrollTop > TOP_TRIGGER_PX) return;
+
+      const anchor = getFirstVisibleAnchor();
+      if (anchor) {
+        anchorHash = anchor.hash;
+        anchorTopBeforeLoad = anchor.top;
+        pendingAnchorRestore = true;
+      }
+console.log("[ConversationMessages] scrollAtTop fired", {
+  scrollTop: containerEl?.scrollTop,
+  currentCount: chronologicalMessages.length,
+  anchorHash,
+  anchorTopBeforeLoad,
+  loadingTop,
+  pendingAnchorRestore,
+});
+      dispatch("scrollAtTop");
+      scrollDebounceTimer = undefined;
+    }, SCROLL_DEBOUNCE_MS);
   }
 
-  // logic for triggering fetch event, newly_added_items-scroll-down logic
   $: {
-    const currentItemCount = chronologicalMessages?.length || 0;
+    const currentItemCount = chronologicalMessages.length;
 
-    if (initialScrollReady && wasAtBottom && currentItemCount > previousItemCount) {
-      scrollToBottom("smooth");
+    if (
+      initialScrollReady &&
+      wasAtBottom &&
+      currentItemCount > previousItemCount &&
+      !loadingTop &&
+      !pendingAnchorRestore
+    ) {
+      scrollToBottom("auto");
     }
 
     previousItemCount = currentItemCount;
   }
 
-  async function scrollToBottom(behavior?: "auto" | "smooth") {
-    await waitForListLoad();
+  async function scrollToBottom(behavior: ScrollBehavior = "auto") {
+    await tick();
+    if (!containerEl) return;
 
-    const lastIndex = chronologicalMessages.length - 1;
-    if (lastIndex < 0) return;
-
-    let attempts = 0;
-    while (attempts < 5) {
-      // making sure the initial scroll lands completely at bottom edge of the container
-      $virtualizer.scrollToIndex(lastIndex + 999, {
-        align: "start",
-        behavior,
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      attempts++;
-    }
+    containerEl.scrollTo({
+      top: containerEl.scrollHeight,
+      behavior,
+    });
 
     requestAnimationFrame(() => {
       initialScrollReady = true;
-    });
-  }
-
-  async function waitForListLoad() {
-    await tick();
-
-    return new Promise((resolve) => {
-      const check = () => {
-        const lastIndex = chronologicalMessages?.length - 1;
-
-        if ($virtualizer.getVirtualItems().length > 0 && lastIndex >= 0) {
-          resolve({});
-        } else {
-          requestAnimationFrame(check); // keep checking on next frame
-        }
-      };
-
-      check();
+      updateBottomState();
     });
   }
 
@@ -205,8 +245,8 @@
   function shouldShowDaySeparator(currentIndex: number) {
     if (currentIndex === 0) return true;
 
-    const currentMsg = chronologicalMessages?.[currentIndex]?.[1];
-    const prevMsg = chronologicalMessages?.[currentIndex - 1]?.[1];
+    const currentMsg = chronologicalMessages[currentIndex]?.[1];
+    const prevMsg = chronologicalMessages[currentIndex - 1]?.[1];
 
     if (!currentMsg || !prevMsg) return true;
 
@@ -216,12 +256,10 @@
   function shouldShowAuthor(currentIndex: number) {
     if (currentIndex === 0) return true;
 
-    const currentMsg = chronologicalMessages[currentIndex][1];
-    const prevMsg = chronologicalMessages[currentIndex - 1][1];
+    const currentMsg = chronologicalMessages[currentIndex]?.[1];
+    const prevMsg = chronologicalMessages[currentIndex - 1]?.[1];
 
     if (!currentMsg || !prevMsg) return true;
-
-    // Always show author after a system notice
     if (prevMsg.message.message_type === MessageType.System) return true;
 
     return (
@@ -244,69 +282,52 @@
   <ConversationHeader {cellIdB64} />
   <div class="flex h-4 items-center justify-center"></div>
 
-  <!-- Loading indicator when fetching older messages -->
   {#if loadingTop}
     <div class="flex h-12 items-center justify-center">
-      <div
-        class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"
-      ></div>
+      <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"></div>
     </div>
   {/if}
 
-  <!-- This inner div effectively holds the virtualizer's content scroll height -->
-  <div style="height: {$virtualizer.getTotalSize()}px; position: relative; width: 100%;">
-    <!-- Virtualized message items -->
-    {#each $virtualizer.getVirtualItems() as virtualRow (virtualRow.key)}
-      {@const currentIndex = virtualRow.index}
-      {@const [actionHashB64, messageExtended] = chronologicalMessages[currentIndex]}
-      <div
-        class="absolute left-0 top-0 w-full"
-        style="transform: translateY({virtualRow.start}px);"
-        data-index={virtualRow.index}
-        use:measure
-      >
-        <div class="flex flex-shrink-0 flex-col">
-          <!-- Day separator -->
-          {#if shouldShowDaySeparator(currentIndex)}
-            <div class="my-4 px-4 text-center text-xs text-secondary-400 dark:text-secondary-300">
-              {new Date(messageExtended.timestamp / 1000).toLocaleDateString("en-US", {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-              })}
-            </div>
-          {/if}
+  {#each chronologicalMessages as [actionHashB64, messageExtended], currentIndex (actionHashB64)}
+    <div use:registerRow={actionHashB64} class="w-full">
+      <div class="flex flex-shrink-0 flex-col">
+        {#if shouldShowDaySeparator(currentIndex)}
+          <div class="text-secondary-400 dark:text-secondary-300 my-4 px-4 text-center text-xs">
+            {new Date(messageExtended.timestamp / 1000).toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </div>
+        {/if}
 
-          <!-- Message content -->
-          {#if messageExtended.message.message_type === MessageType.System}
-            <NoticeMessage {cellIdB64} message={messageExtended} />
-          {:else}
-            <div class="mt-3 px-4">
-              <BaseMessage
-                {cellIdB64}
-                message={messageExtended}
-                isSelected={selected === actionHashB64}
-                showAuthor={shouldShowAuthor(currentIndex)}
-                {actionHashB64}
-                {participantCount}
-                {threadViewEnabled}
-                on:press={() => handlePress(actionHashB64)}
-                on:click={(e) => handleClick(e, actionHashB64)}
-                on:clickoutside={handleClickOutside}
-                on:delete
-                on:reply
-                on:openThread
-                on:scrollToMessage
-              />
-            </div>
-          {/if}
+        {#if messageExtended.message.message_type === MessageType.System}
+          <NoticeMessage {cellIdB64} message={messageExtended} />
+        {:else}
+          <div class="mt-3 px-4">
+            <BaseMessage
+              {cellIdB64}
+              message={messageExtended}
+              isSelected={selected === actionHashB64}
+              showAuthor={shouldShowAuthor(currentIndex)}
+              {actionHashB64}
+              {participantCount}
+              {threadViewEnabled}
+              on:press={() => handlePress(actionHashB64)}
+              on:click={(e) => handleClick(e, actionHashB64)}
+              on:clickoutside={handleClickOutside}
+              on:delete
+              on:reply
+              on:openThread
+              on:scrollToMessage
+            />
+          </div>
+        {/if}
 
-          <!-- Padding at the very end of the chat -->
-          {#if currentIndex === chronologicalMessages?.length - 1}
-            <div class="flex h-4 items-center justify-center"></div>
-          {/if}
-        </div>
+        {#if currentIndex === chronologicalMessages.length - 1}
+          <div class="flex h-4 items-center justify-center"></div>
+        {/if}
       </div>
-    {/each}
-  </div>
+    </div>
+  {/each}
 </div>

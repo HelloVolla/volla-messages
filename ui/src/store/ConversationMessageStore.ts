@@ -16,35 +16,35 @@ import {
   encodeHashToBase64,
   type ActionHashB64,
   type CellId,
-  type HoloHash,
 } from "@holochain/client";
-import { difference, flatten, range, sortBy, sum } from "lodash-es";
+import { flatten, range, sum } from "lodash-es";
 import type { ConversationStore } from "./ConversationStore";
 import {
-  createGenericKeyKeyValueStore,
-  deriveGenericKeyValueStore,
-  type GenericKeyKeyValueStore,
-} from "./generic/GenericKeyKeyValueStore";
+  createGenericKeyValueStore,
+  type GenericKeyValueStore,
+  type GenericKeyValueStoreReadable,
+} from "./generic/GenericKeyValueStore";
 import {
   deriveCellMergedProfileContactInviteStore,
   type MergedProfileContactInviteStore,
 } from "./MergedProfileContactInviteStore";
 import type { RelayClient } from "./RelayClient";
 import { derived, get, writable } from "svelte/store";
-import type { GenericKeyValueStoreReadable } from "./generic/GenericKeyValueStore";
 import { TARGET_MESSAGES_COUNT, MESSAGES_PER_PAGE } from "$config";
 import type { FileStore } from "./FileStore";
 import { messageDB } from "./db/MessageDatabase";
 
-// Interface for pagination state
 interface PaginationState {
-  loadedPages: number;
-  totalMessages: number;
-  oldestLoadedTimestamp?: number;
+  oldestMemoryTimestamp: number | undefined;
+  dbExhausted: boolean;
+  networkExhausted: boolean;
 }
 
-export interface ConversationMessageStore extends GenericKeyKeyValueStore<MessageExtended> {
-  initialize: () => Promise<void>;
+const HARD_MEMORY_LIMIT = 500;
+
+export interface ConversationMessageStore
+  extends GenericKeyValueStore<Record<ActionHashB64, MessageExtended>> {
+    initialize: () => Promise<void>;
   loadMessagesInCurrentBucketTargetCount: (
     local: boolean,
     key1: CellIdB64,
@@ -68,7 +68,7 @@ export interface ConversationMessageStore extends GenericKeyKeyValueStore<Messag
   ) => Promise<void>;
   sendJoinNotice: (key1: CellIdB64) => Promise<void>;
   getReplyCount: (key1: CellIdB64, messageHash: ActionHashB64) => Promise<number>;
-  deleteMessage: (key1: CellIdB64, messageContent: string) => Promise<void>;
+  deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
   handleMessageDeletedSignalReceived: (
     key1: CellIdB64,
@@ -83,95 +83,87 @@ export function createConversationMessageStore(
   mergedProfileContactInviteStore: MergedProfileContactInviteStore,
   fileStore: FileStore,
 ): ConversationMessageStore {
-  // In-memory store holds only active messages (limited by pagination)
-  const messages = createGenericKeyKeyValueStore<MessageExtended>();
+  function _cid(id: CellIdB64): string {
+    return id.slice(0, 10);
+  }
 
-  // Track pagination state for each conversation
-  const paginationState = writable<{ [cellIdB64: CellIdB64]: PaginationState }>({});
+  function _log(stage: string, details?: { [key: string]: unknown }): void {
+    if (details) console.log(`[MessageFlow] ${stage}`, details);
+    else console.log(`[MessageFlow] ${stage}`);
+  }
 
-  // Filter out messages by agents who do not have a Contact nor Profile
-  // Don't filter if profiles haven't loaded yet (prevents race condition)
+  function _getSortedMemoryEntries(cellIdB64: CellIdB64): [ActionHashB64, MessageExtended][] {
+    return Object.entries(get(messages).data[cellIdB64] || {}).sort(([, a], [, b]) => a.timestamp - b.timestamp);
+  }
+
+  function _getOldestMessage(cellIdB64: CellIdB64): MessageExtended | undefined {
+    return _getSortedMemoryEntries(cellIdB64)[0]?.[1];
+  }
+
+const messages = createGenericKeyValueStore<Record<ActionHashB64, MessageExtended>>();
+const paginationState = writable<Record<string, PaginationState>>({});
+
   const { subscribe } = derived(
     [messages, mergedProfileContactInviteStore],
     ([$messages, $mergedProfileContactInviteStore]) => {
       const filteredMessages = Object.fromEntries(
         $messages.list.map(([cellIdB64, messagesData]) => {
-          const messagesArray = Object.entries(messagesData);
-
-          // Check if profiles have loaded for this cell
-          const profilesLoadedForCell =
+          const profilesLoaded =
             $mergedProfileContactInviteStore.data[cellIdB64] !== undefined;
 
-          // If profiles haven't loaded yet, show all messages (prevent race condition)
-          // Once profiles load, filter to only show messages from known authors
-          const filtered = messagesArray.filter(([actionHash, messageExtended]) => {
-            // If profiles not loaded yet, don't filter anything out
-            if (!profilesLoadedForCell) {
-              return true;
-            }
+          const filtered = Object.entries(messagesData).filter(([, msg]) => {
+            if (!profilesLoaded) return true;
+            if (msg.message.message_type === MessageType.System) return true;
 
-            // Always show system messages
-            if (messageExtended.message.message_type === MessageType.System) {
-              return true;
-            }
-
-            // Profiles are loaded, so only show messages from known authors
-            const hasAuthor =
-              $mergedProfileContactInviteStore.data[cellIdB64][
-                messageExtended.authorAgentPubKeyB64
-              ] !== undefined;
-
-            return hasAuthor;
+            return (
+              $mergedProfileContactInviteStore.data[cellIdB64]?.[msg.authorAgentPubKeyB64] !==
+              undefined
+            );
           });
 
           return [cellIdB64, Object.fromEntries(filtered)];
         }),
       );
 
-      const result = {
+      return {
         data: filteredMessages,
         list: Object.entries(filteredMessages),
         count: Object.keys(filteredMessages).length,
       };
-
-      return result;
     },
   );
 
-  async function initialize() {
+  async function initialize(): Promise<void> {
+    _log("initialize:start");
     const cellInfos = await client.getRelayClonedCellInfos();
-    // Log all Cell IDs for debugging
-    cellInfos.forEach((cellInfo, index) => {
-      const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
-    });
 
-    // Initialize empty messages for each conversation
-    const messagesData = Object.fromEntries(
-      cellInfos.map((cellInfo) => [encodeCellIdToBase64(cellInfo.cell_id), {}]),
+    messages.set(
+      Object.fromEntries(cellInfos.map((ci) => [encodeCellIdToBase64(ci.cell_id), {}])),
     );
-    messages.set(messagesData);
 
-    // Initialize pagination state
-    const initialPaginationState = Object.fromEntries(
-      cellInfos.map((cellInfo) => [
-        encodeCellIdToBase64(cellInfo.cell_id),
-        { loadedPages: 0, totalMessages: 0 },
-      ]),
+    paginationState.set(
+      Object.fromEntries(
+        cellInfos.map((ci) => [
+          encodeCellIdToBase64(ci.cell_id),
+          {
+            oldestMemoryTimestamp: undefined,
+            dbExhausted: false,
+            networkExhausted: false,
+          },
+        ]),
+      ),
     );
-    paginationState.set(initialPaginationState);
 
-    // Load initial messages from IndexedDB for each conversation
     const results = await Promise.allSettled(
       cellInfos.map(async (cellInfo) => {
         const cellIdB64 = encodeCellIdToBase64(cellInfo.cell_id);
+        _log("initialize:cell:start", { cell: _cid(cellIdB64) });
 
-        await _loadMessagesFromDB(cellIdB64, 1); // Load first page
+        await _initLoadFromDB(cellIdB64);
 
-        // If no messages in DB, try to fetch from network
-        const currentState = get(paginationState)[cellIdB64];
-
-        if (currentState.totalMessages === 0) {
-          // when first initializing go local
+        const memCount = Object.keys(get(messages).data[cellIdB64] || {}).length;
+        if (memCount === 0) {
+          _log("initialize:cell:db-empty→network-bootstrap", { cell: _cid(cellIdB64) });
           await loadMessagesInCurrentBucketTargetCount(
             true,
             cellIdB64,
@@ -180,269 +172,613 @@ export function createConversationMessageStore(
             50,
           );
         }
+
+        _log("initialize:cell:done", {
+          cell: _cid(cellIdB64),
+          memCount: Object.keys(get(messages).data[cellIdB64] || {}).length,
+          state: get(paginationState)[cellIdB64],
+        });
       }),
     );
 
-    // Log any errors
-    results.forEach((result, index) => {
-      if (result.status === "rejected") {
-        console.error(`Failed to load messages for conversation ${index}:`, result.reason);
+    results.forEach((r, i) => {
+      if (r.status === "rejected") {
+        console.error(`[init] cell ${i} failed:`, r.reason);
       }
     });
 
-    console.log(" Initialization complete");
+    _log("initialize:complete", { cells: cellInfos.length });
   }
 
-  /**
-   * Load messages from IndexedDB into memory store with memory management
-   * Now merges with existing in-memory messages instead of overwriting
-   */
-  async function _loadMessagesFromDB(cellIdB64: CellIdB64, pagesToLoad: number): Promise<void> {
+  async function _initLoadFromDB(cellIdB64: CellIdB64): Promise<void> {
     try {
-      const limit = pagesToLoad * MESSAGES_PER_PAGE;
+      await messageDB.clearCacheOnAgentChange(cellIdB64);
+      const dbMessages = await messageDB.getMessages(cellIdB64, MESSAGES_PER_PAGE);
+      _log("db:init-load", { cell: _cid(cellIdB64), count: dbMessages.length });
 
-      // Check if agent changed and clear cache if needed
-      const cacheCleared = await messageDB.clearCacheOnAgentChange(cellIdB64);
+      if (dbMessages.length === 0) return;
 
-      const dbMessages = await messageDB.getMessages(cellIdB64, limit);
-      console.log(` Retrieved ${dbMessages.length} messages from IndexedDB`);
+      messages.update((m) => {
+        const existing = m[cellIdB64] || {};
+        const merged = { ...existing };
 
-      if (dbMessages.length > 0) {
-        // Sort messages by timestamp (newest to oldest) for natural chat order
-        const sortedMessages = dbMessages.sort(([, a], [, b]) => b.timestamp - a.timestamp);
+        for (const [hash, msg] of dbMessages) {
+          if (!(hash in merged)) merged[hash] = msg;
+        }
 
-        // Apply memory management: keep only the most recent messages within limit based on loaded pages
-        const maxMessagesInMemory = pagesToLoad * MESSAGES_PER_PAGE;
-        const messagesToKeep = sortedMessages.slice(0, maxMessagesInMemory); // Keep from beginning (newest)
+        return { ...m, [cellIdB64]: merged };
+      });
 
-        // Fetch fresh reply counts for all messages from DHT (not from cache)
-        const cellId = decodeCellIdFromBase64(cellIdB64);
-        const messagesWithUpdatedCounts = await Promise.all(
-          messagesToKeep.map(async ([actionHashB64, messageExtended]) => {
-            try {
-              const count = await client.getReplyCount(cellId, decodeHashFromBase64(actionHashB64));
-              // Always update with fresh count and hasReplies flag
-              return [
-                actionHashB64,
-                {
-                  ...messageExtended,
-                  replyCount: count,
-                  hasReplies: count > 0,
-                },
-              ] as [ActionHashB64, MessageExtended];
-            } catch (error) {
-              console.error("[ConversationMessageStore] Error fetching reply count:", error);
-              // Keep existing values on error
-              return [actionHashB64, messageExtended] as [ActionHashB64, MessageExtended];
-            }
-          }),
-        );
-
-        const messageData = Object.fromEntries(messagesWithUpdatedCounts);
-
-        messages.update((m) => ({
-          ...m,
-          [cellIdB64]: messageData,
-        }));
-
-        _recomputeThreadCounts(cellIdB64);
-
-        // Update pagination state
-        paginationState.update((state) => ({
-          ...state,
-          [cellIdB64]: {
-            ...state[cellIdB64],
-            loadedPages: pagesToLoad,
-            totalMessages: Object.keys(messagesToKeep).length,
-            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp, // Last (oldest) message in memory
-          },
-        }));
-      } else {
-        console.warn(`No messages found in IndexedDB for cell ${cellIdB64.substring(0, 10)}...`);
-      }
-    } catch (error) {
-      console.error(" Error loading messages from DB:", error);
+      _refreshOldestCursor(cellIdB64);
+      _recomputeThreadCounts(cellIdB64);
+    } catch (err) {
+      console.error("[_initLoadFromDB] failed:", err);
     }
   }
 
-  /**
-   * Load more messages (next page) for infinite scroll
-   */
   async function loadMoreMessages(cellIdB64: CellIdB64): Promise<number> {
-    const currentState = get(paginationState)[cellIdB64];
-    if (!currentState?.oldestLoadedTimestamp) {
+    const state = get(paginationState)[cellIdB64];
+    console.group(`[MessageFlow][loadMoreMessages] ${_cid(cellIdB64)}`);
+
+    if (!state) {
+      console.log("No pagination state");
+      console.groupEnd();
       return 0;
     }
 
-    try {
-      // First, try to load from IndexedDB
-      const olderMessages = await messageDB.getOlderMessages(
-        cellIdB64,
-        currentState.oldestLoadedTimestamp,
-        MESSAGES_PER_PAGE,
+    if (state.dbExhausted && state.networkExhausted) {
+      console.log("Skip: history exhausted");
+      console.groupEnd();
+    return 0;
+}
+    console.log("paginationState(before):", state);
+
+    const memoryBefore = _getSortedMemoryEntries(cellIdB64);
+
+    console.log("memory count(before):", memoryBefore.length);
+    console.log(
+      "oldest memory(before):",
+      memoryBefore[0]?.[1]
+        ? {
+            timestamp: memoryBefore[0][1].timestamp,
+            bucket: memoryBefore[0][1].message.bucket,
+            hash: memoryBefore[0][0],
+          }
+        : null,
+    );
+    console.log(
+      "newest memory(before):",
+      memoryBefore[memoryBefore.length - 1]?.[1]
+        ? {
+            timestamp: memoryBefore[memoryBefore.length - 1][1].timestamp,
+            bucket: memoryBefore[memoryBefore.length - 1][1].message.bucket,
+            hash: memoryBefore[memoryBefore.length - 1][0],
+          }
+        : null,
+    );
+
+    const cursor = state.oldestMemoryTimestamp;
+    console.log("cursor:", cursor);
+
+    if (cursor === undefined) {
+      console.log("Skip: no cursor");
+      console.groupEnd();
+      return 0;
+    }
+
+    const olderMsgs = await messageDB.getOlderMessages(cellIdB64, cursor, MESSAGES_PER_PAGE);
+    console.log("IndexedDB olderMsgs count:", olderMsgs.length);
+    console.log(
+      "IndexedDB olderMsgs sample:",
+      olderMsgs.slice(0, 3).map(([hash, msg]) => ({
+        hash,
+        timestamp: msg.timestamp,
+        bucket: msg.message.bucket,
+        type: msg.message.message_type,
+      })),
+    );
+
+    if (olderMsgs.length > 0) {
+      const added = _mergeOlderIntoMemory(cellIdB64, olderMsgs);
+      console.log("Merged older messages from DB. added:", added);
+
+      const memoryAfter = _getSortedMemoryEntries(cellIdB64);
+
+      console.log("memory count(after DB merge):", memoryAfter.length);
+      console.log(
+        "oldest memory(after DB merge):",
+        memoryAfter[0]?.[1]
+          ? {
+              timestamp: memoryAfter[0][1].timestamp,
+              bucket: memoryAfter[0][1].message.bucket,
+              hash: memoryAfter[0][0],
+            }
+          : null,
+      );
+      console.groupEnd();
+      return added;
+    }
+
+    console.log("IndexedDB returned 0 older rows. Trying LOCAL previous-bucket pipeline...");
+
+    const loadedViaLocalPipeline = await loadMessagesInPreviousBucketTargetCount(
+      true,
+      cellIdB64,
+      TARGET_MESSAGES_COUNT,
+      3,
+      3,
+    );
+
+    console.log("loadedViaLocalPipeline:", loadedViaLocalPipeline);
+
+    const olderMsgsAfterPipeline = await messageDB.getOlderMessages(cellIdB64, cursor, MESSAGES_PER_PAGE);
+    console.log("IndexedDB olderMsgs AFTER local pipeline:", olderMsgsAfterPipeline.length);
+    console.log(
+      "IndexedDB olderMsgs AFTER local pipeline sample:",
+      olderMsgsAfterPipeline.slice(0, 3).map(([hash, msg]) => ({
+        hash,
+        timestamp: msg.timestamp,
+        bucket: msg.message.bucket,
+        type: msg.message.message_type,
+      })),
+    );
+
+    if (olderMsgsAfterPipeline.length > 0) {
+      const added = _mergeOlderIntoMemory(cellIdB64, olderMsgsAfterPipeline);
+      console.log("Merged older messages after local pipeline. added:", added);
+
+      const memoryAfter = _getSortedMemoryEntries(cellIdB64);
+
+      console.log("memory count(after local pipeline merge):", memoryAfter.length);
+      console.log(
+        "oldest memory(after local pipeline merge):",
+        memoryAfter[0]?.[1]
+          ? {
+              timestamp: memoryAfter[0][1].timestamp,
+              bucket: memoryAfter[0][1].message.bucket,
+              hash: memoryAfter[0][0],
+            }
+          : null,
+      );
+      console.groupEnd();
+      return added;
+    }
+
+    console.log("No older messages found locally.");
+    markHistoryExhausted(cellIdB64);
+    console.groupEnd();
+    return 0;
+  }
+
+  function markHistoryExhausted(cellIdB64: CellIdB64): void {
+  _setPaginationPartial(cellIdB64, {
+    dbExhausted: true,
+    networkExhausted: true,
+  });
+
+  _log("pagination:exhausted", { cell: _cid(cellIdB64) });
+}
+
+ async function loadMessagesInPreviousBucketTargetCount(
+  local: boolean,
+  key1: CellIdB64,
+  targetCount = TARGET_MESSAGES_COUNT,
+  bucketChunkSize = 3,
+  maxBucketsToFetch?: number,
+): Promise<number> {
+  const cursor = get(paginationState)[key1]?.oldestMemoryTimestamp;
+
+  console.group(`[MessageFlow][previousBucket] ${_cid(key1)}`);
+  console.log("local:", local);
+  console.log("cursor:", cursor);
+
+  if (!cursor) {
+    console.log("No cursor");
+    console.groupEnd();
+    return 0;
+  }
+
+  const memory = Object.entries(get(messages).data[key1] || {}).sort(
+    ([, a], [, b]) => a.timestamp - b.timestamp,
+  );
+
+  const oldestMsg = memory[0]?.[1];
+
+  console.log(
+    "memory oldest:",
+    oldestMsg
+      ? {
+          timestamp: oldestMsg.timestamp,
+          bucket: oldestMsg.message.bucket,
+        }
+      : null,
+  );
+
+  if (!oldestMsg) {
+    console.log("No oldest message in memory");
+    console.groupEnd();
+    return 0;
+  }
+
+  const oldestBucket = oldestMsg.message.bucket;
+  console.log("using oldest message.bucket:", oldestBucket);
+
+  if (oldestBucket <= 0) {
+    console.log("Already at earliest bucket");
+    markHistoryExhausted(key1);
+    console.groupEnd();
+    return 0;
+  }
+
+  console.log("requesting start bucket:", oldestBucket - 1);
+
+  const result = await _loadFromBucketPipeline(
+    local,
+    key1,
+    oldestBucket - 1,
+    targetCount,
+    bucketChunkSize,
+    maxBucketsToFetch,
+  );
+
+  console.log("result:", result);
+  console.groupEnd();
+  return result;
+}
+
+  function _mergeOlderIntoMemory(
+    cellIdB64: CellIdB64,
+    batch: [ActionHashB64, MessageExtended][],
+  ): number {
+    if (batch.length === 0) return 0;
+
+    let addedCount = 0;
+
+    messages.update((m) => {
+      const existing = m[cellIdB64] || {};
+      const merged = { ...existing };
+
+      for (const [hash, msg] of batch) {
+        if (!(hash in merged)) {
+          merged[hash] = msg;
+          addedCount++;
+        }
+      }
+
+      return { ...m, [cellIdB64]: merged };
+    });
+
+    _refreshOldestCursor(cellIdB64);
+    _applyHardMemoryCap(cellIdB64);
+    _recomputeThreadCounts(cellIdB64);
+
+    return addedCount;
+  }
+
+  function _insertNewestIntoMemory(
+    cellIdB64: CellIdB64,
+    hash: ActionHashB64,
+    msg: MessageExtended,
+  ): void {
+    messages.update((m) => {
+      const existing = m[cellIdB64] || {};
+      if (hash in existing) return m;
+      return { ...m, [cellIdB64]: { ...existing, [hash]: msg } };
+    });
+
+    paginationState.update((s) => {
+      const cur = s[cellIdB64] ?? {
+        oldestMemoryTimestamp: undefined,
+        dbExhausted: false,
+        networkExhausted: false,
+      };
+
+      if (cur.oldestMemoryTimestamp === undefined) {
+        return {
+          ...s,
+          [cellIdB64]: { ...cur, oldestMemoryTimestamp: msg.timestamp },
+        };
+      }
+
+      return s;
+    });
+
+    _recomputeThreadCounts(cellIdB64);
+  }
+
+  function _refreshOldestCursor(cellIdB64: CellIdB64): void {
+    const mem = get(messages).data[cellIdB64] || {};
+    const vals = Object.values(mem);
+
+    if (vals.length === 0) {
+      _setPaginationPartial(cellIdB64, { oldestMemoryTimestamp: undefined });
+      return;
+    }
+
+    const oldest = Math.min(...vals.map((m) => m.timestamp));
+    _setPaginationPartial(cellIdB64, { oldestMemoryTimestamp: oldest });
+  }
+
+  function _applyHardMemoryCap(cellIdB64: CellIdB64): void {
+    const mem = get(messages).data[cellIdB64] || {};
+    const entries = Object.entries(mem);
+
+    if (entries.length <= HARD_MEMORY_LIMIT) return;
+
+    const sorted = [...entries].sort(([, a], [, b]) => b.timestamp - a.timestamp);
+    const kept = sorted.slice(0, HARD_MEMORY_LIMIT);
+
+    messages.update((m) => ({
+      ...m,
+      [cellIdB64]: Object.fromEntries(kept),
+    }));
+
+    _refreshOldestCursor(cellIdB64);
+
+    _log("memory:hard-cap-applied", {
+      cell: _cid(cellIdB64),
+      evicted: entries.length - HARD_MEMORY_LIMIT,
+    });
+  }
+
+  function _setPaginationPartial(
+    cellIdB64: CellIdB64,
+    patch: Partial<PaginationState>,
+  ): void {
+    paginationState.update((s) => ({
+      ...s,
+      [cellIdB64]: {
+        ...(s[cellIdB64] ?? {
+          oldestMemoryTimestamp: undefined,
+          dbExhausted: false,
+          networkExhausted: false,
+        }),
+        ...patch,
+      },
+    }));
+  }
+
+  async function _backfillOlderMessagesToDB(
+    cellIdB64: CellIdB64,
+    _cursorTimestamp: number,
+  ): Promise<{ newlyStored: number; noMoreOnNetwork: boolean }> {
+    const oldestMessage = _getOldestMessage(cellIdB64);
+    if (!oldestMessage) {
+      return { newlyStored: 0, noMoreOnNetwork: true };
+    }
+
+    const oldestBucket = oldestMessage.message.bucket;
+    if (oldestBucket <= 0) {
+      return { newlyStored: 0, noMoreOnNetwork: true };
+    }
+
+    _log("backfill:start", { cell: _cid(cellIdB64), startBucket: oldestBucket - 1 });
+
+    const bucketsToFetch = await _fetchBucketsTargetCount(
+      cellIdB64,
+      oldestBucket - 1,
+      true,
+      TARGET_MESSAGES_COUNT,
+      3,
+      3,
+    );
+
+    const allHashes = flatten(bucketsToFetch.map((b) => b.actionHashB64s));
+
+    if (allHashes.length === 0) {
+      _log("backfill:no-hashes-on-network", { cell: _cid(cellIdB64) });
+      return { newlyStored: 0, noMoreOnNetwork: true };
+    }
+
+    const missingHashes = await _filterMissingHashesFromDB(allHashes);
+
+    _log("backfill:missing-from-db", {
+      cell: _cid(cellIdB64),
+      total: allHashes.length,
+      missing: missingHashes.length,
+    });
+
+    if (missingHashes.length === 0) {
+      return { newlyStored: 0, noMoreOnNetwork: false };
+    }
+
+    const newlyStored = await _fetchAndStoreToDB(cellIdB64, missingHashes);
+    return { newlyStored, noMoreOnNetwork: false };
+  }
+
+  async function loadMessagesInCurrentBucketTargetCount(
+    local: boolean,
+    key1: CellIdB64,
+    targetCount = TARGET_MESSAGES_COUNT,
+    bucketChunkSize = 3,
+    maxBucketsToFetch?: number,
+  ): Promise<number> {
+    const bucket = conversationStore.getBucket(key1, Date.now());
+
+    return _loadFromBucketPipeline(
+      local,
+      key1,
+      bucket,
+      targetCount,
+      bucketChunkSize,
+      maxBucketsToFetch,
+    );
+  }
+
+  async function _loadFromBucketPipeline(
+    local: boolean,
+    key1: CellIdB64,
+    bucket: number,
+    targetCount: number,
+    bucketChunkSize: number,
+    maxBucketsToFetch?: number,
+  ): Promise<number> {
+    _log("pipeline:start", { cell: _cid(key1), local, bucket, targetCount });
+
+    const bucketsToFetch = await _fetchBucketsTargetCount(
+      key1,
+      bucket,
+      local,
+      targetCount,
+      bucketChunkSize,
+      maxBucketsToFetch,
+    );
+
+    const allHashes = flatten(bucketsToFetch.map((b) => b.actionHashB64s));
+    _log("pipeline:hashes", { cell: _cid(key1), total: allHashes.length });
+
+    const missingHashes = await _filterMissingHashesFromDB(allHashes);
+    _log("pipeline:missing", { cell: _cid(key1), missing: missingHashes.length });
+
+    if (missingHashes.length === 0) {
+      _log("pipeline:no-new-messages", { cell: _cid(key1) });
+      return 0;
+    }
+
+    const stored = await _fetchAndStoreToDB(key1, missingHashes);
+    _log("pipeline:stored", { cell: _cid(key1), stored });
+
+    await _hydrateNewestFromDB(key1);
+
+    return stored;
+  }
+
+  async function _hydrateNewestFromDB(cellIdB64: CellIdB64): Promise<void> {
+    const dbMessages = await messageDB.getMessages(cellIdB64, MESSAGES_PER_PAGE);
+    if (dbMessages.length === 0) return;
+
+    messages.update((m) => {
+      const existing = m[cellIdB64] || {};
+      const merged = { ...existing };
+
+      for (const [hash, msg] of dbMessages) {
+        if (!(hash in merged)) merged[hash] = msg;
+      }
+
+      return { ...m, [cellIdB64]: merged };
+    });
+
+    _refreshOldestCursor(cellIdB64);
+    _recomputeThreadCounts(cellIdB64);
+
+    _log("db:hydrate-newest", {
+      cell: _cid(cellIdB64),
+      dbCount: dbMessages.length,
+      memCount: Object.keys(get(messages).data[cellIdB64] || {}).length,
+    });
+  }
+
+  async function _fetchBucketsTargetCount(
+    key1: CellIdB64,
+    bucket: number,
+    local: boolean,
+    targetCount: number,
+    bucketChunkSize: number,
+    maxBucketsToFetch?: number,
+  ): Promise<{ bucket: number; actionHashB64s: ActionHashB64[] }[]> {
+    const cellId = decodeCellIdFromBase64(key1);
+    const bucketsToFetch: { bucket: number; actionHashB64s: ActionHashB64[] }[] = [];
+
+    let currentBucket = bucket;
+    let fetchedBucketCount = 0;
+    let totalHashes = 0;
+
+    while (
+      totalHashes <= targetCount &&
+      currentBucket >= 0 &&
+      (maxBucketsToFetch === undefined || fetchedBucketCount < maxBucketsToFetch)
+    ) {
+      const chunkStart = currentBucket;
+      const chunkEnd = Math.max(0, currentBucket - bucketChunkSize + 1);
+      const chunk = range(chunkStart, chunkEnd - 1, -1);
+
+      _log("pipeline:bucket-scan:chunk", { cell: _cid(key1), chunk, local });
+
+      const chunkResults = await Promise.all(
+        chunk.map(async (b) => {
+          const hashes = (
+            await client.getMessageHashes(cellId, { bucket: b, count: 0 }, local)
+          ).map(encodeHashToBase64);
+
+          return {
+            bucket: b,
+            actionHashB64s: hashes,
+          };
+        }),
       );
 
-      let loadedCount = 0;
-
-      if (olderMessages.length > 0) {
-        // Get current messages and sort them by timestamp (newest to oldest) for natural chat order
-        const currentMessages = get(messages).data[cellIdB64] || {};
-        const currentMessagesList = Object.entries(currentMessages).sort(
-          ([, a], [, b]) => b.timestamp - a.timestamp,
-        );
-
-        // Combine older messages with current ones - older messages go at the end (bottom)
-        const allMessages = [...currentMessagesList, ...olderMessages];
-
-        // Calculate new loaded pages count
-        const newLoadedPages = currentState.loadedPages + 1;
-        const maxMessagesInMemory = newLoadedPages * MESSAGES_PER_PAGE;
-
-        // Apply memory management: keep only the most recent messages within limit
-        const messagesToKeep = allMessages.slice(0, maxMessagesInMemory);
-        const updatedMessages = Object.fromEntries(messagesToKeep);
-        messages.update((m) => ({
-          ...m,
-          [cellIdB64]: updatedMessages,
-        }));
-
-        _recomputeThreadCounts(cellIdB64);
-
-        _recomputeThreadCounts(cellIdB64);
-
-        paginationState.update((state) => ({
-          ...state,
-          [cellIdB64]: {
-            ...state[cellIdB64],
-            loadedPages: newLoadedPages,
-            totalMessages: messagesToKeep.length,
-            oldestLoadedTimestamp: messagesToKeep[messagesToKeep.length - 1]?.[1].timestamp,
-          },
-        }));
-      }
-
-      // This shouldn't be done, it will only likely trigger timeouts.  Unless the node is zero-arc (which we are not doing in Volla), all loading should be local.
-      // Data will be synced quickly and so it's not worth trying to get it from the network.
-      if (olderMessages.length === 0) {
-        console.log(`Local DB empty. Using reliable backend sync...`);
-
-        try {
-          const cellId = decodeCellIdFromBase64(cellIdB64);
-
-          // 1. Get the actual oldest message from memory to find its exact bucket
-          const currentMessages = get(messages).data[cellIdB64] || {};
-          const messagesList = Object.entries(currentMessages).sort(
-            ([, a], [, b]) => a.timestamp - b.timestamp,
-          );
-          const oldestMessage = messagesList[0]?.[1];
-
-          if (!oldestMessage) return 0;
-
-          // 2. Read the bucket directly from the message object (No timestamp math!)
-          const oldestBucket = oldestMessage.message.bucket;
-
-          // 3. Safely ask for just the next 3 older buckets
-          const targetBuckets = [oldestBucket - 1, oldestBucket - 2, oldestBucket - 3].filter(
-            (b) => b >= 0,
-          );
-
-          if (targetBuckets.length > 0) {
-            console.log(`Fetching buckets directly from DHT:`, targetBuckets);
-
-            const messageRecords = await client.getMessagesForBuckets(cellId, targetBuckets);
-
-            if (messageRecords.length > 0) {
-              const messageEntries = await Promise.allSettled(
-                messageRecords.map(
-                  async (m) =>
-                    [
-                      encodeHashToBase64(m.original_action),
-                      await _makeMessageExtended(cellId, m),
-                    ] as [ActionHashB64, MessageExtended],
-                ),
-              );
-
-              const validMessages = messageEntries
-                .filter((p) => p.status === "fulfilled")
-                .map((p: any) => p.value);
-
-              await messageDB.storeMessages(cellIdB64, validMessages);
-              await _loadMessagesFromDB(cellIdB64, currentState.loadedPages + 1);
-              _applyMemoryManagement(cellIdB64);
-
-              loadedCount = validMessages.length;
-              console.log(`[Network Fetch] Success! Downloaded and saved ${loadedCount} messages.`);
-            } else {
-              console.log(`[Network Fetch] DHT returned 0 messages for those buckets.`);
-            }
-          }
-        } catch (error) {
-          console.error(` [Network Fetch] FAILED:`, error);
-          loadedCount = 0;
-        }
-      }
-
-      return loadedCount;
-    } catch (error) {
-      console.error("Error loading more messages:", error);
-      return 0;
+      bucketsToFetch.push(...chunkResults);
+      totalHashes = sum(bucketsToFetch.map(({ actionHashB64s }) => actionHashB64s.length));
+      fetchedBucketCount += chunkResults.length;
+      currentBucket = chunkEnd - 1;
     }
+
+    while (
+      bucketsToFetch.length > 1 &&
+      sum(bucketsToFetch.slice(0, -1).map(({ actionHashB64s }) => actionHashB64s.length)) >=
+        targetCount
+    ) {
+      bucketsToFetch.pop();
+    }
+
+    return bucketsToFetch;
   }
 
-  /**
-   * Recompute replyCount / hasReplies for messages that have replies, using the
-   * full reply graph in memory.  Direct-only counts (from the DHT) miss
-   * transitive replies (replies-to-replies), so we BFS from each parent and
-   * count ALL descendants.  Only the affected messages are updated in the store.
-   */
-  function _recomputeThreadCounts(key1: CellIdB64): void {
-    try {
-      const allMessages = get(messages).data[key1] || {};
+  async function _filterMissingHashesFromDB(
+    actionHashB64s: ActionHashB64[],
+  ): Promise<ActionHashB64[]> {
+    if (actionHashB64s.length === 0) return [];
 
-      // Build parent → children map from reply_to relationships
-      const childrenMap: Record<ActionHashB64, ActionHashB64[]> = {};
-      for (const [hash, msg] of Object.entries(allMessages)) {
-        if (msg.message?.reply_to) {
-          const parentHash = encodeHashToBase64(msg.message.reply_to);
-          if (!childrenMap[parentHash]) childrenMap[parentHash] = [];
-          childrenMap[parentHash].push(hash);
-        }
-      }
+    const checks = await Promise.all(
+      actionHashB64s.map(async (h) => ({
+        h,
+        exists: await messageDB.hasMessage(h),
+      })),
+    );
 
-      // No replies in this conversation — nothing to update
-      if (Object.keys(childrenMap).length === 0) return;
+    return checks.filter((c) => !c.exists).map((c) => c.h);
+  }
 
-      // BFS from each parent to count all transitive descendants
-      const counts: Record<ActionHashB64, number> = {};
-      for (const parentHash of Object.keys(childrenMap)) {
-        const queue = [...childrenMap[parentHash]];
-        const seen = new Set<ActionHashB64>();
-        let count = 0;
-        while (queue.length > 0) {
-          const current = queue.shift()!;
-          if (seen.has(current)) continue;
-          seen.add(current);
-          count++;
-          (childrenMap[current] || []).forEach((c) => queue.push(c));
-        }
-        counts[parentHash] = count;
-      }
+  async function _fetchAndStoreToDB(
+    key1: CellIdB64,
+    hashes: ActionHashB64[],
+  ): Promise<number> {
+    if (hashes.length === 0) return 0;
 
-      // Only patch the messages whose counts changed — do not replace the whole map
-      messages.update((m) => {
-        const current = m[key1];
-        if (!current) return m;
-        const patched = { ...current };
-        for (const [hash, count] of Object.entries(counts)) {
-          if (patched[hash]) {
-            patched[hash] = { ...patched[hash], replyCount: count, hasReplies: count > 0 };
-          }
-        }
-        return { ...m, [key1]: patched };
-      });
-    } catch (e) {
-      console.error("[ConversationMessageStore] _recomputeThreadCounts error:", e);
-    }
+    _log("fetch-store:start", { cell: _cid(key1), hashes: hashes.length });
+
+    const cellId = decodeCellIdFromBase64(key1);
+    const records = await client.getMessageEntries(
+      cellId,
+      hashes.map(decodeHashFromBase64),
+      false,
+    );
+
+    _log("fetch-store:records", { cell: _cid(key1), fetched: records.length });
+
+    const settled = await Promise.allSettled(
+      records.map(
+        async (r) =>
+          [
+            encodeHashToBase64(r.original_action),
+            await _makeMessageExtended(cellId, r),
+          ] as [ActionHashB64, MessageExtended],
+      ),
+    );
+
+    const valid = settled
+      .filter(
+        (p): p is PromiseFulfilledResult<[ActionHashB64, MessageExtended]> =>
+          p.status === "fulfilled",
+      )
+      .map((p) => p.value);
+
+    if (valid.length === 0) return 0;
+
+    await messageDB.storeMessages(key1, valid);
+    _log("fetch-store:stored", { cell: _cid(key1), count: valid.length });
+
+    return valid.length;
   }
 
   async function sendMessage(
@@ -450,24 +786,23 @@ export function createConversationMessageStore(
     content: string,
     files: LocalFile[],
     replyTo?: ActionHashB64,
-  ) {
+  ): Promise<void> {
     const cellId = decodeCellIdFromBase64(key1);
+
     const messageFiles = await Promise.all(
       files.map(async (file) => {
         const entryHash = await fileStore.upload(key1, file.file);
 
-        const messageFile: MessageFile = {
+        return {
           last_modified: file.file.lastModified,
           name: file.file.name,
           size: file.file.size,
           storage_entry_hash: entryHash,
           file_type: file.file.type,
-        };
-        return messageFile;
+        } as MessageFile;
       }),
     );
 
-    // Get all AgentPubKeys in the conversation.
     const mergedProfileContact = deriveCellMergedProfileContactInviteStore(
       mergedProfileContactInviteStore,
       key1,
@@ -475,22 +810,19 @@ export function createConversationMessageStore(
     );
     const agentPubKeys = get(mergedProfileContact).list.map(([a]) => decodeHashFromBase64(a));
 
-    // Create Message entry
-    const messagePayload = {
+    const record = await client.createMessage(cellId, {
       message: {
         content,
-        bucket: conversationStore.getBucket(key1, new Date().getTime()),
+        bucket: conversationStore.getBucket(key1, Date.now()),
         images: messageFiles,
         reply_to: replyTo ? decodeHashFromBase64(replyTo) : undefined,
         message_type: MessageType.User,
       },
       agents: agentPubKeys,
-    };
-
-    const record = await client.createMessage(cellId, messagePayload);
+    });
 
     const message = new EntryRecord<Message>(record).entry;
-    if (message === undefined) throw new Error("Failed to decode Message entry from record");
+    if (!message) throw new Error("Failed to decode Message entry from record");
 
     const messageExtended = await _makeMessageExtended(cellId, {
       message,
@@ -500,64 +832,13 @@ export function createConversationMessageStore(
 
     const actionHashB64 = encodeHashToBase64(record.signed_action.hashed.hash);
 
-    // Store in IndexedDB first
     await messageDB.storeMessage(key1, actionHashB64, messageExtended);
-
-    // Update in-memory store (add new message at the end - newest timestamp)
-    messages.update((m) => {
-      const currentMessages = m[key1] || {};
-      const messagesList = Object.entries(currentMessages).sort(
-        ([, a], [, b]) => a.timestamp - b.timestamp, // oldest to newest
-      );
-
-      // Add new message at the end (it has the newest timestamp)
-      const updatedMessages = Object.fromEntries([
-        ...messagesList,
-        [actionHashB64, messageExtended],
-      ]);
-
-      return {
-        ...m,
-        [key1]: updatedMessages,
-      };
-    });
-
-    // Recompute all transitive thread counts now that a new message is in the store
-    _recomputeThreadCounts(key1);
-
-    // Apply memory management after adding new message
-    _applyMemoryManagement(key1);
-
-    // Update pagination state to reflect new message and potentially increase effective loaded pages
-    paginationState.update((state) => {
-      const currentState = state[key1] || { loadedPages: 1, totalMessages: 0 };
-      const newTotalMessages = (currentState.totalMessages || 0) + 1;
-
-      // If we're actively sending messages, consider that the user wants to see more recent content
-      // Increase effective loaded pages if we have more messages than current page limit
-      const currentLimit = currentState.loadedPages * MESSAGES_PER_PAGE;
-      const newLoadedPages =
-        newTotalMessages > currentLimit
-          ? Math.ceil(newTotalMessages / MESSAGES_PER_PAGE)
-          : currentState.loadedPages;
-
-      return {
-        ...state,
-        [key1]: {
-          ...currentState,
-          loadedPages: Math.max(newLoadedPages, currentState.loadedPages),
-          totalMessages: newTotalMessages,
-        },
-      };
-    });
+    _insertNewestIntoMemory(key1, actionHashB64, messageExtended);
   }
 
   async function sendJoinNotice(key1: CellIdB64): Promise<void> {
     const cellId = decodeCellIdFromBase64(key1);
 
-    // We just joined, so the local cache won't have other agents yet.
-    // If this fails, fall back to self, the message still lands on the DHT
-    // and others will see it when they next load messages.
     let agentPubKeys;
     try {
       agentPubKeys = await client.getAgentsWithProfile(cellId);
@@ -565,20 +846,18 @@ export function createConversationMessageStore(
       agentPubKeys = [client.client.myPubKey];
     }
 
-    const message: Message = {
-      content: "",
-      bucket: conversationStore.getBucket(key1, new Date().getTime()),
-      images: [],
-      message_type: MessageType.System,
-    };
-
     const record = await client.createMessage(cellId, {
-      message,
+      message: {
+        content: "",
+        bucket: conversationStore.getBucket(key1, Date.now()),
+        images: [],
+        message_type: MessageType.System,
+      },
       agents: agentPubKeys,
     });
 
     const entryMessage = new EntryRecord<Message>(record).entry;
-    if (entryMessage === undefined) throw new Error("Failed to decode Message entry from record");
+    if (!entryMessage) throw new Error("Failed to decode Message entry from record");
 
     const messageExtended = await _makeMessageExtended(cellId, {
       message: entryMessage,
@@ -589,14 +868,41 @@ export function createConversationMessageStore(
     const actionHashB64 = encodeHashToBase64(record.signed_action.hashed.hash);
 
     await messageDB.storeMessage(key1, actionHashB64, messageExtended);
+    _insertNewestIntoMemory(key1, actionHashB64, messageExtended);
+  }
 
-    messages.update((m) => ({
-      ...m,
-      [key1]: {
-        ...(m[key1] || {}),
-        [actionHashB64]: messageExtended,
-      },
-    }));
+  async function handleMessageSignalReceived(
+    key1: CellIdB64,
+    signal: MessageSignal,
+  ): Promise<void> {
+    const actionHashB64 = encodeHashToBase64(signal.action.hashed.hash);
+
+    if (await messageDB.hasMessage(actionHashB64)) {
+      _log("signal:dup-db", { cell: _cid(key1), hash: actionHashB64 });
+      return;
+    }
+
+    if (actionHashB64 in (get(messages).data[key1] || {})) {
+      _log("signal:dup-memory", { cell: _cid(key1), hash: actionHashB64 });
+      return;
+    }
+
+    const messageExtended = await _makeMessageExtended(decodeCellIdFromBase64(key1), {
+      message: signal.message,
+      original_action: signal.action.hashed.hash,
+      signed_action: signal.action,
+    });
+
+    await messageDB.storeMessage(key1, actionHashB64, messageExtended);
+    _insertNewestIntoMemory(key1, actionHashB64, messageExtended);
+
+    const mergedProfileContact = deriveCellMergedProfileContactInviteStore(
+      mergedProfileContactInviteStore,
+      key1,
+      encodeHashToBase64(client.client.myPubKey),
+    );
+    const fromProfile = get(mergedProfileContact).data[encodeHashToBase64(signal.from)];
+    _triggerMessageNotification(messageExtended, fromProfile);
   }
 
   async function deleteMessage(key1: CellIdB64, actionHashB64: ActionHashB64): Promise<void> {
@@ -614,416 +920,118 @@ export function createConversationMessageStore(
       agents: agentPubKeys,
     });
 
-    // Remove from IndexedDB
     await messageDB.deleteMessage(actionHashB64);
-
-    // Remove from in-memory store
-    messages.update((m) => {
-      const k = { ...m[key1] };
-      delete k[actionHashB64];
-      return {
-        ...m,
-        [key1]: k,
-      };
-    });
+    _removeFromMemory(key1, actionHashB64);
   }
 
-  async function handleMessageDeletedSignalReceived(key1: CellIdB64, actionHashB64: ActionHashB64) {
-    const currentMessages = get(messages).data[key1];
-    if (currentMessages[actionHashB64] === undefined) {
-      return;
-    }
+  async function handleMessageDeletedSignalReceived(
+    key1: CellIdB64,
+    actionHashB64: ActionHashB64,
+  ): Promise<void> {
+    if (!(actionHashB64 in (get(messages).data[key1] || {}))) return;
 
-    // Remove from IndexedDB
     await messageDB.deleteMessage(actionHashB64);
+    _removeFromMemory(key1, actionHashB64);
+  }
 
-    // Remove from in-memory store
+  function _removeFromMemory(cellIdB64: CellIdB64, actionHashB64: ActionHashB64): void {
     messages.update((m) => {
-      const k = { ...m[key1] };
-      delete k[actionHashB64];
-      return {
-        ...m,
-        [key1]: k,
-      };
-    });
-  }
-
-  async function handleMessageSignalReceived(key1: CellIdB64, signal: MessageSignal) {
-    const actionHashB64 = encodeHashToBase64(signal.action.hashed.hash);
-
-    // Check for duplicates before processing
-    const exists = await messageDB.hasMessage(actionHashB64);
-    if (exists) {
-      console.log(`Message ${actionHashB64} already exists, skipping duplicate`);
-      return; // Skip duplicate
-    }
-
-    // Check if already in memory (double-check for race conditions)
-    const currentMessages = get(messages).data[key1] || {};
-    if (currentMessages[actionHashB64]) {
-      console.log(`Message ${actionHashB64} already in memory, skipping duplicate`);
-      return;
-    }
-
-    // Make MessageExtended
-    const messageExtended = await _makeMessageExtended(decodeCellIdFromBase64(key1), {
-      message: signal.message,
-      original_action: signal.action.hashed.hash,
-      signed_action: signal.action,
+      const copy = { ...(m[cellIdB64] || {}) };
+      delete copy[actionHashB64];
+      return { ...m, [cellIdB64]: copy };
     });
 
-    // Store in IndexedDB first
-    await messageDB.storeMessage(key1, actionHashB64, messageExtended);
-
-    // Add to in-memory store (add new message at the end - newest timestamp)
-    messages.update((m) => {
-      const currentMessages = m[key1] || {};
-      const messagesList = Object.entries(currentMessages).sort(
-        ([, a], [, b]) => a.timestamp - b.timestamp, // oldest to newest
-      );
-
-      // Add new message at the end (it has the newest timestamp)
-      const updatedMessages = Object.fromEntries([
-        ...messagesList,
-        [actionHashB64, messageExtended],
-      ]);
-
-      return {
-        ...m,
-        [key1]: updatedMessages,
-      };
-    });
-
-    // Recompute all transitive thread counts now that a new message is in the store
-    _recomputeThreadCounts(key1);
-
-    // Apply memory management after receiving new message
-    _applyMemoryManagement(key1);
-
-    // Update pagination state to reflect new message and potentially increase effective loaded pages
-    paginationState.update((state) => {
-      const currentState = state[key1] || { loadedPages: 1, totalMessages: 0 };
-      const newTotalMessages = (currentState.totalMessages || 0) + 1;
-
-      // If we're actively receiving messages, consider that the user wants to see more recent content
-      // Increase effective loaded pages if we have more messages than current page limit
-      const currentLimit = currentState.loadedPages * MESSAGES_PER_PAGE;
-      const newLoadedPages =
-        newTotalMessages > currentLimit
-          ? Math.ceil(newTotalMessages / MESSAGES_PER_PAGE)
-          : currentState.loadedPages;
-
-      return {
-        ...state,
-        [key1]: {
-          ...currentState,
-          loadedPages: Math.max(newLoadedPages, currentState.loadedPages),
-          totalMessages: newTotalMessages,
-        },
-      };
-    });
-
-    // Get Profile of Message author
-    const mergedProfileContact = deriveCellMergedProfileContactInviteStore(
-      mergedProfileContactInviteStore,
-      key1,
-      encodeHashToBase64(client.client.myPubKey),
-    );
-    const fromProfile = get(mergedProfileContact).data[encodeHashToBase64(signal.from)];
-
-    // Trigger a system notification
-    _triggerMessageNotification(messageExtended, fromProfile);
+    _refreshOldestCursor(cellIdB64);
+    _recomputeThreadCounts(cellIdB64);
   }
 
   /**
-   * Load messages, starting at the current bucket and working backwards,
-   * until at least a targetCount have been fetched.
+   * Recompute replyCount / hasReplies by BFS-ing the in-memory reply graph and
+   * counting ALL transitive descendants of each parent. Because the store only
+   * holds a bounded window (HARD_MEMORY_LIMIT), the in-memory count can be lower
+   * than the true count when replies sit outside the window — so we never
+   * downgrade below the DHT-derived count already on the message; we only raise
+   * it. Only affected parents are patched, leaving the rest of the map untouched.
    */
-  async function loadMessagesInCurrentBucketTargetCount(
-    local: boolean,
-    key1: CellIdB64,
-    targetCount = TARGET_MESSAGES_COUNT,
-    bucketChunkSize: number = 3,
-    maxBucketsToFetch?: number,
-  ): Promise<number> {
-    let bucket = conversationStore.getBucket(key1, new Date().getTime());
+  function _recomputeThreadCounts(cellIdB64: CellIdB64): void {
+    try {
+      const allMessages = get(messages).data[cellIdB64] || {};
 
-    return _loadMessagesFromBucketTargetCount(
-      local,
-      key1,
-      bucket,
-      targetCount,
-      bucketChunkSize,
-      maxBucketsToFetch,
-    );
-  }
-
-  /**
-   * Load messages, starting at the oldest stored message's bucket and working backwards,
-   * until at least a targetCount have been fetched.
-   */
-  async function loadMessagesInPreviousBucketTargetCount(
-    local: boolean,
-    key1: CellIdB64,
-    targetCount = TARGET_MESSAGES_COUNT,
-    bucketChunkSize: number = 3,
-    maxBucketsToFetch?: number,
-  ): Promise<number> {
-    const currentState = get(paginationState)[key1];
-    if (!currentState?.oldestLoadedTimestamp) {
-      return 0;
-    }
-
-    // Find the bucket for the oldest loaded message
-    const oldestBucket = conversationStore.getBucket(key1, currentState.oldestLoadedTimestamp);
-
-    return _loadMessagesFromBucketTargetCount(
-      local,
-      key1,
-      oldestBucket - 1,
-      targetCount,
-      bucketChunkSize,
-      maxBucketsToFetch,
-    );
-  }
-
-  /**
-   * Main function for fetching and loading messages from network
-   */
-  async function _loadMessagesFromBucketTargetCount(
-    local: boolean,
-    key1: CellIdB64,
-    bucket: number,
-    targetCount: number = TARGET_MESSAGES_COUNT,
-    bucketChunkSize: number = 3,
-    maxBucketsToFetch?: number,
-  ): Promise<number> {
-    // Fetch the list of buckets that contain the target count
-    const bucketsToFetch = await _fetchBucketsTargetCount(
-      key1,
-      bucket,
-      local,
-      targetCount,
-      bucketChunkSize,
-      maxBucketsToFetch,
-    );
-    const actionHashB64s = flatten(bucketsToFetch.map(({ actionHashB64s }) => actionHashB64s));
-
-    // Filter only messages we are not storing already (check IndexedDB)
-    const missingActionHashB64s = await _filterMissingMessagesFromDB(key1, actionHashB64s);
-
-    // Fetch and save missing message data
-    const count = await _loadMessages(key1, missingActionHashB64s);
-
-    return count;
-  }
-
-  /**
-   * Fetch bucket's ActionHashes, starting at the given bucket and working backwards,
-   * until at least a targetCount of ActionHashes have been received.
-   */
-  async function _fetchBucketsTargetCount(
-    key1: CellIdB64,
-    bucket: number,
-    local: boolean,
-    targetCount: number = TARGET_MESSAGES_COUNT,
-    bucketChunkSize: number = 3,
-    maxBucketsToFetch?: number,
-  ): Promise<{ bucket: number; actionHashB64s: ActionHashB64[] }[]> {
-    const cellId = decodeCellIdFromBase64(key1);
-
-    let bucketsToFetch: { bucket: number; actionHashB64s: ActionHashB64[] }[] = [];
-    while (
-      sum(bucketsToFetch.map(({ actionHashB64s }) => actionHashB64s.length)) <= targetCount &&
-      bucket >= 0 &&
-      (maxBucketsToFetch === undefined || bucketsToFetch.length <= maxBucketsToFetch)
-    ) {
-      const bucketsChunk = range(bucket, bucket - bucketChunkSize).filter((b) => b >= 0);
-      bucketsToFetch = [
-        ...bucketsToFetch,
-        ...(await Promise.all(
-          bucketsChunk.map(async (b) => ({
-            bucket: b,
-            actionHashB64s: (
-              await client.getMessageHashes(
-                cellId,
-                {
-                  bucket: b,
-                  count: 0,
-                },
-                local,
-              )
-            ).map((a) => encodeHashToBase64(a)),
-          })),
-        )),
-      ];
-      bucket -= 1;
-    }
-
-    while (
-      sum(bucketsToFetch.slice(0, -1).map(({ actionHashB64s }) => actionHashB64s.length)) >
-      targetCount
-    ) {
-      bucketsToFetch.pop();
-    }
-
-    return bucketsToFetch;
-  }
-
-  /**
-   * Determine which messages we are currently missing from IndexedDB
-   */
-  async function _filterMissingMessagesFromDB(
-    key1: CellIdB64,
-    actionHashB64s: ActionHashB64[],
-  ): Promise<ActionHashB64[]> {
-    const missingMessages: ActionHashB64[] = [];
-
-    for (const actionHashB64 of actionHashB64s) {
-      const exists = await messageDB.hasMessage(actionHashB64);
-      if (!exists) {
-        missingMessages.push(actionHashB64);
+      // Build parent → children map from reply_to relationships
+      const childrenMap: Record<ActionHashB64, ActionHashB64[]> = {};
+      for (const [hash, msg] of Object.entries(allMessages)) {
+        if (msg.message?.reply_to) {
+          const parentHash = encodeHashToBase64(msg.message.reply_to);
+          if (!childrenMap[parentHash]) childrenMap[parentHash] = [];
+          childrenMap[parentHash].push(hash);
+        }
       }
+
+      if (Object.keys(childrenMap).length === 0) return;
+
+      // BFS from each parent to count all transitive descendants in memory
+      const counts: Record<ActionHashB64, number> = {};
+      for (const parentHash of Object.keys(childrenMap)) {
+        const queue = [...childrenMap[parentHash]];
+        const seen = new Set<ActionHashB64>();
+        let count = 0;
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (seen.has(current)) continue;
+          seen.add(current);
+          count++;
+          (childrenMap[current] || []).forEach((c) => queue.push(c));
+        }
+        counts[parentHash] = count;
+      }
+
+      messages.update((m) => {
+        const current = m[cellIdB64];
+        if (!current) return m;
+        const patched = { ...current };
+        for (const [hash, count] of Object.entries(counts)) {
+          if (!patched[hash]) continue;
+          // Never downgrade a DHT-derived count just because replies are not in the window.
+          const nextCount = Math.max(patched[hash].replyCount ?? 0, count);
+          patched[hash] = {
+            ...patched[hash],
+            replyCount: nextCount,
+            hasReplies: nextCount > 0 || patched[hash].hasReplies === true,
+          };
+        }
+        return { ...m, [cellIdB64]: patched };
+      });
+    } catch (e) {
+      console.error("[ConversationMessageStore] _recomputeThreadCounts error:", e);
     }
-
-    return missingMessages;
-  }
-
-  async function _loadMessages(key1: CellIdB64, actionHashB64s: ActionHashB64[]): Promise<number> {
-    if (actionHashB64s.length === 0) return 0;
-
-    const cellId = decodeCellIdFromBase64(key1);
-
-    // Fetch missing messages from network
-    const messageRecords: Array<MessageRecord> = await client.getMessageEntries(
-      cellId,
-      actionHashB64s.map((a) => decodeHashFromBase64(a)),
-      false,
-    );
-
-    // Transform Messages into MessageExtendeds
-    const messageEntries = await Promise.allSettled(
-      messageRecords.map(
-        async (m) =>
-          [encodeHashToBase64(m.original_action), await _makeMessageExtended(cellId, m)] as [
-            ActionHashB64,
-            MessageExtended,
-          ],
-      ),
-    );
-
-    const validMessages = messageEntries
-      .filter((p) => p.status === "fulfilled")
-      .map((p) => p.value);
-
-    if (validMessages.length === 0) return 0;
-
-    console.group(" SAVING TO INDEXEDDB");
-    console.log(`Cell ID: ${key1.substring(0, 15)}...`);
-    console.log(`Attempting to save ${validMessages.length} messages to local database.`);
-    console.log("Data payload:", validMessages);
-    console.groupEnd();
-
-    // Store in IndexedDB first
-    await messageDB.storeMessages(key1, validMessages);
-
-    // Load appropriate messages into memory store based on current pagination
-    await _loadMessagesFromDB(key1, get(paginationState)[key1]?.loadedPages || 1);
-
-    // Apply memory management to keep only recent messages
-    _applyMemoryManagement(key1);
-
-    return validMessages.length;
-  }
-
-  /**
-   * Apply memory management when new messages arrive
-   * Keeps only the most recent messages and removes old ones based on loaded pages
-   */
-  function _applyMemoryManagement(cellIdB64: CellIdB64): void {
-    const currentMessages = get(messages).data[cellIdB64] || {};
-    const messagesList = Object.entries(currentMessages);
-
-    // Get current pagination state to determine memory limit
-    const currentPagination = get(paginationState)[cellIdB64];
-    const loadedPages = currentPagination?.loadedPages || 1;
-
-    // Calculate memory limit: ensure users can see at least 3 pages worth of recent messages
-    // even if they haven't explicitly loaded older pages via infinite scroll
-    const effectivePages = Math.max(loadedPages, 3);
-    const maxMessagesInMemory = effectivePages * MESSAGES_PER_PAGE;
-
-    if (messagesList.length <= maxMessagesInMemory) {
-      console.log("No trimming needed - within memory limit");
-      return; // No need to trim
-    }
-
-    // Sort messages by timestamp (oldest to newest) and keep only the most recent ones
-    const sortedMessages = messagesList.sort(([, a], [, b]) => a.timestamp - b.timestamp);
-    const messagesToKeep = sortedMessages.slice(-maxMessagesInMemory);
-    const trimmedMessages = Object.fromEntries(messagesToKeep);
-
-    console.log(
-      `Trimming messages: keeping ${messagesToKeep.length} most recent out of ${sortedMessages.length} total`,
-    );
-
-    // Update the store with trimmed messages
-    messages.update((m) => ({
-      ...m,
-      [cellIdB64]: trimmedMessages,
-    }));
-
-    // Update pagination state
-    paginationState.update((state) => ({
-      ...state,
-      [cellIdB64]: {
-        ...state[cellIdB64],
-        totalMessages: messagesToKeep.length,
-        oldestLoadedTimestamp: messagesToKeep[0]?.[1].timestamp,
-      },
-    }));
-
-    const removedCount = messagesList.length - messagesToKeep.length;
-    console.log(
-      `Memory management: Removed ${removedCount} old messages, keeping ${messagesToKeep.length} recent messages (${loadedPages} loaded pages, ${effectivePages} effective pages)`,
-    );
-  }
-
-  async function _triggerMessageNotification(
-    messageExtended: MessageExtended,
-    fromProfile?: ProfileExtended,
-  ) {
-    if (messageExtended.message.message_type === MessageType.System) return;
-
-    const content =
-      messageExtended.message.content.length > 125
-        ? messageExtended.message.content.slice(0, 50) + "..."
-        : messageExtended.message.content;
-    const header = fromProfile ? `Message From ${fromProfile.profile.nickname}` : `New Message`;
-
-    await enqueueNotification(header, content);
   }
 
   async function _makeMessageExtended(
     cellId: CellId,
     messageRecord: MessageRecord,
   ): Promise<MessageExtended> {
-    if (messageRecord.message === undefined)
+    if (!messageRecord.message) {
       throw new Error("MessageRecord does not include message entry");
+    }
 
-    const baseMessage: MessageExtended = {
+    const base: MessageExtended = {
       message: messageRecord.message,
-      authorAgentPubKeyB64: encodeHashToBase64(messageRecord.signed_action.hashed.content.author),
+      authorAgentPubKeyB64: encodeHashToBase64(
+        messageRecord.signed_action.hashed.content.author,
+      ),
       timestamp: messageRecord.signed_action.hashed.content.timestamp,
     };
 
-    // Fetch reply-to message if this is a reply
+    // Hydrate the parent message if this is a reply (for inline reply context)
     if (messageRecord.message.reply_to) {
       try {
-        const replyToHash = messageRecord.message.reply_to;
-        const replyToRecord = await client.getMessageEntries(cellId, [replyToHash], false);
-        if (replyToRecord && replyToRecord.length > 0 && replyToRecord[0].message) {
-          baseMessage.replyToMessage = {
+        const replyToRecord = await client.getMessageEntries(
+          cellId,
+          [messageRecord.message.reply_to],
+          false,
+        );
+        if (replyToRecord.length > 0 && replyToRecord[0].message) {
+          base.replyToMessage = {
             message: replyToRecord[0].message,
             authorAgentPubKeyB64: encodeHashToBase64(
               replyToRecord[0].signed_action.hashed.content.author,
@@ -1038,28 +1046,43 @@ export function createConversationMessageStore(
       }
     }
 
-    // Fetch reply count for thread indicator
-    // Always fetch for all messages so we can show thread indicators when needed
+    // Fetch the DHT reply count so thread indicators are accurate independent of
+    // what is currently in memory (the in-memory recompute only ever raises this).
     try {
-      const actionHash = messageRecord.signed_action.hashed.hash;
-      const count = await client.getReplyCount(cellId, actionHash);
-      if (count > 0) {
-        baseMessage.replyCount = count;
-      }
+      const count = await client.getReplyCount(cellId, messageRecord.signed_action.hashed.hash);
+      base.replyCount = count;
+      base.hasReplies = count > 0;
     } catch (error) {
       console.error("[ConversationMessageStore] Error fetching reply count:", error);
     }
 
     if (messageRecord.message.images.length > 0) {
-      messageRecord.message.images.forEach((messageFile) =>
+      messageRecord.message.images.forEach((f) =>
         fileStore.download(
           encodeCellIdToBase64(cellId),
-          encodeHashToBase64(messageFile.storage_entry_hash),
+          encodeHashToBase64(f.storage_entry_hash),
         ),
       );
     }
 
-    return baseMessage;
+    return base;
+  }
+
+  async function _triggerMessageNotification(
+    messageExtended: MessageExtended,
+    fromProfile?: ProfileExtended,
+  ): Promise<void> {
+    if (messageExtended.message.message_type === MessageType.System) return;
+
+    const content =
+      messageExtended.message.content.length > 125
+        ? messageExtended.message.content.slice(0, 50) + "…"
+        : messageExtended.message.content;
+
+    await enqueueNotification(
+      fromProfile ? `Message From ${fromProfile.profile.nickname}` : "New Message",
+      content,
+    );
   }
 
   async function getReplyCount(key1: CellIdB64, messageHash: ActionHashB64): Promise<number> {
@@ -1068,32 +1091,15 @@ export function createConversationMessageStore(
   }
 
   async function debugGetAllMessages(key1: CellIdB64): Promise<MessageRecord[]> {
-    let bucket = conversationStore.getBucket(key1, new Date().getTime());
+    const bucket = conversationStore.getBucket(key1, Date.now());
     const cellId = decodeCellIdFromBase64(key1);
-
-    // Get the hashes for buckets by calling them one bucket at a time.
-    // let hashes: HoloHash[] = [];
-    // while (bucket >= 0) {
-    //   console.log("getting BUCKET", bucket);
-    //   const h = await client.getMessageHashes(
-    //     cellId,
-    //     {
-    //       bucket,
-    //       count: 0,
-    //     },
-    //     true,
-    //   );
-    //   hashes = [...hashes, ...h];
-    //   bucket -= 1;
-    // }
-    // const records = await client.getMessageEntries(cellId, hashes);
 
     const records = await client.getMessagesForBuckets(
       cellId,
-      Array.from({ length: bucket + 1 }, (_, index) => index),
+      Array.from({ length: bucket + 1 }, (_, i) => i),
     );
 
-    console.log("Records", records);
+    console.log("debugGetAllMessages records:", records);
     return records;
   }
 
@@ -1104,8 +1110,8 @@ export function createConversationMessageStore(
     loadMessagesInPreviousBucketTargetCount,
     loadMoreMessages,
     sendMessage,
-    getReplyCount,
     sendJoinNotice,
+    getReplyCount,
     handleMessageSignalReceived,
     subscribe,
     deleteMessage,
@@ -1132,19 +1138,30 @@ export interface CellConversationMessageStore
   loadMoreMessages: () => Promise<number>;
   sendMessage: (content: string, files: LocalFile[], replyTo?: ActionHashB64) => Promise<void>;
   sendJoinNotice: () => Promise<void>;
-  handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
   getReplyCount: (messageHash: ActionHashB64) => Promise<number>;
+  handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
+  deleteMessage: (actionHashB64: ActionHashB64) => Promise<void>;
   debugGetAllMessages: () => Promise<MessageRecord[]>;
 }
 
 export function deriveCellConversationMessageStore(
   conversationMessageStore: ConversationMessageStore,
   key: CellIdB64,
-) {
-  const data = deriveGenericKeyValueStore(conversationMessageStore, key, [([, m]) => -m.timestamp]);
+): CellConversationMessageStore {
+  const sorted = derived(conversationMessageStore, ($store) => {
+    const data = $store.data[key] || {};
+    const list = Object.entries(data).sort(([, a], [, b]) => a.timestamp - b.timestamp);
+
+    return {
+      data,
+      list,
+      count: list.length,
+    };
+  });
 
   return {
-    ...data,
+    subscribe: sorted.subscribe,
+    initialize: conversationMessageStore.initialize,
     loadMessagesInCurrentBucketTargetCount: (
       local: boolean,
       targetCount?: number,
@@ -1175,12 +1192,12 @@ export function deriveCellConversationMessageStore(
     sendMessage: (content: string, files: LocalFile[], replyTo?: ActionHashB64) =>
       conversationMessageStore.sendMessage(key, content, files, replyTo),
     sendJoinNotice: () => conversationMessageStore.sendJoinNotice(key),
-    handleMessageSignalReceived: (signal: MessageSignal) =>
-      conversationMessageStore.handleMessageSignalReceived(key, signal),
-    deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>
-      conversationMessageStore.deleteMessage(key1, actionHashB64),
     getReplyCount: (messageHash: ActionHashB64) =>
       conversationMessageStore.getReplyCount(key, messageHash),
+    handleMessageSignalReceived: (signal: MessageSignal) =>
+      conversationMessageStore.handleMessageSignalReceived(key, signal),
+    deleteMessage: (actionHashB64: ActionHashB64) =>
+      conversationMessageStore.deleteMessage(key, actionHashB64),
     debugGetAllMessages: () => conversationMessageStore.debugGetAllMessages(key),
   };
 }
