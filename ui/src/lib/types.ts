@@ -109,6 +109,14 @@ export interface MessageExtended {
   message: Message;
   authorAgentPubKeyB64: AgentPubKeyB64;
   timestamp: number;
+  deliveredTo: AgentPubKeyB64[];
+}
+
+export enum DeliveryStatus {
+  Sending = "Sending",
+  Sent = "Sent",
+  DeliveredPartial = "DeliveredPartial",
+  DeliveredAll = "DeliveredAll",
 }
 
 export interface MessageRecord {
@@ -120,6 +128,11 @@ export interface MessageRecord {
 export interface SendMessageInput {
   message: Message;
   agents: AgentPubKey[];
+}
+
+export interface NotifyMessageDeliveryInput {
+  agent: AgentPubKey;
+  message_record: MessageRecord;
 }
 
 export interface DeleteMessageInput {

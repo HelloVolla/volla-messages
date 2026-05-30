@@ -31,6 +31,21 @@ export class MessageDatabase extends Dexie {
       messages:
         "actionHashB64, cellIdB64, timestamp, bucket, [cellIdB64+timestamp], [cellIdB64+bucket]",
     });
+    this.version(4)
+      .stores({
+        messages:
+          "actionHashB64, cellIdB64, timestamp, bucket, [cellIdB64+timestamp], [cellIdB64+bucket]",
+      })
+      .upgrade((tx) =>
+        tx
+          .table<DBMessage>("messages")
+          .toCollection()
+          .modify((row) => {
+            if (!Array.isArray(row.message.deliveredTo)) {
+              row.message.deliveredTo = [];
+            }
+          }),
+      );
   }
 
   async storeMessage(

@@ -12,6 +12,8 @@
   import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import AgentNickname from "$lib/AgentNickname.svelte";
   import { open } from "@tauri-apps/plugin-shell";
+  import DeliveryStatusIndicator from "./DeliveryStatusIndicator.svelte";
+  import { computeDeliveryStatus } from "$lib/utils";
 
   const myPubKeyB64 = getContext<{ getMyPubKeyB64: () => AgentPubKeyB64 }>(
     "myPubKey",
@@ -22,8 +24,11 @@
   export let isSelected: boolean = false;
   export let showAuthor: boolean = false;
   export let actionHashB64: ActionHashB64;
+  export let recipientPubKeyB64s: AgentPubKeyB64[] = [];
 
   $: fromMe = message.authorAgentPubKeyB64 === myPubKeyB64;
+  $: deliveryStatus = computeDeliveryStatus(message, recipientPubKeyB64s);
+  $: deliveredCount = message.deliveredTo.length;
 
   // Ensure that external links in message content are opened with the system default browser or mail client.
   function handleMessageContentClick(e: MouseEvent) {
@@ -103,6 +108,16 @@
           }),
         )}
       </div>
+
+      {#if fromMe && recipientPubKeyB64s.length > 0}
+        <div class="mt-1 flex justify-end">
+          <DeliveryStatusIndicator
+            status={deliveryStatus}
+            {deliveredCount}
+            recipientCount={recipientPubKeyB64s.length}
+          />
+        </div>
+      {/if}
     </div>
   </div>
 

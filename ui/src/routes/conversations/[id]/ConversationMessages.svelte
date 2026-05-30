@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isMobile, isSameDay, isWithinFiveMinutes } from "$lib/utils";
-  import type { ActionHashB64 } from "@holochain/client";
+  import type { ActionHashB64, AgentPubKeyB64 } from "@holochain/client";
   import { MessageType, type MessageExtended, type CellIdB64 } from "$lib/types";
   import BaseMessage from "./Message.svelte";
   import NoticeMessage from "./NoticeMessage.svelte";
@@ -15,6 +15,7 @@
   export let messages: [ActionHashB64, MessageExtended][];
   export let cellIdB64: CellIdB64;
   export let loadingTop = false;
+  export let recipientPubKeyB64s: AgentPubKeyB64[] = [];
 
   let selected: ActionHashB64 | undefined;
   let containerEl: HTMLDivElement | null = null;
@@ -309,6 +310,7 @@ console.log("[ConversationMessages] scrollAtTop fired", {
               isSelected={selected === actionHashB64}
               showAuthor={shouldShowAuthor(currentIndex)}
               {actionHashB64}
+              {recipientPubKeyB64s}
               on:press={() => handlePress(actionHashB64)}
               on:click={(e) => handleClick(e, actionHashB64)}
               on:clickoutside={handleClickOutside}
