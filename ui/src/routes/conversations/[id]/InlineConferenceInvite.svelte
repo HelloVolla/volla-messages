@@ -29,9 +29,6 @@
     .filter(([_, conf]) => {
       if (!conf || conf.ended) return false;
 
-      // For pending invitations, always show
-      if (conf.invitationStatus === "pending") return true;
-
       // For "left" state, only show if there are OTHER participants still in the call
       if (conf.invitationStatus === "left") {
         const otherActiveParticipants = Array.from(conf.participants?.entries() || []).filter(

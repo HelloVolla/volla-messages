@@ -8,7 +8,7 @@ use hdk::prelude::*;
 use relay_integrity::*;
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "signal_type")]
+#[serde(tag = "payload_type")]
 pub enum RemoteSignalPayload {
     Message(MessageRecord),
     Conference(ConferenceRecord),

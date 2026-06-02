@@ -56,6 +56,7 @@
   import Dialog from "$lib/Dialog.svelte";
   // Use the refactored ConferenceView with extracted components
   import { ConferenceView, ResizablePip } from "$lib/conference";
+  import IncomingCallBanner from "$lib/IncomingCallBanner.svelte";
   import { sendConferenceEndedLog } from "$lib/conferenceLogging";
   import { onDestroy } from "svelte";
 
@@ -446,6 +447,12 @@
     </AppLanding>
   {/if}
 </div>
+
+{#if isStoresSetup && conferenceStore}
+  <div class="pointer-events-none fixed inset-x-0 bottom-0" style="z-index: 55;">
+    <IncomingCallBanner />
+  </div>
+{/if}
 
 {#if activeConference}
   <ConferenceView

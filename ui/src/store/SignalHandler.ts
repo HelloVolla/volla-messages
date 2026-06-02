@@ -11,7 +11,7 @@ import {
   SimplePeerSignalType,
   ConferenceRole,
 } from "$lib/types";
-import { encodeCellIdToBase64 } from "$lib/utils";
+import { encodeCellIdToBase64, enqueueNotification } from "$lib/utils";
 import { type ConversationStore } from "./ConversationStore";
 import type { ConversationMessageStore } from "./ConversationMessageStore";
 import {
@@ -136,6 +136,14 @@ export function createSignalHandler(
         };
 
         conferenceStore.setConference(roomId, state);
+
+        const $callPage = get(page);
+        const viewingThisConversation =
+          $callPage.params.id === cellIdB64 &&
+          $callPage.route.id === "/conversations/[id]";
+        if (!viewingThisConversation) {
+          enqueueNotification("Incoming call", "You have an incoming call");
+        }
 
         console.log("[SignalHandler] Incoming call invitation received:", {
           roomId,
