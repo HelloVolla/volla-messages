@@ -367,16 +367,57 @@ async function loadMoreMessages() {
     }
   }
 
+  let dhtActiveRoomId: string | null = null;
+  let activeCallPollTimer: ReturnType<typeof setInterval> | undefined;
+
+  $: myCellCalls = Object.entries($conferenceStore?.data || {}).filter(
+    ([_, c]) => c && !c.ended && c.cellIdB64 === $page.params.id,
+  );
+  $: activeCallEntry = myCellCalls.find(
+    ([_, c]) => c.invitationStatus === "accepted" || c.isInitiator || c.showPreJoinScreen,
+  );
+  $: amInCall = !!activeCallEntry;
+  $: callIsOngoing =
+    amInCall ||
+    !!dhtActiveRoomId ||
+    myCellCalls.some(
+      ([_, c]) => c.invitationStatus === "pending" || c.invitationStatus === "active",
+    );
+
+  async function refreshActiveCall() {
+    if (amInCall) {
+      dhtActiveRoomId = null;
+      return;
+    }
+    dhtActiveRoomId = await conferenceStore.getActiveConferenceRoom($page.params.id);
+  }
+
+  function handleCallButton() {
+    if (activeCallEntry) {
+      conferenceStore.setMinimized(activeCallEntry[0], false);
+      return;
+    }
+    const active = conferenceStore.getMyActiveCall();
+    if (active && active.cellIdB64 !== $page.params.id) {
+      toast.error("You're already in a call in another conversation");
+      return;
+    }
+    startVideoCall();
+  }
+
   onMount(() => {
     conversationMessageInputRef?.focus();
     loadData();
     conversation.updateUnread(false);
+    refreshActiveCall();
+    activeCallPollTimer = setInterval(refreshActiveCall, 12000);
   });
 
   onDestroy(() => {
     clearTimeout(agentTimeout);
     clearTimeout(configTimeout);
     clearTimeout(messageTimeout);
+    if (activeCallPollTimer) clearInterval(activeCallPollTimer);
   });
 
   async function dumpAll() {
@@ -408,8 +449,8 @@ async function loadMoreMessages() {
       moreClassesButton="p-4 {isStartingCall ? 'opacity-50' : ''}"
       icon="videoCall"
       disabled={isStartingCall}
-      on:click={startVideoCall}
-      title="Start video call"
+      on:click={handleCallButton}
+      title={amInCall ? "Return to call" : callIsOngoing ? "Join call" : "Start video call"}
     />
 
     <ButtonIconBare

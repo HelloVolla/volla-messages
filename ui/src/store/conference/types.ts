@@ -13,6 +13,7 @@ export {
   ICE_CONFIG,
   RECONNECT_CONFIG,
   CONNECTION_TIMEOUT_MS,
+  MEDIA_WAIT_MS,
   MAX_CONFERENCE_PARTICIPANTS,
   INVITATION_TIMEOUT_MS,
   MEDIA_STATE_DEBOUNCE_MS,
@@ -55,6 +56,7 @@ export interface SimplePeerParticipant {
   reconnectAttempts?: number;
   reconnectTimer?: ReturnType<typeof setTimeout>;
   connectionTimeout?: ReturnType<typeof setTimeout>;
+  mediaWaitTimer?: ReturnType<typeof setTimeout>;
   signalBufferExpiry?: number;
   lastSignalReceived?: number;
   connectionRetryCount?: number;

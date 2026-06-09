@@ -45,6 +45,11 @@ export function createSignalHandler(
       return;
     }
 
+    const sender = state.participants.get(signal.from);
+    if (sender && !sender.hasJoined) {
+      updateParticipant(ctx, roomId, signal.from, (p) => ({ ...p, hasJoined: true }));
+    }
+
     switch (signal.signal_type) {
       case SimplePeerSignalType.InitRequest:
         handleInitRequest(roomId, signal);

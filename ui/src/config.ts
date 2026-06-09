@@ -48,14 +48,16 @@ export const ICE_CONFIG: RTCIceServer[] = [
 ];
 
 export const RECONNECT_CONFIG = {
-  maxAttempts: 10,
+  maxAttempts: 8,
   baseDelayMs: 1000,
-  maxDelayMs: 60000,
+  maxDelayMs: 30000,
   backoffMultiplier: 2,
   jitterFactor: 0.3,
 };
 
 export const CONNECTION_TIMEOUT_MS = 30000;
+
+export const MEDIA_WAIT_MS = 20000;
 export const MAX_CONFERENCE_PARTICIPANTS = 6;
 export const INVITATION_TIMEOUT_MS = 60000;
 export const MEDIA_STATE_DEBOUNCE_MS = 200;

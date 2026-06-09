@@ -33,11 +33,13 @@ export function createConnectionMonitor(
 
     if (attempt > RECONNECT_CONFIG.maxAttempts) {
       console.error(
-        `[SimplePeer] Max reconnect attempts (${RECONNECT_CONFIG.maxAttempts}) reached for ${pubKey.slice(0, 20)}. Total connection attempts: ${totalRetries}`,
+        `[SimplePeer] Max reconnect attempts (${RECONNECT_CONFIG.maxAttempts}) reached for ${pubKey.slice(0, 20)}. Marking participant as left. Total connection attempts: ${totalRetries}`,
       );
+      cleanupPeer(roomId, pubKey);
       updateParticipant(ctx, roomId, pubKey, (p) => ({
         ...p,
-        connectionStatus: "failed",
+        hasJoined: false,
+        connectionStatus: "idle",
         reconnectAttempts: 0,
         reconnectTimer: undefined,
         connectionRetryCount: totalRetries,

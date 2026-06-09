@@ -423,14 +423,11 @@ export class RelayClient {
    * Conference / AV Calling
    */
 
-  public async createConference(participants: AgentPubKey[], cellId: CellId): Promise<string> {
-    console.log("[RelayClient] createConference() - Calling Holochain zome");
-    console.log("[RelayClient] Cell ID:", encodeCellIdToBase64(cellId));
-    console.log("[RelayClient] Participants (Uint8Array):", participants);
-    console.log("[RelayClient] Number of participants:", participants.length);
-
+  public async createConference(
+    participants: AgentPubKey[],
+    cellId: CellId,
+  ): Promise<{ room_id: string; joined_existing: boolean }> {
     const input: CreateConferenceInput = { participants };
-    console.log("[RelayClient] Input payload:", input);
 
     const result = await this.client.callZome({
       cell_id: cellId,
@@ -439,8 +436,7 @@ export class RelayClient {
       payload: input,
     });
 
-    console.log("[RelayClient] createConference() result from Holochain:", result);
-    return result;
+    return result as { room_id: string; joined_existing: boolean };
   }
 
   public async joinConference(
@@ -646,6 +642,25 @@ export class RelayClient {
     });
     console.log("[RelayClient] getConferenceParticipants() result:", result);
     return result;
+  }
+
+  public async claimHost(room_id: string, cellId: CellId): Promise<void> {
+    await this.client.callZome({
+      cell_id: cellId,
+      zome_name: ZOME_NAME,
+      fn_name: "claim_host",
+      payload: room_id,
+    });
+  }
+
+  public async getActiveConference(cellId: CellId): Promise<string | null> {
+    const result = await this.client.callZome({
+      cell_id: cellId,
+      zome_name: ZOME_NAME,
+      fn_name: "get_active_conference",
+      payload: null,
+    });
+    return (result as string | null) ?? null;
   }
 
   public async transferHost(room_id: string, new_host: AgentPubKey, cellId: CellId): Promise<void> {

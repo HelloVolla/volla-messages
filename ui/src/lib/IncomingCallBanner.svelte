@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext } from "svelte";
   import { goto } from "$app/navigation";
+  import toast from "svelte-french-toast";
   import type { SimplePeerConferenceStore } from "$store/SimplePeerConferenceStore";
   import type { ProfileStore } from "$store/ProfileStore";
   import ButtonInline from "$lib/ButtonInline.svelte";
@@ -30,6 +31,11 @@
   }
 
   async function acceptCall(roomId: string, cellIdB64: string | undefined) {
+    const active = conferenceStore.getMyActiveCall();
+    if (active && active.roomId !== roomId) {
+      toast.error("You're already in a call");
+      return;
+    }
     if (cellIdB64) {
       await goto(`/conversations/${cellIdB64}`);
     }

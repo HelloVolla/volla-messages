@@ -1,4 +1,4 @@
-import { type Subscriber, type Invalidator, type Unsubscriber } from "svelte/store";
+import { type Subscriber, type Invalidator, type Unsubscriber, get } from "svelte/store";
 import {
   createGenericKeyValueStore,
   type GenericKeyValueStore,
@@ -6,7 +6,7 @@ import {
   deriveGenericValueStore,
 } from "./generic/GenericKeyValueStore";
 import { RelayClient } from "./RelayClient";
-import { type AgentPubKeyB64 } from "@holochain/client";
+import { type AgentPubKeyB64, encodeHashToBase64 } from "@holochain/client";
 import { ConferenceRole } from "$lib/types";
 
 import {
@@ -66,6 +66,10 @@ export interface SimplePeerConferenceStore {
     updater: (state: SimplePeerConferenceState) => SimplePeerConferenceState,
   ) => void;
   removeConference: (roomId: string) => void;
+  getActiveConferenceRoom: (cellIdB64: string) => Promise<string | null>;
+  getMyActiveCall: () => { roomId: string; cellIdB64?: string } | null;
+  reconcilePresence: (roomId: string) => Promise<void>;
+  cleanupAll: () => void;
   getIncomingInvitations: () => SimplePeerConferenceState[];
   fetchRoles: (roomId: string) => Promise<void>;
   transferHost: (roomId: string, newHostPubKeyB64: AgentPubKeyB64) => Promise<void>;
@@ -146,8 +150,122 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
     return deriveGenericValueStore(conferences, roomId);
   }
 
+  async function getActiveConferenceRoom(cellIdB64: string): Promise<string | null> {
+    try {
+      const cellId = client.decodeCellId(cellIdB64);
+      return await client.getActiveConference(cellId);
+    } catch (e) {
+      console.error("[Conference] Failed to query active conference:", e);
+      return null;
+    }
+  }
+
+  async function reconcilePresence(roomId: string): Promise<void> {
+    let conf: SimplePeerConferenceState | undefined;
+    try {
+      conf = conferences.getKeyValue(roomId);
+    } catch {
+      return;
+    }
+    if (!conf || conf.ended || !conf.cellIdB64) return;
+
+    let records;
+    try {
+      const cellId = client.decodeCellId(conf.cellIdB64);
+      records = await client.getConferenceParticipants(roomId, cellId);
+    } catch (e) {
+      console.error("[Conference] reconcilePresence failed:", e);
+      return;
+    }
+
+    const activeAgents = new Set(
+      records.filter((r) => r.is_active).map((r) => encodeHashToBase64(r.agent)),
+    );
+    const myPubKey = encodeHashToBase64(client.client.myPubKey);
+
+    if (!activeAgents.has(myPubKey)) {
+      mediaManager.cleanupWebRTC(roomId);
+      conferences.updateKeyValue(roomId, (c) => ({
+        ...c,
+        ended: true,
+        invitationStatus: "left" as const,
+      }));
+      return;
+    }
+
+    const toDrop: string[] = [];
+    for (const [pk, p] of conf.participants) {
+      if (pk !== myPubKey && p.hasJoined && !activeAgents.has(pk)) {
+        toDrop.push(pk);
+      }
+    }
+    for (const pk of toDrop) {
+      peerManager.cleanupPeer(roomId, pk);
+    }
+    if (toDrop.length > 0) {
+      conferences.updateKeyValue(roomId, (c) => {
+        const next = new Map(c.participants);
+        for (const pk of toDrop) {
+          const p = next.get(pk);
+          if (p) next.set(pk, { ...p, hasJoined: false, connectionStatus: "idle" });
+        }
+        return { ...c, participants: next };
+      });
+    }
+
+    const hasActiveHost = records.some((r) => r.is_active && r.role === ConferenceRole.Host);
+    if (!hasActiveHost) {
+      const activeSorted = Array.from(activeAgents).sort();
+      if (activeSorted[0] === myPubKey) {
+        try {
+          const cellId = client.decodeCellId(conf.cellIdB64);
+          await client.claimHost(roomId, cellId);
+        } catch (e) {
+          console.error("[Conference] claimHost failed:", e);
+        }
+      }
+    }
+  }
+
+  function getMyActiveCall(): { roomId: string; cellIdB64?: string } | null {
+    const snapshot = get(conferences);
+    for (const [roomId, conf] of Object.entries(snapshot.data)) {
+      if (conf && !conf.ended && conf.invitationStatus === "accepted") {
+        return { roomId, cellIdB64: conf.cellIdB64 };
+      }
+    }
+    return null;
+  }
+
+  function cleanupAll(): void {
+    const snapshot = get(conferences);
+    for (const [roomId, conf] of Object.entries(snapshot.data)) {
+      if (!conf) continue;
+      if (conf.invitationTimeoutHandle) clearTimeout(conf.invitationTimeoutHandle);
+      if (conf.healthMonitorInterval) clearInterval(conf.healthMonitorInterval);
+      for (const p of conf.participants.values()) {
+        if (p.reconnectTimer) clearTimeout(p.reconnectTimer);
+        if (p.connectionTimeout) clearTimeout(p.connectionTimeout);
+        if (p.mediaWaitTimer) clearTimeout(p.mediaWaitTimer);
+        if (p.networkMonitorTimeout) clearTimeout(p.networkMonitorTimeout);
+        if (p.peer && !p.peer.destroyed) {
+          try {
+            p.peer.destroy();
+          } catch (e) {
+            console.warn("[Conference] Error destroying peer during cleanupAll:", e);
+          }
+        }
+      }
+      conferences.removeKeyValue(roomId);
+    }
+  }
+
   return {
     createConference: lifecycle.createConference,
+    getActiveConferenceRoom,
+    getMyActiveCall,
+    reconcilePresence,
+    cleanupAll,
     joinConference: lifecycle.joinConference,
     acceptConferenceInvitation: lifecycle.acceptConferenceInvitation,
     rejectConferenceInvitation: lifecycle.rejectConferenceInvitation,

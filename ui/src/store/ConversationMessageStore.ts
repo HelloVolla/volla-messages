@@ -8,6 +8,8 @@ import {
   type MessageSignal,
   type ProfileExtended,
   MessageType,
+  isConferenceLog,
+  parseConferenceLog,
 } from "$lib/types";
 import { encodeCellIdToBase64, decodeCellIdFromBase64, enqueueNotification } from "$lib/utils";
 import { EntryRecord } from "@holochain-open-dev/utils";
@@ -1074,10 +1076,15 @@ const paginationState = writable<Record<string, PaginationState>>({});
   ): Promise<void> {
     if (messageExtended.message.message_type === MessageType.System) return;
 
-    const content =
-      messageExtended.message.content.length > 125
-        ? messageExtended.message.content.slice(0, 50) + "…"
-        : messageExtended.message.content;
+    const rawContent = messageExtended.message.content;
+
+    let content;
+    if (isConferenceLog(rawContent)) {
+      const log = parseConferenceLog(rawContent);
+      content = log?.event === "started" ? "📞 Call started" : "📞 Call ended";
+    } else {
+      content = rawContent.length > 125 ? rawContent.slice(0, 50) + "…" : rawContent;
+    }
 
     await enqueueNotification(
       fromProfile ? `Message From ${fromProfile.profile.nickname}` : "New Message",

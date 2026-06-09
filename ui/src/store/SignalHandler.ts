@@ -11,7 +11,7 @@ import {
   SimplePeerSignalType,
   ConferenceRole,
 } from "$lib/types";
-import { encodeCellIdToBase64, enqueueNotification } from "$lib/utils";
+import { encodeCellIdToBase64, enqueueNotification, sendCallNotification } from "$lib/utils";
 import { type ConversationStore } from "./ConversationStore";
 import type { ConversationMessageStore } from "./ConversationMessageStore";
 import {
@@ -93,11 +93,30 @@ export function createSignalHandler(
         const participants = signal.room.participants.map((p) => encodeHashToBase64(p));
         const allParticipants = [invitedBy, ...participants];
 
-        // Create timeout to auto-reject invitation after 60 seconds
+        let previousConference;
+        try {
+          previousConference = conferenceStore.getConference(roomId);
+        } catch {
+          previousConference = undefined;
+        }
+        if (previousConference) {
+          if (previousConference.invitationTimeoutHandle) {
+            clearTimeout(previousConference.invitationTimeoutHandle);
+          }
+          if (previousConference.healthMonitorInterval) {
+            clearInterval(previousConference.healthMonitorInterval);
+          }
+        }
+
+        const invitationTimestamp = Date.now();
         const invitationTimeoutHandle = setTimeout(() => {
           try {
             const currentConference = conferenceStore.getConference(roomId);
-            if (currentConference && currentConference.invitationStatus === "pending") {
+            if (
+              currentConference &&
+              currentConference.invitationStatus === "pending" &&
+              currentConference.invitationTimestamp === invitationTimestamp
+            ) {
               console.log(
                 `[SignalHandler] Invitation timeout for room ${roomId.slice(0, 20)}, auto-rejecting`,
               );
@@ -128,7 +147,7 @@ export function createSignalHandler(
           ended: false,
           invitationStatus: "pending",
           invitedBy: invitedBy,
-          invitationTimestamp: Date.now(),
+          invitationTimestamp: invitationTimestamp,
           invitationTimeoutHandle: invitationTimeoutHandle,
           cellIdB64: cellIdB64,
           initiatorPubKeyB64: invitedBy,
@@ -142,7 +161,7 @@ export function createSignalHandler(
           $callPage.params.id === cellIdB64 &&
           $callPage.route.id === "/conversations/[id]";
         if (!viewingThisConversation) {
-          enqueueNotification("Incoming call", "You have an incoming call");
+          sendCallNotification("Incoming call", "You have an incoming call", roomId, cellIdB64);
         }
 
         console.log("[SignalHandler] Incoming call invitation received:", {
@@ -250,6 +269,10 @@ export function createSignalHandler(
           roomId,
           leftAgent: leftAgent.slice(0, 20),
           isMe: leftAgent === myPubKey,
+        });
+
+        conferenceStore.reconcilePresence(roomId).catch((e) => {
+          console.error("[SignalHandler] reconcilePresence failed:", e);
         });
 
         if (leftAgent !== myPubKey) {
@@ -443,7 +466,15 @@ export function createSignalHandler(
         });
 
         setTimeout(() => {
-          conferenceStore.removeConference(roomId);
+          let cur;
+          try {
+            cur = conferenceStore.getConference(roomId);
+          } catch {
+            cur = undefined;
+          }
+          if (cur && cur.ended) {
+            conferenceStore.removeConference(roomId);
+          }
         }, 3000);
         break;
       }

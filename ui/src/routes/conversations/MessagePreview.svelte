@@ -1,6 +1,12 @@
 <script lang="ts">
   import Avatar from "$lib/Avatar.svelte";
-  import { MessageType, type CellIdB64, type MessageExtended } from "$lib/types";
+  import {
+    MessageType,
+    type CellIdB64,
+    type MessageExtended,
+    isConferenceLog,
+    parseConferenceLog,
+  } from "$lib/types";
   import { t } from "$translations";
   import DOMPurify from "dompurify";
   import AgentNickname from "$lib/AgentNickname.svelte";
@@ -17,6 +23,9 @@
   );
   $: hasImages = imageFiles.length > 0;
   $: hasFiles = otherFiles.length > 0;
+  $: conferenceLog = isConferenceLog(messageExtended.message.content)
+    ? parseConferenceLog(messageExtended.message.content)
+    : null;
 </script>
 
 {#if messageExtended.message.message_type === MessageType.System}
@@ -32,7 +41,11 @@
         ><AgentNickname {cellIdB64} agentPubKeyB64={messageExtended.authorAgentPubKeyB64} /></span
       >
     </span>
-    <span>{@html DOMPurify.sanitize(messageExtended.message.content)}</span>
+    {#if conferenceLog}
+      <span>{conferenceLog.event === "started" ? "📞 Call started" : "📞 Call ended"}</span>
+    {:else}
+      <span>{@html DOMPurify.sanitize(messageExtended.message.content)}</span>
+    {/if}
 
     {#if hasImages || hasFiles}
       <div class="italic text-secondary-400">

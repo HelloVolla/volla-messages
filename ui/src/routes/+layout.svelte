@@ -20,7 +20,8 @@
     createProfileStore,
     deriveCellProfileStore,
   } from "$store/ProfileStore";
-  import { encodeCellIdToBase64 } from "$lib/utils";
+  import { encodeCellIdToBase64, setupCallNotifications } from "$lib/utils";
+  import { goto } from "$app/navigation";
   import {
     createMergedProfileContactInviteStore,
     type MergedProfileContactInviteStore,
@@ -314,6 +315,21 @@
       );
       conferenceStore = createSimplePeerConferenceStore(relayClient);
 
+      setupCallNotifications(
+        async (roomId, cellIdB64) => {
+          const active = conferenceStore.getMyActiveCall();
+          if (active && active.roomId !== roomId) return;
+          if (cellIdB64) await goto(`/conversations/${cellIdB64}`);
+          conferenceStore.setMinimized(roomId, false);
+          conferenceStore.setShowPreJoinScreen(roomId, true);
+        },
+        (roomId) => {
+          conferenceStore.rejectConferenceInvitation(roomId).catch((e) => {
+            console.error("[Layout] Failed to reject call from notification:", e);
+          });
+        },
+      );
+
       // Initialize network stats store
       networkStatsStore = createNetworkStatsStore(client, relayClient);
       networkStatsStore.start();
@@ -347,6 +363,11 @@
   }
 
   onMount(setupApp);
+
+  onDestroy(() => {
+    conferenceStore?.cleanupAll();
+    networkStatsStore?.stop();
+  });
 
   setContext("myPubKey", {
     getMyPubKey: () => client.myPubKey,

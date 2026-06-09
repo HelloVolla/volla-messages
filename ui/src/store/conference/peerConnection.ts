@@ -5,6 +5,7 @@ import {
   type PeerCleanupReport,
   ICE_CONFIG,
   CONNECTION_TIMEOUT_MS,
+  MEDIA_WAIT_MS,
   SDP_BUFFER_EXPIRY_MS,
   safeGetConference,
   updateParticipant,
@@ -51,6 +52,9 @@ export function createPeerConnectionManager(
     if (participant.connectionTimeout) {
       clearTimeout(participant.connectionTimeout);
     }
+    if (participant.mediaWaitTimer) {
+      clearTimeout(participant.mediaWaitTimer);
+    }
     if (participant.networkMonitorTimeout) {
       clearTimeout(participant.networkMonitorTimeout);
     }
@@ -75,6 +79,7 @@ export function createPeerConnectionManager(
       pendingSdpSignals: [],
       reconnectTimer: undefined,
       connectionTimeout: undefined,
+      mediaWaitTimer: undefined,
       networkMonitorTimeout: undefined,
       lastIceState: undefined,
       videoTrackActive: undefined,
@@ -100,7 +105,7 @@ export function createPeerConnectionManager(
     const peerOpts: SimplePeer.Options = {
       initiator,
       config: { iceServers: ICE_CONFIG },
-      trickle: true,
+      trickle: false,
     };
 
     if (localStream) {
@@ -159,12 +164,28 @@ export function createPeerConnectionManager(
         peerDestroyed: peer.destroyed,
       });
 
-      updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-        ...p,
-        stream: remoteStream,
-        connectionStatus: "connected",
-        streamVersion: (p.streamVersion || 0) + 1,
-      }));
+      updateParticipant(ctx, roomId, participantPubKey, (p) => {
+        if (p.connectionTimeout) {
+          clearTimeout(p.connectionTimeout);
+        }
+        if (p.reconnectTimer) {
+          clearTimeout(p.reconnectTimer);
+        }
+        if (p.mediaWaitTimer) {
+          clearTimeout(p.mediaWaitTimer);
+        }
+
+        return {
+          ...p,
+          stream: remoteStream,
+          connectionStatus: "connected",
+          streamVersion: (p.streamVersion || 0) + 1,
+          reconnectAttempts: 0,
+          reconnectTimer: undefined,
+          connectionTimeout: undefined,
+          mediaWaitTimer: undefined,
+        };
+      });
 
       const state = safeGetConference(ctx, roomId);
       const updatedParticipant = state?.participants.get(participantPubKey);
@@ -272,22 +293,37 @@ export function createPeerConnectionManager(
     });
 
     peer.on("connect", () => {
-      console.log(`[SimplePeer] Connected to ${participantPubKey.slice(0, 20)}`);
+      console.log(`[SimplePeer] Data channel open with ${participantPubKey.slice(0, 20)}, awaiting media`);
+
+      const mediaWaitTimer = setTimeout(() => {
+        const cur = safeGetConference(ctx, roomId);
+        const p = cur?.participants.get(participantPubKey);
+        if (cur && !cur.ended && p && p.hasJoined && !p.stream && !peer.destroyed) {
+          console.warn(
+            `[SimplePeer] No media from ${participantPubKey.slice(0, 20)} after ${MEDIA_WAIT_MS}ms, renegotiating`,
+          );
+          cleanupPeer(roomId, participantPubKey);
+          scheduleReconnect(roomId, participantPubKey);
+        }
+      }, MEDIA_WAIT_MS);
 
       updateParticipant(ctx, roomId, participantPubKey, (p) => {
+        if (p.reconnectTimer) {
+          clearTimeout(p.reconnectTimer);
+        }
         if (p.connectionTimeout) {
           clearTimeout(p.connectionTimeout);
         }
-        if (p.reconnectTimer) {
-          clearTimeout(p.reconnectTimer);
+        if (p.mediaWaitTimer) {
+          clearTimeout(p.mediaWaitTimer);
         }
 
         return {
           ...p,
-          connectionStatus: "connected",
-          reconnectAttempts: 0,
+          connectionStatus: "connecting",
           reconnectTimer: undefined,
           connectionTimeout: undefined,
+          mediaWaitTimer,
         };
       });
 
@@ -520,6 +556,16 @@ export function createPeerConnectionManager(
         console.log(`[SimplePeer] Cleared connection timeout for ${pubKey.slice(0, 20)}`);
       } catch (e) {
         const error = `[SimplePeer] Error clearing connection timeout for ${pubKey.slice(0, 20)}: ${e}`;
+        console.warn(error);
+        report.errors.push(error);
+      }
+    }
+    if (participant.mediaWaitTimer) {
+      try {
+        clearTimeout(participant.mediaWaitTimer);
+        report.timersCleared++;
+      } catch (e) {
+        const error = `[SimplePeer] Error clearing media wait timer for ${pubKey.slice(0, 20)}: ${e}`;
         console.warn(error);
         report.errors.push(error);
       }

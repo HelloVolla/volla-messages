@@ -1,6 +1,15 @@
 use hdk::prelude::*;
 use relay_integrity::*;
 
+const MAX_CALL_AGE_MICROS: i64 = 4 * 60 * 60 * 1_000_000;
+const MAX_CONFERENCE_PARTICIPANTS: usize = 6;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CreateConferenceOutcome {
+    pub room_id: String,
+    pub joined_existing: bool,
+}
+
 fn generate_signal_id() -> String {
     let timestamp = sys_time().unwrap();
     let (secs, nanos) = timestamp.as_seconds_and_nanos();
@@ -26,16 +35,28 @@ fn get_active_conference_record() -> ExternResult<Option<(ActionHash, Conference
             before: None,
             author: None,
         },
-        GetStrategy::Local,
+        GetStrategy::Network,
     )?;
 
     let mut active: Vec<(ActionHash, Conference)> = Vec::new();
     for link in links {
         if let Some(action_hash) = link.target.into_action_hash() {
-            if let Some(record) = get(action_hash.clone(), GetOptions::default())? {
+            if let Some(record) = get(action_hash.clone(), GetOptions::network())? {
                 if let Some(conference) = record.entry().to_app_option::<Conference>().ok().flatten() {
-                    if conference.is_active {
-                        active.push((action_hash, conference));
+                    let now = sys_time()?;
+                    let age = now.as_micros() - conference.created_at.as_micros();
+                    if conference.is_active && age <= MAX_CALL_AGE_MICROS {
+                        let active_count = get_all_participants(&action_hash)?
+                            .into_iter()
+                            .filter(|p| p.is_active)
+                            .count();
+                        if active_count > 0 {
+                            active.push((action_hash, conference));
+                        } else {
+                            remove_active_call_link(&action_hash)?;
+                        }
+                    } else {
+                        remove_active_call_link(&action_hash)?;
                     }
                 }
             }
@@ -62,7 +83,7 @@ fn remove_active_call_link(conference_hash: &ActionHash) -> ExternResult<()> {
             before: None,
             author: None,
         },
-        GetStrategy::Local,
+        GetStrategy::Network,
     )?;
 
     for link in links {
@@ -87,12 +108,12 @@ fn get_conference(room_id: &str) -> ExternResult<Option<(ActionHash, Conference)
             before: None,
             author: None,
         },
-        GetStrategy::Local,
+        GetStrategy::Network,
     )?;
 
     for link in links {
         if let Some(action_hash) = link.target.into_action_hash() {
-            if let Some(record) = get(action_hash.clone(), GetOptions::default())? {
+            if let Some(record) = get(action_hash.clone(), GetOptions::network())? {
                 if let Some(conference) = record.entry().to_app_option::<Conference>().ok().flatten() {
                     if conference.is_active {
                         return Ok(Some((action_hash, conference)));
@@ -117,12 +138,12 @@ fn get_participant(
             before: None,
             author: None,
         },
-        GetStrategy::Local,
+        GetStrategy::Network,
     )?;
 
     for link in links {
         if let Some(action_hash) = link.target.into_action_hash() {
-            if let Some(record) = get(action_hash.clone(), GetOptions::default())? {
+            if let Some(record) = get(action_hash.clone(), GetOptions::network())? {
                 if let Some(participant) = record.entry().to_app_option::<ConferenceParticipant>().ok().flatten() {
                     if participant.agent == *agent && participant.is_active {
                         return Ok(Some((action_hash, participant)));
@@ -155,13 +176,13 @@ fn get_all_participants(conference_hash: &ActionHash) -> ExternResult<Vec<Confer
             before: None,
             author: None,
         },
-        GetStrategy::Local,
+        GetStrategy::Network,
     )?;
 
     let mut participants = Vec::new();
     for link in links {
         if let Some(action_hash) = link.target.into_action_hash() {
-            if let Some(record) = get(action_hash, GetOptions::default())? {
+            if let Some(record) = get(action_hash, GetOptions::network())? {
                 if let Some(participant) = record.entry().to_app_option::<ConferenceParticipant>().ok().flatten() {
                     if participant.is_active {
                         participants.push(participant);
@@ -211,7 +232,7 @@ pub struct SignalInput {
 }
 
 #[hdk_extern]
-pub fn create_conference(input: CreateConferenceInput) -> ExternResult<String> {
+pub fn create_conference(input: CreateConferenceInput) -> ExternResult<CreateConferenceOutcome> {
     info!("[Rust] ========== create_conference() called ==========");
 
     let agent_info = agent_info()?;
@@ -220,7 +241,18 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<String> {
         let room_id = existing_conf.room_id.clone();
         let joined_at = sys_time()?;
 
-        if get_participant(&existing_hash, &agent_info.agent_initial_pubkey)?.is_none() {
+        let already_in = get_participant(&existing_hash, &agent_info.agent_initial_pubkey)?.is_some();
+        let active_now = get_all_participants(&existing_hash)?
+            .into_iter()
+            .filter(|p| p.is_active)
+            .count();
+        if !already_in && active_now + 1 > MAX_CONFERENCE_PARTICIPANTS {
+            return Err(wasm_error!(WasmErrorInner::Guest(
+                "Conference is full".to_string()
+            )));
+        }
+
+        if !already_in {
             let participant = ConferenceParticipant {
                 room_id: room_id.clone(),
                 agent: agent_info.agent_initial_pubkey.clone(),
@@ -231,7 +263,7 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<String> {
             };
             let participant_hash = create_entry(&EntryTypes::ConferenceParticipant(participant))?;
             create_link(
-                existing_hash,
+                existing_hash.clone(),
                 participant_hash,
                 LinkTypes::ConferenceToParticipants,
                 (),
@@ -240,29 +272,75 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<String> {
 
         add_room_participant(&room_id)?;
 
-        let others: Vec<AgentPubKey> = get_room_participants(&room_id)?
+        let active_agents: Vec<AgentPubKey> = get_all_participants(&existing_hash)?
+            .into_iter()
+            .filter(|p| p.is_active)
+            .map(|p| p.agent)
+            .collect();
+
+        let invite_targets: Vec<AgentPubKey> = input
+            .participants
+            .iter()
+            .filter(|a| **a != agent_info.agent_initial_pubkey && !active_agents.contains(*a))
+            .cloned()
+            .collect();
+
+        if !invite_targets.is_empty() {
+            let conference_room = ConferenceRoom {
+                participants: input.participants.clone(),
+                room_id: room_id.clone(),
+            };
+            if let Err(e) = send_remote_signal(
+                crate::RemoteSignalPayload::Conference(ConferenceRecord {
+                    room: Some(conference_room),
+                    agent: Some(agent_info.agent_initial_pubkey.clone()),
+                    room_id: None,
+                    signal_type: ConferenceSignalType::Invite,
+                    signal_payload: None,
+                    ack_signal_id: None,
+                    new_role: None,
+                    new_host: None,
+                }),
+                invite_targets,
+            ) {
+                warn!("[Rust] Failed to send Invite signal: {:?}", e);
+            }
+        }
+
+        let join_targets: Vec<AgentPubKey> = active_agents
             .into_iter()
             .filter(|a| a != &agent_info.agent_initial_pubkey)
             .collect();
 
-        if let Err(e) = send_remote_signal(
-            crate::RemoteSignalPayload::Conference(ConferenceRecord {
-                room: None,
-                room_id: Some(room_id.clone()),
-                agent: Some(agent_info.agent_initial_pubkey.clone()),
-                signal_type: ConferenceSignalType::Join,
-                signal_payload: None,
-                ack_signal_id: None,
-                new_role: None,
-                new_host: None,
-            }),
-            others,
-        ) {
-            warn!("[Rust] Failed to send Join signal: {:?}", e);
+        if !join_targets.is_empty() {
+            if let Err(e) = send_remote_signal(
+                crate::RemoteSignalPayload::Conference(ConferenceRecord {
+                    room: None,
+                    room_id: Some(room_id.clone()),
+                    agent: Some(agent_info.agent_initial_pubkey.clone()),
+                    signal_type: ConferenceSignalType::Join,
+                    signal_payload: None,
+                    ack_signal_id: None,
+                    new_role: None,
+                    new_host: None,
+                }),
+                join_targets,
+            ) {
+                warn!("[Rust] Failed to send Join signal: {:?}", e);
+            }
         }
 
-        info!("[Rust] Joined existing active conference: {}", room_id);
-        return Ok(room_id);
+        info!("[Rust] Reused active conference: {}", room_id);
+        return Ok(CreateConferenceOutcome {
+            room_id,
+            joined_existing: true,
+        });
+    }
+
+    if input.participants.len() + 1 > MAX_CONFERENCE_PARTICIPANTS {
+        return Err(wasm_error!(WasmErrorInner::Guest(
+            "Too many participants for a conference".to_string()
+        )));
     }
 
     let dna_info = dna_info()?;
@@ -344,7 +422,10 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<String> {
     }
 
     info!("[Rust] ========== create_conference() complete ==========");
-    Ok(room_id)
+    Ok(CreateConferenceOutcome {
+        room_id,
+        joined_existing: false,
+    })
 }
 
 #[hdk_extern]
@@ -359,8 +440,18 @@ pub fn join_conference(input: JoinConferenceInput) -> ExternResult<()> {
     let (conference_hash, _conference) = get_conference(&input.room_id)?
         .ok_or_else(|| wasm_error!(WasmErrorInner::Guest("Conference not found".to_string())))?;
 
-    // Check if already a participant
-    if get_participant(&conference_hash, &agent_info.agent_initial_pubkey)?.is_some() {
+    let already_participant = get_participant(&conference_hash, &agent_info.agent_initial_pubkey)?.is_some();
+    let active_now = get_all_participants(&conference_hash)?
+        .into_iter()
+        .filter(|p| p.is_active)
+        .count();
+    if !already_participant && active_now + 1 > MAX_CONFERENCE_PARTICIPANTS {
+        return Err(wasm_error!(WasmErrorInner::Guest(
+            "Conference is full".to_string()
+        )));
+    }
+
+    if already_participant {
         info!("[Rust] Already a participant, skipping creation");
     } else {
         // Create Participant entry as Member
@@ -564,7 +655,7 @@ pub fn end_conference_for_all(input: EndConferenceInput) -> ExternResult<()> {
             before: None,
             author: None,
         },
-        GetStrategy::Local,
+        GetStrategy::Network,
     )?;
 
     for link in links {
@@ -629,6 +720,54 @@ pub fn get_my_conference_role(room_id: String) -> ExternResult<Option<Conference
 #[hdk_extern]
 pub fn get_active_conference(_: ()) -> ExternResult<Option<String>> {
     Ok(get_active_conference_record()?.map(|(_, conference)| conference.room_id))
+}
+
+#[hdk_extern]
+pub fn claim_host(room_id: String) -> ExternResult<()> {
+    let agent_info = agent_info()?;
+
+    let (conference_hash, mut conference) = get_conference(&room_id)?
+        .ok_or_else(|| wasm_error!(WasmErrorInner::Guest("Conference not found".to_string())))?;
+
+    if get_participant(&conference_hash, &agent_info.agent_initial_pubkey)?.is_none() {
+        return Err(wasm_error!(WasmErrorInner::Guest(
+            "Only an active participant can claim host".to_string()
+        )));
+    }
+
+    conference.current_host = agent_info.agent_initial_pubkey.clone();
+    update_entry(conference_hash.clone(), &EntryTypes::Conference(conference))?;
+
+    if let Some((p_hash, mut participant)) =
+        get_participant(&conference_hash, &agent_info.agent_initial_pubkey)?
+    {
+        participant.role = ConferenceRole::Host;
+        update_entry(p_hash, &EntryTypes::ConferenceParticipant(participant))?;
+    }
+
+    let agents: Vec<AgentPubKey> = get_all_participants(&conference_hash)?
+        .into_iter()
+        .map(|p| p.agent)
+        .filter(|a| a != &agent_info.agent_initial_pubkey)
+        .collect();
+
+    if let Err(e) = send_remote_signal(
+        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+            room: None,
+            room_id: Some(room_id),
+            agent: Some(agent_info.agent_initial_pubkey.clone()),
+            signal_type: ConferenceSignalType::HostTransfer,
+            signal_payload: None,
+            ack_signal_id: None,
+            new_role: None,
+            new_host: Some(agent_info.agent_initial_pubkey.clone()),
+        }),
+        agents,
+    ) {
+        warn!("[Rust] Failed to send HostTransfer signal: {:?}", e);
+    }
+
+    Ok(())
 }
 
 #[hdk_extern]
@@ -867,7 +1006,7 @@ fn remove_room_participant(room_id: &str) -> ExternResult<()> {
             before: None,
             author: None,
         },
-        GetStrategy::Local,
+        GetStrategy::Network,
     )?;
 
     for link in links {
@@ -893,7 +1032,7 @@ fn get_room_participants(room_id: &str) -> ExternResult<Vec<AgentPubKey>> {
             before: None,
             author: None,
         },
-        GetStrategy::Local,
+        GetStrategy::Network,
     )?;
 
     Ok(links

@@ -53,16 +53,70 @@ export function createConferenceLifecycle(
 
     const participantsEncoded = participants.map((p) => decodeHashFromBase64(p));
     const cellId = ctx.client.decodeCellId(cellIdB64);
-    const roomId = await ctx.client.createConference(participantsEncoded, cellId);
+    const outcome = await ctx.client.createConference(participantsEncoded, cellId);
 
+    const roomId = outcome.room_id;
     if (!roomId) throw new Error("Failed to create conference room");
+
+    const myPubKey = encodeHashToBase64(ctx.client.client.myPubKey);
+
+    if (outcome.joined_existing) {
+      const existing = safeGetConference(ctx, roomId);
+      if (existing) {
+        ctx.conferences.updateKeyValue(roomId, (s) => {
+          const merged = new Map(s.participants);
+          const mine = merged.get(myPubKey);
+          merged.set(myPubKey, {
+            ...(mine ?? {}),
+            publicKey: myPubKey,
+            hasJoined: true,
+            connectionStatus: mine?.connectionStatus ?? "idle",
+          });
+          return {
+            ...s,
+            participants: merged,
+            isInitiator: false,
+            ended: false,
+            cellIdB64,
+            invitationStatus: "accepted",
+            startTime: s.startTime ?? Date.now(),
+          };
+        });
+        return roomId;
+      }
+
+      const joinerState: SimplePeerConferenceState = {
+        room: { participants: participantsEncoded, room_id: roomId },
+        participants: new Map(
+          participants.map((p) => [
+            p,
+            {
+              publicKey: p,
+              hasJoined: false,
+              connectionStatus: "idle" as const,
+            },
+          ]),
+        ),
+        isInitiator: false,
+        ended: false,
+        cellIdB64,
+        startTime: Date.now(),
+        initiatorPubKeyB64,
+        invitationStatus: "accepted",
+      };
+      joinerState.participants.set(myPubKey, {
+        publicKey: myPubKey,
+        hasJoined: true,
+        connectionStatus: "idle",
+      });
+      ctx.conferences.setKeyValue(roomId, joinerState);
+      return roomId;
+    }
 
     const room: ConferenceRoom = {
       participants: participantsEncoded,
       room_id: roomId,
     };
-
-    const myPubKey = encodeHashToBase64(ctx.client.client.myPubKey);
 
     const state: SimplePeerConferenceState = {
       room,
@@ -217,7 +271,10 @@ export function createConferenceLifecycle(
       console.error("Failed to send reject signal", e);
     }
     setTimeout(() => {
-      ctx.conferences.removeKeyValue(roomId);
+      const cur = safeGetConference(ctx, roomId);
+      if (cur && cur.invitationStatus === "rejected") {
+        ctx.conferences.removeKeyValue(roomId);
+      }
     }, 1000);
   }
 
@@ -279,11 +336,17 @@ export function createConferenceLifecycle(
         ...payload,
         localStream: undefined,
         endedByMe: true,
+        leftTimestamp: Date.now(),
       }));
 
       setTimeout(() => {
-        ctx.conferences.removeKeyValue(roomId);
-        console.log(`[SimplePeer] Conference ${roomId} removed - no remaining participants`);
+        const cur = safeGetConference(ctx, roomId);
+        if (
+          cur &&
+          (cur.ended || cur.invitationStatus === "left" || cur.invitationStatus === "rejected")
+        ) {
+          ctx.conferences.removeKeyValue(roomId);
+        }
       }, 500);
     } else {
       console.log(
@@ -308,6 +371,7 @@ export function createConferenceLifecycle(
         ...conf,
         ...payload,
         localStream: undefined,
+        leftTimestamp: Date.now(),
         participants: new Map(
           Array.from(conf.participants.entries()).map(([key, participant]) => [
             key,
@@ -396,8 +460,10 @@ export function createConferenceLifecycle(
     }
 
     setTimeout(() => {
-      ctx.conferences.removeKeyValue(roomId);
-      console.log(`[SimplePeer] Conference ${roomId} removed from store after delay`);
+      const cur = safeGetConference(ctx, roomId);
+      if (cur && cur.ended) {
+        ctx.conferences.removeKeyValue(roomId);
+      }
     }, 500);
 
     console.log(`[SimplePeer] Conference ${roomId} fully ended and cleaned up`);
