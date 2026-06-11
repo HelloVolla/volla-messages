@@ -476,6 +476,8 @@ const paginationState = writable<Record<string, PaginationState>>({});
 
       return s;
     });
+
+    _applyHardMemoryCap(cellIdB64);
   }
 
   function _refreshOldestCursor(cellIdB64: CellIdB64): void {
@@ -650,7 +652,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
       return { ...m, [cellIdB64]: merged };
     });
 
-    _refreshOldestCursor(cellIdB64);
+    _applyHardMemoryCap(cellIdB64);
 
     _log("db:hydrate-newest", {
       cell: _cid(cellIdB64),
@@ -840,7 +842,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
         try {
           const delivered = await client.notifyMessageDelivery(cellId, {
             agent,
-            message_record: messageRecord,
+            messageRecord: messageRecord,
           });
           return { agentB64: encodeHashToBase64(agent), delivered };
         } catch (err) {
