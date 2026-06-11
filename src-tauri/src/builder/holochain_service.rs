@@ -1,4 +1,6 @@
 use crate::config::{APP_ID, HAPP_BUNDLE_BYTES};
+#[cfg(target_os = "android")]
+use crate::android_barcode_scanner;
 use tauri::{Builder, Runtime};
 use tauri_plugin_holochain_service_client::{HolochainServiceClientExt, SetupAppConfig};
 use uuid::Uuid;
@@ -21,12 +23,19 @@ pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                 )?
                 .build()?;
 
-            // Load barcode scanner plugin
+            // Load Android-local barcode scanner plugin
             // It is necessary to load this after we have created the new 'main' webview
             //  which will be calling into it
+            #[cfg(target_os = "android")]
+            app.handle()
+                .plugin(android_barcode_scanner::init())
+                .expect("Failed to initialize android_barcode_scanner");
+
+            // Load upstream barcode scanner plugin on non-Android mobile platforms (iOS)
+            #[cfg(all(mobile, not(target_os = "android")))]
             app.handle()
                 .plugin(tauri_plugin_barcode_scanner::init())
-                .expect("Failed to initiailze tauri_plugin_barcode_scanner");
+                .expect("Failed to initialize tauri_plugin_barcode_scanner");
 
             Ok(())
         })

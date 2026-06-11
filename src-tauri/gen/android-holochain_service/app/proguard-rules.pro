@@ -19,3 +19,12 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep local Tauri Android plugin classes and annotated command callbacks.
+-keep @app.tauri.annotation.TauriPlugin class * { *; }
+-keepclassmembers class * {
+    @app.tauri.annotation.Command <methods>;
+    @app.tauri.annotation.ActivityCallback <methods>;
+    @app.tauri.annotation.PermissionCallback <methods>;
+}
+-keep class com.volla.messages.ZxingScannerPlugin { *; }
