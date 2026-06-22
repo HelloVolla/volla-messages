@@ -6,25 +6,25 @@
   export let deliveredCount: number = 0;
   export let recipientCount: number = 0;
 
-  $: showDouble =
-    status === DeliveryStatus.DeliveredPartial || status === DeliveryStatus.DeliveredAll;
+  $: icon =
+    status === DeliveryStatus.DeliveredPartial || status === DeliveryStatus.DeliveredAll
+      ? "doubleCheck"
+      : "checkMark";
+
   $: colorClass =
     status === DeliveryStatus.DeliveredAll
       ? "text-primary-500"
       : "text-secondary-400 dark:text-secondary-300";
-  $: showCount =
-    status === DeliveryStatus.DeliveredPartial && recipientCount > 1;
+
+  $: showCount = status === DeliveryStatus.DeliveredPartial && recipientCount > 1;
 </script>
 
 <span
-  class="inline-flex items-center gap-0.5 text-xxs {colorClass}"
+  class="inline-flex items-center gap-0.5 leading-none {colorClass}"
   aria-label="delivery status {status}"
 >
-  <SvgIcon icon="checkMark" size="h-2.5 w-2.5" />
-  {#if showDouble}
-    <SvgIcon icon="checkMark" size="h-2.5 w-2.5" moreClasses="-ml-1" />
-  {/if}
+  <SvgIcon {icon} size="h-3 w-3" />
   {#if showCount}
-    <span class="ml-0.5 text-xxs leading-none">{deliveredCount}/{recipientCount}</span>
+    <span class="text-xxs leading-none">{deliveredCount}/{recipientCount}</span>
   {/if}
 </span>
