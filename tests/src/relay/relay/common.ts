@@ -7,15 +7,16 @@ export async function sampleConfig(cell: CallableCell, partialConfig = {}) {
     return {
         ...{
 	  title: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+	  image: "",
         },
         ...partialConfig
     };
 }
 
-export async function createConfig(cell: CallableCell, config = undefined): Promise<Record> {
+export async function setConfig(cell: CallableCell, config = undefined): Promise<void> {
     return cell.callZome({
       zome_name: "relay",
-      fn_name: "create_config",
+      fn_name: "set_config",
       payload: config || await sampleConfig(cell),
     });
 }
