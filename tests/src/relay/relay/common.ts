@@ -25,17 +25,23 @@ export async function createConfig(cell: CallableCell, config = undefined): Prom
 export async function sampleMessage(cell: CallableCell, partialMessage = {}) {
     return {
         ...{
-	  text: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+	  content: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+	  bucket: 0,
+	  images: [],
+	  message_type: "User",
         },
         ...partialMessage
     };
 }
 
-export async function createMessage(cell: CallableCell, message = undefined): Promise<Record> {
+export async function createMessage(cell: CallableCell, message = undefined, agents: any[] = []): Promise<Record> {
     return cell.callZome({
       zome_name: "relay",
       fn_name: "create_message",
-      payload: message || await sampleMessage(cell),
+      payload: {
+        message: message || await sampleMessage(cell),
+        agents,
+      },
     });
 }
 
