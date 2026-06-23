@@ -35,8 +35,8 @@ test('create a Message and get all messages', async () => {
     // Bob gets all messages
     let collectionOutput: Link[] = await bob.cells[0].callZome({
       zome_name: "relay",
-      fn_name: "get_all_messages",
-      payload: null
+      fn_name: "get_message_links_for_buckets",
+      payload: [0]
     });
     assert.equal(collectionOutput.length, 0);
 
@@ -49,8 +49,8 @@ test('create a Message and get all messages', async () => {
     // Bob gets all messages again
     collectionOutput = await bob.cells[0].callZome({
       zome_name: "relay",
-      fn_name: "get_all_messages",
-      payload: null
+      fn_name: "get_message_links_for_buckets",
+      payload: [0]
     });
     assert.equal(collectionOutput.length, 1);
     assert.deepEqual(createRecord.signed_action.hashed.hash, collectionOutput[0].target);
@@ -59,7 +59,10 @@ test('create a Message and get all messages', async () => {
     await alice.cells[0].callZome({
       zome_name: "relay",
       fn_name: "delete_message",
-      payload: createRecord.signed_action.hashed.hash
+      payload: {
+        original_message_hash: createRecord.signed_action.hashed.hash,
+        agents: []
+      }
     });
 
     await dhtSync([alice, bob], alice.cells[0].cell_id[0]);
@@ -67,8 +70,8 @@ test('create a Message and get all messages', async () => {
     // Bob gets all messages again
     collectionOutput = await bob.cells[0].callZome({
       zome_name: "relay",
-      fn_name: "get_all_messages",
-      payload: null
+      fn_name: "get_message_links_for_buckets",
+      payload: [0]
     });
     assert.equal(collectionOutput.length, 0);
   });
