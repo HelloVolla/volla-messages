@@ -1,0 +1,15 @@
+{
+    "name": "volla-messages.volla",
+    "description": "Volla Messages",
+    "architecture": "@CLICK_ARCH@",
+    "title": "Volla Messages",
+    "hooks": {
+        "volla-messages": {
+            "apparmor": "volla-messages.apparmor",
+            "desktop":  "volla-messages.desktop"
+        }
+    },
+    "version": "@CLICK_VERSION@",
+    "maintainer": "Nima Fanniasl <nma.fanniasl@gmail.com>",
+    "framework" : "@CLICK_FRAMEWORK@"
+}
