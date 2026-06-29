@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Volla Messages
+Comment=Volla Messages
+Exec=/opt/click.ubuntu.com/volla-messages.volla/current/volla-messages.wrapper %U
+Icon=./volla_messages.png
+Terminal=false
+X-Ubuntu-Touch=true
+X-Ubuntu-Splash-Color=#000000

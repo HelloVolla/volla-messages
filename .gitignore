@@ -19,3 +19,4 @@ vite.config.ts.timestamp-*
 .hc
 .running
 *.code-workspace
+.idea/

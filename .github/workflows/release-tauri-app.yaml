@@ -181,13 +181,21 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.releaseId }}
           args: --verbose --features holochain_bundled --target ${{ matrix.target }}
 
+      - name: Upload aarch64 AppImage for Ubuntu Touch job
+        if: matrix.arch == 'aarch64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: volla-messages-appimage-aarch64
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/appimage/Volla Messages_*.AppImage
+          retention-days: 1
+
   release-tauri-app-android:
     permissions: write-all
     environment: Relay Release
-    needs: 
+    needs:
       - release-tauri-app-linux
       - create-release
-    runs-on: [self-hosted, yolo]
+    runs-on: [ self-hosted, yolo ]
     container:
       image: ubuntu:22.04
     strategy:
@@ -275,7 +283,7 @@ jobs:
       #   run: |
       #     cargo clean
       #     nix develop .#androidDev --no-update-lock-file --command bash -c "npm run tauri:android:build:${{ matrix.feature }} -- --apk --split-per-abi --target i686"
-      
+
       - name: Build android APK (x86_64)
         run: |
           cargo clean
@@ -368,7 +376,7 @@ jobs:
             Set-StrictMode -Version Latest
             $PSNativeCommandUseErrorActionPreference = $true
           }
-          
+
           # read name and version from tauri.conf.json
           $TAURI_CONF = (Get-Content src-tauri\tauri.conf.json | Out-String | ConvertFrom-Json)
           $APP_PRODUCT_NAME_VERSION = "$($TAURI_CONF.productName)_$($TAURI_CONF.version)"
@@ -399,7 +407,7 @@ jobs:
           # See the docs for the fast-glob library used by this gh action:
           # https://www.npmjs.com/package/fast-glob#how-to-write-patterns-on-windows
           files: C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/msi/*;C:/actions-runner/_work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/src-tauri/target/release/bundle/nsis/*
-          
+
   release-tauri-app-macos:
     needs: create-release
     permissions: write-all
@@ -462,3 +470,63 @@ jobs:
         with:
           releaseId: ${{ needs.create-release.outputs.releaseId }}
           args: --verbose --features holochain_bundled
+
+  release-tauri-app-ubuntu-touch:
+    name: Build Ubuntu Touch click
+    needs: [create-release, release-tauri-app-linux]
+    permissions: write-all
+    environment: Relay Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            qemu-user-static \
+            wget \
+            dpkg-dev \
+            gtk-doc-tools \
+            libtool \
+            pipx
+          pipx install clickable-ut
+
+      - name: Stamp version into source files
+        working-directory: ut
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" build.sh
+
+      - name: Download aarch64 AppImage
+        uses: actions/download-artifact@v4
+        with:
+          name: volla-messages-appimage-aarch64
+          path: ut/
+
+      - name: Make build dir and move the AppImage there
+        working-directory: ut
+        run: |
+          mkdir -p build/aarch64-linux-gnu/app
+          mv Volla\ Messages_*.AppImage \
+            build/aarch64-linux-gnu/app/Volla.Messages_${{ steps.version.outputs.version }}_aarch64.AppImage
+
+      - name: Build click package
+        working-directory: ut
+        run: |
+          clickable build --arch arm64 --skip-review
+
+      - name: Upload click to release
+        uses: AButler/upload-release-assets@v3.0
+        with:
+          files: "ut/build/aarch64-linux-gnu/app/*.click"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          release-id: ${{ needs.create-release.outputs.releaseId }}
