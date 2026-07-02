@@ -10,5 +10,6 @@
         }
     },
     "version": "@CLICK_VERSION@",
+    "maintainer": "Volla Systeme GmbH <hello@volla.online>",
     "framework" : "@CLICK_FRAMEWORK@"
 }
