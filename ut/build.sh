@@ -14,7 +14,7 @@ frameworkver="$2"
 CLICK_ARCH=$(dpkg-architecture -qDEB_HOST_ARCH)
 CLICK_FRAMEWORK=$frameworkver
 
-pkgver=1.0.0
+pkgver=0.0.0
 srcdir=$ROOT
 pkgdir=$INSTALL_DIR
 pkgfile=Volla.Messages_${pkgver}_${dlarch}.AppImage
@@ -36,15 +36,13 @@ else
     echo "[+] Volla Messages AppImage already exists"
 fi
 
-if ! [ -d runtime ]; then 
-    if [[ "${ARCH}" == "amd64" ]]; then
-        QEMU_ARCH="x86_64";
-    elif [[ "${ARCH}" == "arm64" ]]; then
-        QEMU_ARCH="aarch64";
-    elif [[ "${ARCH}" == "armhf" ]]; then
-        QEMU_ARCH="arm";
-    fi;
-fi
+if [[ "${ARCH}" == "amd64" ]]; then
+    QEMU_ARCH="x86_64";
+elif [[ "${ARCH}" == "arm64" ]]; then
+    QEMU_ARCH="aarch64";
+elif [[ "${ARCH}" == "armhf" ]]; then
+    QEMU_ARCH="arm";
+fi;
 
 chmod +x ./"$FILENAME"
 

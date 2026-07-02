@@ -29,11 +29,6 @@ void webkit_web_view_load_uri(WebKitWebView *view, const char *uri)
             scale = grid / 8.0;
     }
 
-    fprintf(stderr,
-            "[webkit-zoom] GRID_UNIT_PX=%s scale=%f\n",
-            grid_unit_px ? grid_unit_px : "(null)",
-            scale);
-
     if (set_zoom)
         set_zoom(view, scale);
 

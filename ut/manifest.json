@@ -10,6 +10,5 @@
         }
     },
     "version": "@CLICK_VERSION@",
-    "maintainer": "Nima Fanniasl <nma.fanniasl@gmail.com>",
     "framework" : "@CLICK_FRAMEWORK@"
 }
