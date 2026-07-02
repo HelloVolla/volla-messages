@@ -2,12 +2,7 @@
 Volla Messages [Clickable](https://clickable-ut.dev/en/latest/) packaging for Ubuntu Touch
 
 ## Download
-You can download a pre-built click file from the [Releases](https://github.com/nimafanniasl/volla-messages-ut/releases/latest) page.
-
-## Build Instructions
-1. [Install Clickable](https://clickable-ut.dev/en/latest/install.html)
-2. `clickable build --arch arm64 --skip-review`
-3. `clickable install && clickable launch`
+You can download a pre-built click file from the [Releases](https://github.com/HelloVolla/volla-messages/releases) page.
 
 ## Roadmap
 - [x] Auto Light/Dark Mode

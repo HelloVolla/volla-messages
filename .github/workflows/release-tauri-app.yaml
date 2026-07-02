@@ -195,7 +195,7 @@ jobs:
     needs:
       - release-tauri-app-linux
       - create-release
-    runs-on: [ self-hosted, yolo ]
+    runs-on: [self-hosted, yolo]
     container:
       image: ubuntu:22.04
     strategy:
