@@ -376,7 +376,7 @@ jobs:
             Set-StrictMode -Version Latest
             $PSNativeCommandUseErrorActionPreference = $true
           }
-
+          
           # read name and version from tauri.conf.json
           $TAURI_CONF = (Get-Content src-tauri\tauri.conf.json | Out-String | ConvertFrom-Json)
           $APP_PRODUCT_NAME_VERSION = "$($TAURI_CONF.productName)_$($TAURI_CONF.version)"
