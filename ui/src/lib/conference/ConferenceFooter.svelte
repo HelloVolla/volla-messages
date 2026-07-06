@@ -1,101 +1,92 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
-  import { fade } from "svelte/transition";
   import { t } from "$translations/index";
   import ConferenceControlButton from "$lib/ConferenceControlButton.svelte";
+  import ConferenceDeviceControl from "./ConferenceDeviceControl.svelte";
+  import SvgIcon from "$lib/SvgIcon.svelte";
 
-  // Props
   export let isMuted: boolean = false;
   export let isVideoEnabled: boolean = true;
-  export let callDurationSeconds: number = 0;
-  export let visible: boolean = true;
   export let screenShareEnabled: boolean = false;
   export let isScreenSharing: boolean = false;
+  export let audioDeviceId: string = "";
+  export let videoDeviceId: string = "";
 
   const dispatch = createEventDispatcher<{
     toggleMute: void;
     toggleVideo: void;
     toggleScreenShare: void;
     endCall: void;
+    switchDevice: { kind: "audio" | "video"; deviceId: string };
   }>();
 
-  // Detect if running on Mac for keyboard shortcut hints
   const isMac = typeof navigator !== "undefined" && navigator.platform?.includes("Mac");
+  const screenShareSupported =
+    typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 
-  // Format call duration as HH:MM:SS
-  function formatTime(seconds: number): string {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-
-    if (hours > 0) {
-      return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    }
-    return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  }
-
-  $: formattedDuration = formatTime(callDurationSeconds);
-  $: muteLabel = isMuted ? $t("common.conference_unmute") : $t("common.conference_mute");
-  $: videoLabel = isVideoEnabled
-    ? $t("common.conference_stopVideo")
-    : $t("common.conference_startVideo");
+  $: muteLabel = isMuted ? "Unmute" : "Mute";
+  $: videoLabel = isVideoEnabled ? "Stop video" : "Start video";
+  $: shareLabel = isScreenSharing ? "Sharing" : "Share";
   $: muteShortcut = `${muteLabel} (${isMac ? "⌘" : "Ctrl"}+M)`;
   $: videoShortcut = `${videoLabel} (${isMac ? "⌘" : "Ctrl"}+V)`;
 </script>
 
-{#if visible}
-  <footer
-    class="from-secondary-500 via-secondary-500/95 absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t to-transparent px-2 pb-[max(1rem,env(safe-area-inset-bottom))] pt-6 sm:px-4 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pt-10 md:px-8"
-    transition:fade={{ duration: 200 }}
-  >
-    <div class="mx-auto flex max-w-lg items-center justify-center gap-2 sm:gap-4 md:gap-6">
-      <div
-        class="bg-secondary-400/30 flex items-center gap-2 rounded-full p-1 backdrop-blur-sm sm:gap-3 sm:p-1.5 md:gap-4 md:p-2"
-      >
-        <ConferenceControlButton
-          icon={isMuted ? "micOff" : "mic"}
-          active={isMuted}
-          label={muteLabel}
-          title={muteShortcut}
-          on:click={() => dispatch("toggleMute")}
-        />
+<footer
+  class="relative z-40 flex flex-shrink-0 justify-center border-t border-white/5 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4"
+>
+  <div class="flex items-start gap-6 sm:gap-8">
+    <ConferenceDeviceControl
+      kind="audio"
+      icon="mic"
+      iconOff="micOff"
+      active={isMuted}
+      label={muteLabel}
+      title={muteShortcut}
+      menuTitle="Microphone"
+      menuAlign="left"
+      currentDeviceId={audioDeviceId}
+      on:toggle={() => dispatch("toggleMute")}
+      on:switchDevice
+    />
 
-        <ConferenceControlButton
-          icon={isVideoEnabled ? "videocam" : "videocamOff"}
-          active={!isVideoEnabled}
-          label={videoLabel}
-          title={videoShortcut}
-          on:click={() => dispatch("toggleVideo")}
-        />
+    <ConferenceDeviceControl
+      kind="video"
+      icon="videocam"
+      iconOff="videocamOff"
+      active={!isVideoEnabled}
+      label={videoLabel}
+      title={videoShortcut}
+      menuTitle="Camera"
+      menuAlign="center"
+      currentDeviceId={videoDeviceId}
+      on:toggle={() => dispatch("toggleVideo")}
+      on:switchDevice
+    />
 
-        <div class="hidden sm:block">
-          <ConferenceControlButton
-            icon="screenShare"
-            active={isScreenSharing}
-            disabled={!screenShareEnabled}
-            label={isScreenSharing ? "Stop sharing" : "Share Screen"}
-            title={isScreenSharing ? "Stop sharing" : "Share Screen"}
-            on:click={() => dispatch("toggleScreenShare")}
-          />
-        </div>
-      </div>
-
+    {#if screenShareEnabled && screenShareSupported}
       <ConferenceControlButton
-        icon="callEnd"
-        variant="danger"
-        size="lg"
-        label={$t("common.conference_endCall")}
-        title="{$t('common.conference_endCall')} (Esc)"
-        on:click={() => dispatch("endCall")}
+        icon="screenShare"
+        active={isScreenSharing}
+        showLabel
+        label={shareLabel}
+        title={isScreenSharing ? "Stop sharing" : "Share screen"}
+        on:click={() => dispatch("toggleScreenShare")}
       />
-    </div>
+    {/if}
 
-    <div class="mt-2 flex justify-center sm:mt-3 md:mt-4">
-      <div class="bg-secondary-400/50 rounded-full px-2.5 py-0.5 backdrop-blur-sm sm:px-3 sm:py-1">
-        <p class="text-tertiary-400 text-[11px] font-medium tabular-nums sm:text-xs md:text-sm">
-          {formattedDuration}
-        </p>
-      </div>
+    <div class="mx-1 hidden h-[52px] w-px self-start bg-white/10 sm:block md:h-14"></div>
+
+    <div class="flex flex-col items-center gap-1">
+      <button
+        on:click={() => dispatch("endCall")}
+        title="{$t('common.conference_endCall')} (Esc)"
+        aria-label="Leave"
+        class="flex h-[52px] w-[52px] items-center justify-center gap-2 rounded-2xl bg-primary-500 text-white transition-all hover:scale-105 hover:bg-primary-600 active:scale-95 sm:w-auto sm:px-6 md:h-14"
+      >
+        <SvgIcon icon="callEnd" moreClasses="h-5 w-5 md:h-6 md:w-6" />
+        <span class="hidden text-[15px] font-semibold sm:inline">Leave</span>
+      </button>
+      <span class="text-[10px] font-medium text-tertiary-500 sm:hidden">Leave</span>
     </div>
-  </footer>
-{/if}
+  </div>
+</footer>

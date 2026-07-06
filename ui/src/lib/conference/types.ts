@@ -1,5 +1,4 @@
 import type { AgentPubKeyB64 } from "@holochain/client";
-import { ConferenceRole } from "$lib/types";
 
 export interface ParticipantData {
   pubKey: AgentPubKeyB64;
@@ -10,7 +9,8 @@ export interface ParticipantData {
   videoEnabled?: boolean;
   audioEnabled?: boolean;
   connectionQuality?: string;
-  role?: ConferenceRole;
+  isHost?: boolean;
+  declined?: boolean;
   _stream?: MediaStream | null;
   _connected: boolean;
 }

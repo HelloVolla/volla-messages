@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy, getContext } from "svelte";
+  import { get } from "svelte/store";
   import { fade, scale } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { t } from "$translations/index";
   import toast from "svelte-french-toast";
   import type { SimplePeerConferenceStore } from "$store/SimplePeerConferenceStore";
   import type { AgentPubKeyB64 } from "@holochain/client";
-  import { type CellIdB64, ConferenceRole } from "$lib/types";
+  import { type CellIdB64 } from "$lib/types";
   import Dialog from "$lib/Dialog.svelte";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import Button from "$lib/Button.svelte";
@@ -19,13 +20,17 @@
 
   import {
     ParticipantTile,
-    ParticipantTileSkeleton,
     ConferenceHeader,
+    ConferenceRoster,
     ConferenceFooter,
     PreJoinScreen,
     ResizablePip,
   } from "./index";
-  import { createActiveSpeakerStore, type SpeakerInfo } from "./activeSpeakerDetection";
+  import {
+    createActiveSpeakerStore,
+    createLocalLevelMeter,
+    type LocalLevelMeter,
+  } from "./activeSpeakerDetection";
   import type { ParticipantData } from "./types";
 
   export let roomId: string;
@@ -50,8 +55,7 @@
 
   let conferenceEndedLogged = false;
 
-  const MAX_PARTICIPANTS = 6;
-  let isGridView = false;
+  let isGridView = true;
   let callDurationSeconds = 0;
   let callStartTime: number | null = null;
   let durationInterval: ReturnType<typeof setInterval> | null = null;
@@ -60,18 +64,13 @@
   let showPreJoinScreen = showPreJoin;
   let pipExpanded = false; // When true, local video is main and remote is PiP
 
-  // Active speaker detection
-  const activeSpeakerStore = createActiveSpeakerStore({
-    speakingThreshold: 0.1,
-    switchCooldown: 500,
-  });
+  const activeSpeakerStore = createActiveSpeakerStore();
+  let localMeter: LocalLevelMeter | null = null;
+  let localMeterStream: MediaStream | null = null;
 
   let showEndCallDialog = false;
   let showErrorDialog = false;
-  let showIncomingCallDialog = false;
   let showKickConfirmDialog = false;
-  let showTransferHostDialog = false;
-  let showPromoteDialog = false;
 
   let errorDialogMessage = "";
   let errorDialogTitle = "";
@@ -97,24 +96,46 @@
   $: isMuted = !audioEnabled;
   $: isVideoEnabled = videoEnabled;
   $: isScreenSharing = $conferenceStore?.isScreenSharing ?? false;
-  $: myRole = $conferenceStore?.myRole;
+  $: currentAudioDeviceId =
+    $conferenceStore?.localStream?.getAudioTracks()[0]?.getSettings().deviceId ?? "";
+  $: currentVideoDeviceId =
+    $conferenceStore?.localStream?.getVideoTracks()[0]?.getSettings().deviceId ?? "";
+
+  function handleSwitchDevice(e: CustomEvent<{ kind: "audio" | "video"; deviceId: string }>) {
+    conferenceStoreBase.switchDevice(roomId, e.detail.kind, e.detail.deviceId);
+  }
+  $: hostPubKey = $conferenceStore?.initiatorPubKeyB64;
   $: canEndForAll = conferenceStoreBase.canEndConference(roomId);
   $: currentError = $conferenceStore?.error;
 
-  $: allParticipants = buildParticipantList($conferenceStore, myPubKeyB64, myRole);
+  $: fullList = buildParticipantList($conferenceStore, myPubKeyB64, hostPubKey);
+  $: allRemote = fullList.filter((p) => !p.isLocal);
+  $: allParticipants = fullList.filter((p) => !p.declined);
   $: remoteParticipants = allParticipants.filter((p) => !p.isLocal);
+  $: showWaitingRoster =
+    allRemote.length > 0 && !remoteParticipants.some((p) => p._connected || p.hasJoined);
+  $: callTitle =
+    allRemote.length === 1
+      ? getParticipantName(allRemote[0].pubKey)
+      : allRemote.length > 1
+        ? "Group call"
+        : "Call";
+  $: gridClass =
+    allParticipants.length <= 1
+      ? "grid-cols-1"
+      : allParticipants.length === 2
+        ? "grid-cols-1 grid-rows-2 landscape:grid-cols-2 landscape:grid-rows-1"
+        : allParticipants.length <= 4
+          ? "grid-cols-2 grid-rows-2"
+          : "grid-cols-2 grid-rows-3 landscape:grid-cols-3 landscape:grid-rows-2";
 
   $: activeSpeakerId = $activeSpeakerStore.activeSpeaker;
-  $: activeParticipant = activeSpeakerId
-    ? remoteParticipants.find((p) => p.pubKey === activeSpeakerId)
-    : remoteParticipants.find((p) => p._stream && p._connected) || remoteParticipants[0];
-
-  $: pipParticipants = buildPipParticipants(
-    allParticipants,
-    activeParticipant,
-    myPubKeyB64,
-    myRole,
-  );
+  $: activeParticipant =
+    (activeSpeakerId && activeSpeakerId !== myPubKeyB64
+      ? remoteParticipants.find((p) => p.pubKey === activeSpeakerId)
+      : undefined) ||
+    remoteParticipants.find((p) => p._stream && p._connected) ||
+    remoteParticipants[0];
 
   // Show PreJoinScreen for:
   // 1. Non-initiators receiving an invitation
@@ -146,7 +167,7 @@
   function buildParticipantList(
     store: typeof $conferenceStore,
     myPubKey: string,
-    role: ConferenceRole | undefined,
+    hostKey: string | undefined,
   ): ParticipantData[] {
     if (!store?.participants) return [];
 
@@ -159,7 +180,8 @@
       videoEnabled: participant.videoEnabled,
       audioEnabled: participant.audioEnabled,
       connectionQuality: participant.connectionQuality,
-      role: participant.role,
+      isHost: pubKey === hostKey,
+      declined: participant.declined,
       _stream: getParticipantStream(participant),
       _connected: isParticipantConnected(participant),
     }));
@@ -173,39 +195,12 @@
       videoEnabled,
       audioEnabled,
       connectionQuality: undefined,
-      role,
+      isHost: myPubKey === hostKey,
       _stream: store?.localStream ?? null,
       _connected: true,
     };
 
     return [local, ...remote.filter((p) => p.pubKey !== myPubKey)];
-  }
-
-  function buildPipParticipants(
-    all: ParticipantData[],
-    active: ParticipantData | undefined,
-    myPubKey: string,
-    role: ConferenceRole | undefined,
-  ): ParticipantData[] {
-    const local: ParticipantData = {
-      pubKey: myPubKey,
-      publicKey: myPubKey,
-      isLocal: true,
-      hasJoined: true,
-      connectionStatus: "connected",
-      videoEnabled,
-      audioEnabled,
-      connectionQuality: undefined,
-      role,
-      _stream: $conferenceStore?.localStream ?? null,
-      _connected: true,
-    };
-
-    if (active) {
-      const others = all.filter((p) => !p.isLocal && p.pubKey !== active.pubKey);
-      return [local, ...others];
-    }
-    return [local, ...all.filter((p) => !p.isLocal)];
   }
 
   function getParticipantStream(participant: any): MediaStream | null {
@@ -229,8 +224,6 @@
   function canKickParticipant(targetPubKeyB64: AgentPubKeyB64): boolean {
     return conferenceStoreBase.canKick(roomId, targetPubKeyB64);
   }
-
-  function handleScreenInteraction() {}
 
   function toggleMute() {
     if ($conferenceStore?.localStream) {
@@ -334,71 +327,19 @@
       activeParticipantMenu === event.detail.pubKey ? null : event.detail.pubKey;
   }
 
-  function handlePromote(event: CustomEvent<{ pubKey: string }>) {
-    targetParticipantPubKey = event.detail.pubKey;
-    showPromoteDialog = true;
-    activeParticipantMenu = null;
-  }
-
-  function handleTransferHost(event: CustomEvent<{ pubKey: string }>) {
-    targetParticipantPubKey = event.detail.pubKey;
-    showTransferHostDialog = true;
-    activeParticipantMenu = null;
-  }
-
   function handleKick(event: CustomEvent<{ pubKey: string }>) {
     targetParticipantPubKey = event.detail.pubKey;
     showKickConfirmDialog = true;
     activeParticipantMenu = null;
   }
 
-  async function confirmKick() {
+  function confirmKick() {
     if (!targetParticipantPubKey) return;
-    isPerformingAction = true;
-    try {
-      await conferenceStoreBase.kickParticipant(roomId, targetParticipantPubKey);
-      toast.success($t("common.conference_participantKicked"));
-    } catch (error) {
-      toast.error($t("common.conference_kickFailed"));
-    } finally {
-      isPerformingAction = false;
-      showKickConfirmDialog = false;
-      targetParticipantPubKey = null;
-    }
-  }
-
-  async function confirmTransferHost() {
-    if (!targetParticipantPubKey) return;
-    isPerformingAction = true;
-    try {
-      await conferenceStoreBase.transferHost(roomId, targetParticipantPubKey);
-      toast.success($t("common.conference_hostTransferred"));
-    } catch (error) {
-      toast.error($t("common.conference_transferFailed"));
-    } finally {
-      isPerformingAction = false;
-      showTransferHostDialog = false;
-      targetParticipantPubKey = null;
-    }
-  }
-
-  async function confirmPromote() {
-    if (!targetParticipantPubKey) return;
-    isPerformingAction = true;
-    try {
-      await conferenceStoreBase.changeParticipantRole(
-        roomId,
-        targetParticipantPubKey,
-        ConferenceRole.CoHost,
-      );
-      toast.success($t("common.conference_participantPromoted"));
-    } catch (error) {
-      toast.error($t("common.conference_promoteFailed"));
-    } finally {
-      isPerformingAction = false;
-      showPromoteDialog = false;
-      targetParticipantPubKey = null;
-    }
+    const name = getParticipantName(targetParticipantPubKey);
+    conferenceStoreBase.kickParticipant(roomId, targetParticipantPubKey);
+    toast.success(`Removed ${name} from the call`);
+    showKickConfirmDialog = false;
+    targetParticipantPubKey = null;
   }
 
   function handleKeyboardShortcuts(event: KeyboardEvent) {
@@ -414,11 +355,12 @@
   }
 
   $: {
-    remoteParticipants.forEach((p) => {
-      if (p._stream && p._connected) {
-        activeSpeakerStore.addParticipant(p.pubKey, p._stream);
-      }
-    });
+    const ls = $conferenceStore?.localStream ?? null;
+    if (ls !== localMeterStream) {
+      localMeter?.destroy();
+      localMeter = ls ? createLocalLevelMeter(ls) : null;
+      localMeterStream = ls;
+    }
   }
 
   onMount(() => {
@@ -429,9 +371,18 @@
       }
     }, 1000);
 
-    if ($conferenceStore?.cellIdB64 && $conferenceStore.invitationStatus !== "pending") {
-      conferenceStoreBase.fetchRoles(roomId).catch(console.error);
-    }
+    activeSpeakerStore.setLevelProvider(() => {
+      const levels = new Map<string, number>();
+      if (localMeter) levels.set(myPubKeyB64, localMeter.getLevel());
+      const store = get(conferenceStore);
+      if (store?.participants) {
+        for (const [pk, part] of store.participants) {
+          if (pk === myPubKeyB64) continue;
+          levels.set(pk, part.conn?.getAudioLevel?.() ?? 0);
+        }
+      }
+      return levels;
+    });
 
     if ($conferenceStore?.localStream) {
       const storedVideoEnabled = $conferenceStore.videoEnabled ?? true;
@@ -449,6 +400,7 @@
   onDestroy(() => {
     if (durationInterval) clearInterval(durationInterval);
     activeSpeakerStore.destroy();
+    localMeter?.destroy();
   });
 
   $: targetParticipantName = targetParticipantPubKey
@@ -461,93 +413,74 @@
 {#if showPreJoinScreen && shouldShowPreJoinScreen}
   <PreJoinScreen
     callerName={$conferenceStore?.invitedBy ? getParticipantName($conferenceStore.invitedBy) : ""}
-    participantCount={allParticipants.length}
     on:join={handlePreJoinComplete}
     on:cancel={handlePreJoinCancel}
   />
 {:else}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
-    class="fixed inset-0 z-50 bg-secondary-500"
+    class="fixed inset-0 z-50 flex flex-col bg-secondary-900"
     transition:fade={{ duration: 200 }}
-    on:click={handleScreenInteraction}
-    on:touchstart={handleScreenInteraction}
   >
     {#if $conferenceStore && !$conferenceStore.localStream && $conferenceStore.invitationStatus === "accepted"}
       <div
-        class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-secondary-500"
+        class="absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-gradient-to-b from-secondary-900 to-secondary-800"
         transition:fade={{ duration: 200 }}
       >
-        <div
-          class="flex flex-col items-center gap-6 rounded-3xl bg-secondary-400/50 p-8 backdrop-blur-sm"
-        >
-          <div class="relative">
-            <div class="h-20 w-20 animate-pulse rounded-full bg-primary-500/20"></div>
-            <div class="absolute inset-0 flex items-center justify-center">
-              <SvgIcon icon="videocam" moreClasses="h-10 w-10 text-primary-500" />
+        <div class="relative flex items-center justify-center">
+          <span class="absolute h-[104px] w-[104px] animate-ping rounded-full bg-primary-500/25"
+          ></span>
+          {#if allRemote[0]}
+            <div class="relative rounded-full ring-4 ring-primary-500/40">
+              <Avatar
+                agentPubKeyB64={allRemote[0].pubKey}
+                size={88}
+                cellIdB64={$conferenceStore?.cellIdB64}
+              />
             </div>
-            <div
-              class="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full bg-secondary-500"
-            >
-              <SvgIcon icon="spinner" moreClasses="h-5 w-5 animate-spin text-tertiary-400" />
-            </div>
-          </div>
-          <div class="text-center">
-            <p class="text-lg font-semibold text-tertiary-300">
-              {$t("common.conference_connecting")}
-            </p>
-            <p class="mt-1 text-sm text-tertiary-500">{$t("common.conference_setupMessage")}</p>
-          </div>
+          {:else}
+            <div class="relative h-[88px] w-[88px] rounded-full bg-secondary-400"></div>
+          {/if}
         </div>
+        <div class="text-center">
+          <p class="text-xl font-semibold text-tertiary-100">Connecting…</p>
+          <p class="mt-1.5 text-sm text-tertiary-500">Setting up your secure call</p>
+        </div>
+        <SvgIcon icon="gear" moreClasses="h-5 w-5 text-tertiary-600 animate-spin" />
       </div>
     {/if}
 
     <ConferenceHeader
+      {callDurationSeconds}
       participantCount={allParticipants.length}
-      maxParticipants={MAX_PARTICIPANTS}
+      title={callTitle}
       {isGridView}
-      visible={true}
       on:toggleView={() => (isGridView = !isGridView)}
       on:minimize={onClose}
     />
 
-    <div
-      class="flex h-full w-full flex-col p-2 pb-24 pt-16 sm:p-3 sm:pb-28 sm:pt-20 md:p-4 md:pb-32 md:pt-24 lg:p-6 lg:pb-36 lg:pt-28"
-    >
-      {#if isGridView}
-        <div
-          class="mx-auto grid h-full w-full gap-2 sm:gap-3
-            {allParticipants.length === 1
-            ? 'max-w-2xl grid-cols-1'
-            : allParticipants.length === 2
-              ? 'max-w-4xl grid-cols-1 portrait:grid-cols-1 landscape:grid-cols-2'
-              : 'max-w-7xl grid-cols-2'}
-            {allParticipants.length <= 2 ? 'place-content-center' : ''}"
-        >
-          {#each allParticipants.slice(0, 4) as participant (participant.pubKey)}
-            <div
-              class="min-h-0 min-w-0 {allParticipants.length === 1
-                ? 'max-h-[70dvh]'
-                : allParticipants.length === 2
-                  ? 'max-h-[45dvh] landscape:max-h-[70dvh]'
-                  : ''}"
-              animate:flip={{ duration: 250 }}
-            >
+    <div class="relative flex min-h-0 w-full flex-1 flex-col p-2 sm:p-3 md:p-4 lg:p-6">
+      {#if showWaitingRoster}
+        <ConferenceRoster
+          participants={allRemote}
+          getName={getParticipantName}
+          cellIdB64={$conferenceStore?.cellIdB64}
+        />
+      {:else if isGridView}
+        <div class="mx-auto grid h-full w-full gap-2 sm:gap-3 {gridClass}">
+          {#each allParticipants.slice(0, 6) as participant (participant.pubKey)}
+            <div class="min-h-0 min-w-0" animate:flip={{ duration: 250 }}>
               <ParticipantTile
                 {participant}
                 variant="grid"
+                isActiveSpeaker={participant._connected && participant.pubKey === activeSpeakerId}
                 localStream={$conferenceStore?.localStream}
                 isLocalVideoEnabled={isVideoEnabled}
                 isLocalMuted={isMuted}
-                {myRole}
                 getName={getParticipantName}
                 canKick={canKickParticipant}
                 activeMenuPubKey={activeParticipantMenu}
                 cellIdB64={$conferenceStore?.cellIdB64}
                 on:toggleMenu={handleToggleMenu}
-                on:promote={handlePromote}
-                on:transferHost={handleTransferHost}
                 on:kick={handleKick}
               />
             </div>
@@ -565,15 +498,15 @@
                 connectionStatus: "connected",
                 _stream: $conferenceStore?.localStream ?? null,
                 _connected: true,
-                role: myRole,
+                isHost: myPubKeyB64 === hostPubKey,
                 videoEnabled,
                 audioEnabled,
               }}
               variant="main"
+              isActiveSpeaker={activeSpeakerId === myPubKeyB64}
               localStream={$conferenceStore?.localStream}
               isLocalVideoEnabled={isVideoEnabled}
               isLocalMuted={isMuted}
-              {myRole}
               getName={getParticipantName}
               canKick={canKickParticipant}
               cellIdB64={$conferenceStore?.cellIdB64}
@@ -582,17 +515,15 @@
             <ParticipantTile
               participant={activeParticipant}
               variant="main"
+              isActiveSpeaker={activeParticipant.pubKey === activeSpeakerId}
               localStream={$conferenceStore?.localStream}
               isLocalVideoEnabled={isVideoEnabled}
               isLocalMuted={isMuted}
-              {myRole}
               getName={getParticipantName}
               canKick={canKickParticipant}
               activeMenuPubKey={activeParticipantMenu}
               cellIdB64={$conferenceStore?.cellIdB64}
               on:toggleMenu={handleToggleMenu}
-              on:promote={handlePromote}
-              on:transferHost={handleTransferHost}
               on:kick={handleKick}
             />
           {:else}
@@ -605,13 +536,13 @@
                 connectionStatus: "connected",
                 _stream: $conferenceStore?.localStream ?? null,
                 _connected: true,
-                role: myRole,
+                isHost: myPubKeyB64 === hostPubKey,
               }}
               variant="main"
+              isActiveSpeaker={activeSpeakerId === myPubKeyB64}
               localStream={$conferenceStore?.localStream}
               isLocalVideoEnabled={isVideoEnabled}
               isLocalMuted={isMuted}
-              {myRole}
               getName={getParticipantName}
               canKick={canKickParticipant}
               cellIdB64={$conferenceStore?.cellIdB64}
@@ -620,31 +551,32 @@
 
           {#if activeParticipant}
             <ResizablePip
-              initialWidth={120}
-              initialHeight={90}
-              minWidth={100}
-              minHeight={75}
-              maxWidth={200}
-              maxHeight={150}
+              initialWidth={190}
+              initialHeight={143}
+              minWidth={130}
+              minHeight={98}
+              maxWidth={320}
+              maxHeight={240}
               boundsPadding={16}
               keepAspectRatio={true}
-              persistKey="conference-pip-v3"
+              persistKey="conference-pip-v4"
               on:click={() => (pipExpanded = !pipExpanded)}
             >
               {#if pipExpanded}
                 <ParticipantTile
                   participant={activeParticipant}
                   variant="pip"
+                  isActiveSpeaker={activeParticipant.pubKey === activeSpeakerId}
                   localStream={$conferenceStore?.localStream}
                   isLocalVideoEnabled={isVideoEnabled}
                   isLocalMuted={isMuted}
-                  {myRole}
                   getName={getParticipantName}
                   canKick={canKickParticipant}
                   cellIdB64={$conferenceStore?.cellIdB64}
                 />
               {:else}
                 <ParticipantTile
+                  isActiveSpeaker={activeSpeakerId === myPubKeyB64}
                   participant={{
                     pubKey: myPubKeyB64,
                     publicKey: myPubKeyB64,
@@ -653,7 +585,7 @@
                     connectionStatus: "connected",
                     _stream: $conferenceStore?.localStream ?? null,
                     _connected: true,
-                    role: myRole,
+                    isHost: myPubKeyB64 === hostPubKey,
                     videoEnabled,
                     audioEnabled,
                   }}
@@ -661,7 +593,6 @@
                   localStream={$conferenceStore?.localStream}
                   isLocalVideoEnabled={isVideoEnabled}
                   isLocalMuted={isMuted}
-                  {myRole}
                   getName={getParticipantName}
                   canKick={canKickParticipant}
                   cellIdB64={$conferenceStore?.cellIdB64}
@@ -677,47 +608,64 @@
       {isMuted}
       {isVideoEnabled}
       {isScreenSharing}
-      {callDurationSeconds}
-      visible={true}
-      screenShareEnabled={true}
+      screenShareEnabled={false}
+      audioDeviceId={currentAudioDeviceId}
+      videoDeviceId={currentVideoDeviceId}
       on:toggleMute={toggleMute}
       on:toggleVideo={toggleVideo}
       on:toggleScreenShare={handleToggleScreenShare}
+      on:switchDevice={handleSwitchDevice}
       on:endCall={endCall}
     />
   </div>
 {/if}
 
-<Dialog bind:open={showEndCallDialog} title={$t("common.conference_endCallOptions")}>
-  <div class="flex flex-col items-center gap-4 text-center">
-    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-error-500/10">
-      <SvgIcon icon="phone" moreClasses="h-6 w-6 rotate-[135deg] text-error-500" />
-    </div>
-    <p class="text-sm text-secondary-500 dark:text-tertiary-500">
-      {$t("common.conference_endCallMessage")}
-    </p>
-  </div>
-  <div class="mt-6 flex flex-col gap-3">
-    <Button
-      moreClasses="w-full !bg-error-500 hover:!bg-error-600 !text-white"
-      on:click={confirmEndForAll}
-    >
-      {$t("common.conference_endCallForAll")}
-    </Button>
-    <Button
-      moreClasses="w-full !bg-primary-500 hover:!bg-primary-600 !text-white"
-      on:click={confirmJustLeave}
-    >
-      {$t("common.conference_justLeave")}
-    </Button>
-    <Button
-      moreClasses="w-full !bg-secondary-400 hover:!bg-secondary-300 !text-white"
+{#if showEndCallDialog}
+  <div
+    class="fixed inset-0 z-[60] flex items-center justify-center px-6"
+    transition:fade={{ duration: 150 }}
+  >
+    <button
+      class="absolute inset-0 bg-black/60"
+      aria-label="Close"
       on:click={() => (showEndCallDialog = false)}
+    ></button>
+    <div
+      class="relative z-10 w-full max-w-xs rounded-3xl bg-secondary-700 p-6 text-center shadow-2xl"
+      transition:scale={{ duration: 150, start: 0.95 }}
     >
-      {$t("common.cancel")}
-    </Button>
+      <div
+        class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary-500/10"
+      >
+        <SvgIcon icon="callEnd" moreClasses="h-6 w-6 text-primary-500" />
+      </div>
+      <h3 class="text-lg font-semibold text-white">Leave the call?</h3>
+      <p class="mb-6 mt-2 text-sm text-tertiary-500">
+        You're the host. End the call for everyone, or step out and let the others keep talking.
+      </p>
+      <div class="flex flex-col gap-2.5">
+        <button
+          class="h-12 rounded-full bg-primary-500 font-semibold text-white transition-colors hover:bg-primary-600"
+          on:click={confirmEndForAll}
+        >
+          End for everyone
+        </button>
+        <button
+          class="h-12 rounded-full bg-secondary-400 font-semibold text-tertiary-100 transition-colors hover:bg-secondary-300"
+          on:click={confirmJustLeave}
+        >
+          Just leave
+        </button>
+        <button
+          class="h-11 rounded-full font-medium text-tertiary-500 transition-colors hover:text-tertiary-300"
+          on:click={() => (showEndCallDialog = false)}
+        >
+          {$t("common.cancel")}
+        </button>
+      </div>
+    </div>
   </div>
-</Dialog>
+{/if}
 
 <Dialog bind:open={showErrorDialog} title={errorDialogTitle}>
   <div class="flex flex-col items-center gap-4 text-center">
@@ -759,60 +707,6 @@
     {/if}
     <p class="text-sm text-secondary-500 dark:text-tertiary-500">
       {$t("common.conference_kickMessage")}
-    </p>
-  </div>
-</DialogConfirm>
-
-<DialogConfirm
-  bind:open={showTransferHostDialog}
-  title={$t("common.conference_transferHostTitle")}
-  actionButtonLabel={$t("common.conference_transferHostConfirm")}
-  loading={isPerformingAction}
-  on:confirm={confirmTransferHost}
-  on:cancel={() => {
-    showTransferHostDialog = false;
-    targetParticipantPubKey = null;
-  }}
->
-  <div class="flex flex-col items-center gap-4 text-center">
-    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary-500/10">
-      <SvgIcon icon="arrowUpCircle" moreClasses="h-6 w-6 text-primary-500" />
-    </div>
-    {#if targetParticipantPubKey}
-      <div class="flex flex-col items-center gap-2">
-        <Avatar agentPubKeyB64={targetParticipantPubKey} size={48} />
-        <p class="font-medium text-secondary-700 dark:text-tertiary-300">{targetParticipantName}</p>
-      </div>
-    {/if}
-    <p class="text-sm text-secondary-500 dark:text-tertiary-500">
-      {$t("common.conference_transferHostMessage")}
-    </p>
-  </div>
-</DialogConfirm>
-
-<DialogConfirm
-  bind:open={showPromoteDialog}
-  title={$t("common.conference_promoteTitle")}
-  actionButtonLabel={$t("common.conference_promoteConfirm")}
-  loading={isPerformingAction}
-  on:confirm={confirmPromote}
-  on:cancel={() => {
-    showPromoteDialog = false;
-    targetParticipantPubKey = null;
-  }}
->
-  <div class="flex flex-col items-center gap-4 text-center">
-    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-warning-500/10">
-      <SvgIcon icon="star" moreClasses="h-6 w-6 text-warning-500" />
-    </div>
-    {#if targetParticipantPubKey}
-      <div class="flex flex-col items-center gap-2">
-        <Avatar agentPubKeyB64={targetParticipantPubKey} size={48} />
-        <p class="font-medium text-secondary-700 dark:text-tertiary-300">{targetParticipantName}</p>
-      </div>
-    {/if}
-    <p class="text-sm text-secondary-500 dark:text-tertiary-500">
-      {$t("common.conference_promoteMessage")}
     </p>
   </div>
 </DialogConfirm>

@@ -1,8 +1,8 @@
 export interface SpeakerInfo {
   participantId: string;
-  audioLevel: number; // 0-1 normalized
+  audioLevel: number;
   isSpeaking: boolean;
-  lastSpokeAt: number; // timestamp
+  lastSpokeAt: number;
 }
 
 export interface ActiveSpeakerDetectorOptions {
@@ -10,239 +10,185 @@ export interface ActiveSpeakerDetectorOptions {
   switchCooldown?: number;
   sampleInterval?: number;
   smoothingFactor?: number;
+  silenceHold?: number;
 }
 
-interface ParticipantAudioState {
-  audioContext: AudioContext;
-  analyser: AnalyserNode;
-  source: MediaStreamAudioSourceNode;
-  dataArray: Uint8Array;
-  smoothedLevel: number;
-  lastSpokeAt: number;
+export type LevelProvider = () => Map<string, number>;
+
+export interface LocalLevelMeter {
+  getLevel: () => number;
+  destroy: () => void;
+}
+
+export function createLocalLevelMeter(stream: MediaStream): LocalLevelMeter {
+  let audioContext: AudioContext | null = null;
+  let analyser: AnalyserNode | null = null;
+  let data: Uint8Array | null = null;
+
+  try {
+    audioContext = new AudioContext();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.2;
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    data = new Uint8Array(analyser.fftSize);
+  } catch (e) {
+    console.warn("[ActiveSpeaker] local meter setup failed:", e);
+  }
+
+  return {
+    getLevel(): number {
+      const track = stream.getAudioTracks()[0];
+      if (!track || !track.enabled || track.readyState === "ended") return 0;
+      if (!analyser || !data) return 0;
+      analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      return Math.sqrt(sum / data.length);
+    },
+    destroy() {
+      try {
+        audioContext?.close();
+      } catch {
+        void 0;
+      }
+      audioContext = null;
+      analyser = null;
+      data = null;
+    },
+  };
 }
 
 export class ActiveSpeakerDetector {
-  private participants: Map<string, ParticipantAudioState> = new Map();
+  private levelProvider: LevelProvider | null = null;
+  private smoothed = new Map<string, number>();
+  private lastSpokeAt = new Map<string, number>();
   private speakingThreshold: number;
   private switchCooldown: number;
   private sampleInterval: number;
   private smoothingFactor: number;
+  private silenceHold: number;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private currentActiveSpeaker: string | null = null;
-  private lastSwitchTime: number = 0;
-  private onSpeakerChange: ((speakerId: string | null, allSpeakers: SpeakerInfo[]) => void) | null = null;
+  private lastSwitchTime = 0;
+  private onSpeakerChange: ((speakerId: string | null, all: SpeakerInfo[]) => void) | null = null;
 
   constructor(options: ActiveSpeakerDetectorOptions = {}) {
-    this.speakingThreshold = options.speakingThreshold ?? 0.1;
-    this.switchCooldown = options.switchCooldown ?? 500;
-    this.sampleInterval = options.sampleInterval ?? 100;
-    this.smoothingFactor = options.smoothingFactor ?? 0.3;
+    this.speakingThreshold = options.speakingThreshold ?? 0.02;
+    this.switchCooldown = options.switchCooldown ?? 400;
+    this.sampleInterval = options.sampleInterval ?? 150;
+    this.smoothingFactor = options.smoothingFactor ?? 0.4;
+    this.silenceHold = options.silenceHold ?? 1000;
   }
 
-  onActiveSpeakerChange(callback: (speakerId: string | null, allSpeakers: SpeakerInfo[]) => void): void {
-    this.onSpeakerChange = callback;
+  setLevelProvider(provider: LevelProvider): void {
+    this.levelProvider = provider;
+    this.start();
   }
 
-  addParticipant(participantId: string, stream: MediaStream): boolean {
-    // Remove existing if present
-    this.removeParticipant(participantId);
-
-    const audioTracks = stream.getAudioTracks();
-    if (audioTracks.length === 0) {
-      console.warn(`[ActiveSpeaker] No audio tracks for participant ${participantId}`);
-      return false;
-    }
-
-    try {
-      const audioContext = new AudioContext();
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.5;
-
-      const source = audioContext.createMediaStreamSource(stream);
-      source.connect(analyser);
-      // Don't connect to destination - we just want to analyze
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      this.participants.set(participantId, {
-        audioContext,
-        analyser,
-        source,
-        dataArray,
-        smoothedLevel: 0,
-        lastSpokeAt: 0,
-      });
-
-      // Start detection loop if not already running
-      this.startDetection();
-
-      return true;
-    } catch (error) {
-      console.error(`[ActiveSpeaker] Error adding participant ${participantId}:`, error);
-      return false;
-    }
-  }
-
-  removeParticipant(participantId: string): void {
-    const state = this.participants.get(participantId);
-    if (state) {
-      try {
-        state.source.disconnect();
-        state.audioContext.close();
-      } catch (e) {
-        // Ignore cleanup errors
-      }
-      this.participants.delete(participantId);
-
-      // If removed participant was active speaker, clear it
-      if (this.currentActiveSpeaker === participantId) {
-        this.currentActiveSpeaker = null;
-      }
-    }
-
-    // Stop detection if no participants
-    if (this.participants.size === 0) {
-      this.stopDetection();
-    }
-  }
-
-  updateParticipantStream(participantId: string, stream: MediaStream): boolean {
-    return this.addParticipant(participantId, stream);
+  onActiveSpeakerChange(cb: (speakerId: string | null, all: SpeakerInfo[]) => void): void {
+    this.onSpeakerChange = cb;
   }
 
   getSpeakerInfo(): SpeakerInfo[] {
-    const now = Date.now();
     const result: SpeakerInfo[] = [];
-
-    this.participants.forEach((state, participantId) => {
+    this.smoothed.forEach((level, participantId) => {
       result.push({
         participantId,
-        audioLevel: state.smoothedLevel,
-        isSpeaking: state.smoothedLevel >= this.speakingThreshold,
-        lastSpokeAt: state.lastSpokeAt,
+        audioLevel: level,
+        isSpeaking: level >= this.speakingThreshold,
+        lastSpokeAt: this.lastSpokeAt.get(participantId) ?? 0,
       });
     });
-
     return result;
   }
 
-  getActiveSpeaker(): string | null {
-    return this.currentActiveSpeaker;
-  }
-
-  setActiveSpeaker(participantId: string | null): void {
-    if (participantId !== this.currentActiveSpeaker) {
-      const previousSpeaker = this.currentActiveSpeaker;
-      this.currentActiveSpeaker = participantId;
-      this.lastSwitchTime = Date.now();
-
-      // Notify callback
-      if (this.onSpeakerChange && previousSpeaker !== this.currentActiveSpeaker) {
-        this.onSpeakerChange(this.currentActiveSpeaker, this.getSpeakerInfo());
-      }
-    }
-  }
-
-  private startDetection(): void {
+  private start(): void {
     if (this.intervalId !== null) return;
-
-    this.intervalId = setInterval(() => {
-      this.detectActiveSpeaker();
-    }, this.sampleInterval);
+    this.intervalId = setInterval(() => this.tick(), this.sampleInterval);
   }
 
-  private stopDetection(): void {
+  private stop(): void {
     if (this.intervalId !== null) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
   }
 
-  private detectActiveSpeaker(): void {
-    const now = Date.now();
-    let loudestId: string | null = null;
-    let loudestLevel = 0;
-
-    // Update audio levels for all participants
-    this.participants.forEach((state, participantId) => {
-      const level = this.getAudioLevel(state);
-
-      // Apply exponential smoothing
-      state.smoothedLevel =
-        this.smoothingFactor * level + (1 - this.smoothingFactor) * state.smoothedLevel;
-
-      // Track when last spoke
-      if (state.smoothedLevel >= this.speakingThreshold) {
-        state.lastSpokeAt = now;
-      }
-
-      // Track loudest
-      if (state.smoothedLevel > loudestLevel && state.smoothedLevel >= this.speakingThreshold) {
-        loudestId = participantId;
-        loudestLevel = state.smoothedLevel;
-      }
-    });
-
-    // Determine if we should switch active speaker
-    const shouldSwitch =
-      loudestId !== null &&
-      loudestId !== this.currentActiveSpeaker &&
-      now - this.lastSwitchTime >= this.switchCooldown;
-
-    // Also switch if current speaker has been quiet for a while
-    const currentSpeakerQuiet =
-      this.currentActiveSpeaker !== null &&
-      this.participants.has(this.currentActiveSpeaker) &&
-      now - (this.participants.get(this.currentActiveSpeaker)?.lastSpokeAt ?? 0) > this.switchCooldown * 2;
-
-    if (shouldSwitch || (currentSpeakerQuiet && loudestId !== null)) {
-      const previousSpeaker = this.currentActiveSpeaker;
-      this.currentActiveSpeaker = loudestId;
-      this.lastSwitchTime = now;
-
-      // Notify callback
-      if (this.onSpeakerChange && previousSpeaker !== this.currentActiveSpeaker) {
-        this.onSpeakerChange(this.currentActiveSpeaker, this.getSpeakerInfo());
-      }
-    }
+  private setActive(id: string | null, now: number): void {
+    if (id === this.currentActiveSpeaker) return;
+    this.currentActiveSpeaker = id;
+    this.lastSwitchTime = now;
+    if (this.onSpeakerChange) this.onSpeakerChange(id, this.getSpeakerInfo());
   }
 
-  private getAudioLevel(state: ParticipantAudioState): number {
-    state.analyser.getByteFrequencyData(state.dataArray);
+  private tick(): void {
+    if (!this.levelProvider) return;
+    const now = Date.now();
+    const raw = this.levelProvider();
 
-    // Calculate RMS (root mean square) for more accurate level
-    let sum = 0;
-    for (let i = 0; i < state.dataArray.length; i++) {
-      const normalized = state.dataArray[i] / 255;
-      sum += normalized * normalized;
+    for (const id of [...this.smoothed.keys()]) {
+      if (!raw.has(id)) {
+        this.smoothed.delete(id);
+        this.lastSpokeAt.delete(id);
+        if (this.currentActiveSpeaker === id) this.setActive(null, now);
+      }
     }
-    const rms = Math.sqrt(sum / state.dataArray.length);
 
-    return Math.min(1, rms * 2); // Amplify a bit for sensitivity
+    let loudestId: string | null = null;
+    let loudestLevel = 0;
+    for (const [id, level] of raw) {
+      const prev = this.smoothed.get(id) ?? 0;
+      const s = this.smoothingFactor * level + (1 - this.smoothingFactor) * prev;
+      this.smoothed.set(id, s);
+      if (s >= this.speakingThreshold) this.lastSpokeAt.set(id, now);
+      if (s >= this.speakingThreshold && s > loudestLevel) {
+        loudestLevel = s;
+        loudestId = id;
+      }
+    }
+
+    if (loudestId === null) {
+      if (this.currentActiveSpeaker !== null) {
+        const quietFor = now - (this.lastSpokeAt.get(this.currentActiveSpeaker) ?? 0);
+        if (quietFor >= this.silenceHold) this.setActive(null, now);
+      }
+      return;
+    }
+
+    if (loudestId !== this.currentActiveSpeaker) {
+      const currentQuietFor =
+        this.currentActiveSpeaker !== null
+          ? now - (this.lastSpokeAt.get(this.currentActiveSpeaker) ?? 0)
+          : Infinity;
+      if (
+        now - this.lastSwitchTime >= this.switchCooldown ||
+        currentQuietFor >= this.switchCooldown
+      ) {
+        this.setActive(loudestId, now);
+      }
+    }
   }
 
   destroy(): void {
-    this.stopDetection();
-
-    this.participants.forEach((state, participantId) => {
-      try {
-        state.source.disconnect();
-        state.audioContext.close();
-      } catch (e) {
-        // Ignore cleanup errors
-      }
-    });
-
-    this.participants.clear();
+    this.stop();
+    this.smoothed.clear();
+    this.lastSpokeAt.clear();
     this.currentActiveSpeaker = null;
     this.onSpeakerChange = null;
+    this.levelProvider = null;
   }
 }
 
 export function createActiveSpeakerStore(options?: ActiveSpeakerDetectorOptions) {
   const detector = new ActiveSpeakerDetector(options);
-  const subscribers = new Set<(value: { activeSpeaker: string | null; speakers: SpeakerInfo[] }) => void>();
+  const subscribers = new Set<
+    (value: { activeSpeaker: string | null; speakers: SpeakerInfo[] }) => void
+  >();
 
   let currentValue = {
     activeSpeaker: null as string | null,
@@ -250,10 +196,7 @@ export function createActiveSpeakerStore(options?: ActiveSpeakerDetectorOptions)
   };
 
   detector.onActiveSpeakerChange((speakerId, allSpeakers) => {
-    currentValue = {
-      activeSpeaker: speakerId,
-      speakers: allSpeakers,
-    };
+    currentValue = { activeSpeaker: speakerId, speakers: allSpeakers };
     subscribers.forEach((fn) => fn(currentValue));
   });
 
@@ -263,11 +206,7 @@ export function createActiveSpeakerStore(options?: ActiveSpeakerDetectorOptions)
       fn(currentValue);
       return () => subscribers.delete(fn);
     },
-    addParticipant: detector.addParticipant.bind(detector),
-    removeParticipant: detector.removeParticipant.bind(detector),
-    updateParticipantStream: detector.updateParticipantStream.bind(detector),
-    getSpeakerInfo: detector.getSpeakerInfo.bind(detector),
-    setManualSpeaker: detector.setActiveSpeaker.bind(detector),
+    setLevelProvider: detector.setLevelProvider.bind(detector),
     destroy: detector.destroy.bind(detector),
   };
 }

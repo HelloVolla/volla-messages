@@ -22,7 +22,6 @@
   const dispatch = createEventDispatcher<{
     unselect: void;
     delete: ActionHashB64;
-    reply: ActionHashB64;
   }>();
 
   const myPubKeyB64 = getContext<{ getMyPubKeyB64: () => AgentPubKeyB64 }>(
@@ -89,22 +88,15 @@
   }
 </script>
 
-<div class="my-1 flex w-full items-center justify-center space-x-2">
-  <ButtonInline
-    on:click={() => dispatch("reply", actionHashB64)}
-    icon="reply"
-    moreClassesButton="bg-tertiary-600 dark:bg-secondary-700 dark:text-tertiary-400"
-  >
-    <span class="text-xs md:text-sm">{$t("common.reply")}</span>
-  </ButtonInline>
-
+<div class="my-1 flex w-full flex-wrap items-center justify-center gap-2 px-2">
   {#if hasText}
     <ButtonInline
       on:click={copy}
       icon="copy"
-      moreClassesButton="bg-tertiary-600 dark:bg-secondary-700 dark:text-tertiary-400"
+      iconSize="h-[18px] w-[18px]"
+      moreClassesButton="bg-tertiary-600 dark:bg-secondary-700 dark:text-tertiary-400 !h-9 !px-3.5 !space-x-1.5"
     >
-      <span class="text-xs md:text-sm">{$t("common.copy_text")}</span>
+      <span class="whitespace-nowrap text-xs md:text-sm">{$t("common.copy_text")}</span>
     </ButtonInline>
   {/if}
 
@@ -112,10 +104,10 @@
     <ButtonInline
       on:click={download}
       icon="download"
-      moreClassesButton="bg-tertiary-600 dark:bg-secondary-700 dark:text-tertiary-400"
-      moreClasses="w-[30px]"
+      iconSize="h-[18px] w-[18px]"
+      moreClassesButton="bg-tertiary-600 dark:bg-secondary-700 dark:text-tertiary-400 !h-9 !px-3.5 !space-x-1.5"
     >
-      <span class="text-xs md:text-sm">{$t("common.download")}</span>
+      <span class="whitespace-nowrap text-xs md:text-sm">{$t("common.download")}</span>
     </ButtonInline>
   {/if}
 
@@ -123,10 +115,10 @@
     <ButtonInline
       on:click={() => dispatch("delete", actionHashB64)}
       icon="delete"
-      moreClassesButton="bg-tertiary-600 dark:bg-secondary-700 dark:text-tertiary-400"
-      moreClasses="w-[30px]"
+      iconSize="h-[18px] w-[18px]"
+      moreClassesButton="bg-tertiary-600 dark:bg-secondary-700 dark:text-tertiary-400 !h-9 !px-3.5 !space-x-1.5"
     >
-      <span class="text-xs md:text-sm">{$t("common.delete")}</span>
+      <span class="whitespace-nowrap text-xs md:text-sm">{$t("common.delete")}</span>
     </ButtonInline>
   {/if}
 </div>

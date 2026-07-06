@@ -298,6 +298,7 @@ export function createConferenceLifecycle(
       leftTimestamp: Date.now(),
       invitationStatus: "left" as const,
       ended: othersActive ? conf.ended : true,
+      endedByMe: othersActive ? conf.endedByMe : true,
     }));
 
     if (!othersActive) {

@@ -18,7 +18,6 @@ import {
   INVITATION_TIMEOUT_MS,
   updateParticipant,
   createUIStateManager,
-  createRoleManager,
   createConferenceStreams,
   createConferenceLifecycle,
 } from "./conference";
@@ -53,6 +52,7 @@ export interface SimplePeerConferenceStore {
   setLocalVideo: (roomId: string, enabled: boolean) => Promise<void>;
   startScreenShare: (roomId: string) => Promise<void>;
   stopScreenShare: (roomId: string) => Promise<void>;
+  switchDevice: (roomId: string, kind: "audio" | "video", deviceId: string) => Promise<void>;
   initiateConnections: (roomId: string) => Promise<void>;
   cleanupWebRTC: (roomId: string) => void;
   cleanupPeer: (roomId: string, pubKey: string) => void;
@@ -72,14 +72,7 @@ export interface SimplePeerConferenceStore {
   recordPeerActivity: (agentB64: string) => void;
   cleanupAll: () => void;
   getIncomingInvitations: () => SimplePeerConferenceState[];
-  fetchRoles: (roomId: string) => Promise<void>;
-  transferHost: (roomId: string, newHostPubKeyB64: AgentPubKeyB64) => Promise<void>;
-  kickParticipant: (roomId: string, targetPubKeyB64: AgentPubKeyB64) => Promise<void>;
-  changeParticipantRole: (
-    roomId: string,
-    targetPubKeyB64: AgentPubKeyB64,
-    newRole: ConferenceRole,
-  ) => Promise<void>;
+  kickParticipant: (roomId: string, targetPubKeyB64: AgentPubKeyB64) => void;
   canEndConference: (roomId: string) => boolean;
   canKick: (roomId: string, targetPubKeyB64: AgentPubKeyB64) => boolean;
   subscribe: (
@@ -118,7 +111,22 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
 
   const lifecycle = createConferenceLifecycle(ctx, streams.cleanupPeer, streams.cleanupWebRTC);
 
-  const roleManager = createRoleManager(ctx, streams.cleanupPeer);
+  function confInitiator(roomId: string): boolean {
+    try {
+      return conferences.getKeyValue(roomId)?.isInitiator === true;
+    } catch {
+      return false;
+    }
+  }
+  function canEndConference(roomId: string): boolean {
+    return confInitiator(roomId);
+  }
+  function canKick(roomId: string, targetPubKeyB64: AgentPubKeyB64): boolean {
+    return confInitiator(roomId) && targetPubKeyB64 !== encodeHashToBase64(client.client.myPubKey);
+  }
+  function kickParticipant(roomId: string, targetPubKeyB64: AgentPubKeyB64): void {
+    streams.blockParticipant(roomId, targetPubKeyB64);
+  }
 
   const uiState = createUIStateManager(ctx);
 
@@ -230,6 +238,7 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
     setLocalVideo: streams.setLocalVideo,
     startScreenShare: streams.startScreenShare,
     stopScreenShare: streams.stopScreenShare,
+    switchDevice: streams.switchDevice,
     cleanupWebRTC: streams.cleanupWebRTC,
 
     handleSimplePeerSignal: streams.handleSimplePeerSignal,
@@ -237,12 +246,9 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
 
     cleanupPeer: streams.cleanupPeer,
 
-    fetchRoles: roleManager.fetchRoles,
-    transferHost: roleManager.transferHost,
-    kickParticipant: roleManager.kickParticipant,
-    changeParticipantRole: roleManager.changeParticipantRole,
-    canEndConference: roleManager.canEndConference,
-    canKick: roleManager.canKick,
+    kickParticipant,
+    canEndConference,
+    canKick,
 
     deriveConferenceStore,
     getConference: conferences.getKeyValue,

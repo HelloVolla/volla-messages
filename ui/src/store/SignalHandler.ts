@@ -4,6 +4,7 @@ import {
   SignalType,
   type AgentPubKeyB64,
 } from "@holochain/client";
+import toast from "svelte-french-toast";
 import { RelayClient } from "$store/RelayClient";
 import {
   type RelaySignal,
@@ -30,6 +31,8 @@ export function createSignalHandler(
   onlinePeers: Writable<Set<AgentPubKeyB64>>,
 ) {
   client.client.on("signal", _handleSignalReceived);
+
+  const processedRejects = new Set<string>();
 
   async function _handleSignalReceived(signal: Signal) {
     if (signal.type !== SignalType.App) return;
@@ -95,6 +98,16 @@ export function createSignalHandler(
         } catch {
           previousConference = undefined;
         }
+        if (previousConference && !previousConference.ended) {
+          const alreadyParticipating =
+            previousConference.isInitiator ||
+            previousConference.invitationStatus === "accepted" ||
+            previousConference.invitationStatus === "left" ||
+            previousConference.localStream !== undefined;
+          if (alreadyParticipating) {
+            return;
+          }
+        }
         if (previousConference) {
           if (previousConference.invitationTimeoutHandle) {
             clearTimeout(previousConference.invitationTimeoutHandle);
@@ -114,11 +127,9 @@ export function createSignalHandler(
               currentConference.invitationTimestamp === invitationTimestamp
             ) {
               console.log(
-                `[SignalHandler] Invitation timeout for room ${roomId.slice(0, 20)}, auto-rejecting`,
+                `[SignalHandler] Invitation timeout for room ${roomId.slice(0, 20)}, dismissing locally`,
               );
-              conferenceStore.rejectConferenceInvitation(roomId).catch((error) => {
-                console.error("[SignalHandler] Failed to auto-reject invitation:", error);
-              });
+              conferenceStore.removeConference(roomId);
             }
           } catch {
             console.log(
@@ -290,6 +301,10 @@ export function createSignalHandler(
         const roomId = signal.room_id;
         const endedBy = encodeHashToBase64(signal.ended_by);
 
+        for (const key of [...processedRejects]) {
+          if (key.startsWith(`${roomId}:`)) processedRejects.delete(key);
+        }
+
         console.log("[SignalHandler] ConferenceEnded signal received:", {
           roomId,
           endedBy,
@@ -316,18 +331,24 @@ export function createSignalHandler(
         const rejectedAgent = encodeHashToBase64(signal.agent);
         const roomId = signal.room_id;
 
+        const rejectKey = `${roomId}:${rejectedAgent}`;
+        if (processedRejects.has(rejectKey)) break;
+        processedRejects.add(rejectKey);
+
         conferenceStore.updateConference(roomId, (conf) => {
           if (!conf) return conf;
           const participant = conf.participants.get(rejectedAgent);
-          if (participant) {
-            conf.participants.set(rejectedAgent, {
-              ...participant,
-              connectionStatus: "idle",
-            });
-          }
-          return conf;
+          if (!participant || participant.declined) return conf;
+          const next = new Map(conf.participants);
+          next.set(rejectedAgent, {
+            ...participant,
+            connectionStatus: "idle",
+            declined: true,
+            hasJoined: false,
+          });
+          return { ...conf, participants: next };
         });
-        console.log("Participant rejected the call:", rejectedAgent);
+        toast.error("A participant declined the call");
         break;
       }
 

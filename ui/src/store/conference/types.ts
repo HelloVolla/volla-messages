@@ -63,6 +63,7 @@ export interface SimplePeerParticipant {
   lastIceState?: RTCIceConnectionState;
   initSentAt?: number;
   lastPongAt?: number;
+  declined?: boolean;
   connectionQuality?: ConnectionQuality;
   pendingInitRequest?: SimplePeerSignalPayload;
   stream?: MediaStream;

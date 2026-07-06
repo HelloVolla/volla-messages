@@ -22,8 +22,6 @@ export {
 
 export { createUIStateManager, type UIStateManager } from "./uiState";
 
-export { createRoleManager, type RoleManager } from "./roleManagement";
-
 export { PeerConnection, type PeerConnectionHooks } from "./peerConnection";
 
 export { createConferenceStreams, type ConferenceStreams } from "./conferenceStreams";

@@ -483,6 +483,8 @@
   </div>
 </Header>
 
+<InlineConferenceInvite onAccept={handleAcceptCall} onReject={handleRejectCall} />
+
 {#if showConversationNetworkPanel}
   <NetworkStatusPanel
     stats={$networkStatsStore}
@@ -526,8 +528,6 @@
     {/if}
   </div>
 </div>
-
-<InlineConferenceInvite onAccept={handleAcceptCall} onReject={handleRejectCall} />
 
 <ConversationMessageInput
   bind:ref={conversationMessageInputRef}

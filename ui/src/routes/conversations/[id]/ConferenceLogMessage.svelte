@@ -1,9 +1,11 @@
 <script lang="ts">
   import { getContext } from "svelte";
+  import { writable, type Writable } from "svelte/store";
   import type { AgentPubKeyB64 } from "@holochain/client";
   import type { CellIdB64, ConferenceLog } from "$lib/types";
   import Avatar from "$lib/Avatar.svelte";
   import AgentNickname from "$lib/AgentNickname.svelte";
+  import SvgIcon from "$lib/SvgIcon.svelte";
 
   export let log: ConferenceLog;
   export let cellIdB64: CellIdB64;
@@ -12,22 +14,20 @@
     "myPubKey",
   ).getMyPubKeyB64();
 
+  const endedIds: Writable<Set<string>> =
+    getContext("endedConferenceIds") ?? writable(new Set<string>());
+
   $: isInitiator = log.initiator === myPubKeyB64;
   $: isStarted = log.event === "started";
+  $: suppressed = isStarted && $endedIds.has(log.conference_id);
 
   function formatDuration(seconds?: number): string {
     if (!seconds) return "";
-
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-
-    if (mins === 0) {
-      return `${secs}s`;
-    } else if (secs === 0) {
-      return `${mins}m`;
-    } else {
-      return `${mins}m ${secs}s`;
-    }
+    if (mins === 0) return `${secs}s`;
+    if (secs === 0) return `${mins}m`;
+    return `${mins}m ${secs}s`;
   }
 
   function formatTime(timestamp: number): string {
@@ -35,82 +35,68 @@
     let hours = date.getHours();
     const minutes = date.getMinutes();
     const ampm = hours >= 12 ? "PM" : "AM";
-    hours = hours % 12;
-    hours = hours ? hours : 12;
+    hours = hours % 12 || 12;
     const minutesStr = minutes < 10 ? "0" + minutes : minutes;
     return `${hours}:${minutesStr} ${ampm}`;
   }
 </script>
 
-<div class="my-2 flex justify-center px-2">
-  <div
-    class="bg-surface-700/20 dark:bg-surface-800/20 inline-flex w-full max-w-lg items-center justify-center
-            gap-1.5 rounded-full px-3 py-1.5 text-xs sm:w-fit sm:gap-2 sm:px-5 sm:py-2 sm:text-sm"
-  >
-    <div class="flex flex-shrink-0 -space-x-2">
-      {#each log.participants.slice(0, 4) as participantPubKey, i}
-        <div
-          class="ring-surface-700/20 dark:ring-surface-800/20 relative rounded-full ring-2"
-          style="z-index: {log.participants.length - i}"
-        >
-          <Avatar
-            {cellIdB64}
-            agentPubKeyB64={participantPubKey}
-            size={20}
-            moreClasses="sm:w-6 sm:h-6"
-          />
-        </div>
-      {/each}
-      {#if log.participants.length > 4}
-        <div
-          class="bg-surface-600 ring-surface-700/20 dark:ring-surface-800/20 relative flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-medium text-white ring-2 sm:h-6 sm:w-6 sm:text-[10px]"
-          style="z-index: 0"
-        >
-          +{log.participants.length - 4}
-        </div>
-      {/if}
-    </div>
-
-    <!-- Clock icon -->
-    <svg
-      class="text-surface-400 h-3 w-3 flex-shrink-0 sm:h-4 sm:w-4"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
+{#if !suppressed}
+  <div class="my-0.5 flex justify-center px-2">
+    <div
+      class="inline-flex w-fit max-w-full items-center gap-2 rounded-xl bg-tertiary-400 px-3 py-1.5 text-xs dark:bg-secondary-500"
     >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-      />
-    </svg>
+      <div class="flex flex-shrink-0 -space-x-2">
+        {#each log.participants.slice(0, 3) as participantPubKey, i}
+          <div
+            class="relative rounded-full ring-2 ring-tertiary-400 dark:ring-secondary-500"
+            style="z-index: {log.participants.length - i}"
+          >
+            <Avatar {cellIdB64} agentPubKeyB64={participantPubKey} size={22} />
+          </div>
+        {/each}
+      </div>
 
-    <!-- Text content -->
-    <div class="text-surface-300 flex items-center gap-1 truncate">
-      <span class="font-medium">
-        {#if isInitiator}
-          You
-        {:else}
-          <AgentNickname {cellIdB64} agentPubKeyB64={log.initiator} />
-        {/if}
-      </span>
+      <div class="flex min-w-0 items-center gap-1.5 text-secondary-500 dark:text-tertiary-300">
+        <span class="truncate font-semibold">
+          {#if isInitiator}You{:else}<AgentNickname
+              {cellIdB64}
+              agentPubKeyB64={log.initiator}
+            />{/if}
+        </span>
+        <span class="whitespace-nowrap text-secondary-400 dark:text-tertiary-500">
+          {isStarted ? "started a call" : "hosted a call"}
+        </span>
+      </div>
 
-      <span class="hidden sm:inline">
-        {isStarted ? "started a conference at" : "ended the conference at"}
-      </span>
-      <span class="sm:hidden">
-        {isStarted ? "started" : "ended"}
-      </span>
+      {#if !isStarted && log.duration_seconds}
+        <span
+          class="flex-shrink-0 rounded-full bg-secondary-500/10 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-secondary-500 dark:bg-white/10 dark:text-tertiary-300"
+        >
+          {formatDuration(log.duration_seconds)}
+        </span>
+      {:else if isStarted}
+        <span
+          class="flex flex-shrink-0 items-center gap-1.5 text-[11px] font-semibold text-success-500"
+        >
+          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-success-500"></span>Ongoing
+        </span>
+      {/if}
 
-      <span class="whitespace-nowrap">{formatTime(log.timestamp)}</span>
+      <span
+        class="ml-auto flex-shrink-0 whitespace-nowrap pl-1 text-secondary-400 dark:text-tertiary-500"
+      >
+        <SvgIcon
+          icon="people"
+          size="h-3 w-3"
+          moreClasses="mb-px mr-0.5 inline-block align-middle"
+        />{log.participant_count}
+      </span>
+      <span
+        class="flex-shrink-0 whitespace-nowrap text-[11px] text-secondary-400 dark:text-tertiary-600"
+      >
+        {formatTime(log.timestamp)}
+      </span>
     </div>
-
-    <!-- Duration for ended events -->
-    {#if !isStarted && log.duration_seconds}
-      <span class="text-surface-500 flex-shrink-0 whitespace-nowrap text-[10px] sm:text-xs">
-        • {formatDuration(log.duration_seconds)}
-      </span>
-    {/if}
   </div>
-</div>
+{/if}

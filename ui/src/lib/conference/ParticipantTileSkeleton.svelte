@@ -25,7 +25,7 @@
 
 <div class={containerClasses}>
   <div
-    class="from-secondary-400 via-secondary-500 to-secondary-400 absolute inset-0 animate-pulse bg-gradient-to-br"
+    class="absolute inset-0 animate-pulse bg-gradient-to-br from-secondary-400 via-secondary-500 to-secondary-400"
   >
     <div
       class="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent"
@@ -33,25 +33,25 @@
   </div>
 
   <div class="absolute inset-0 flex items-center justify-center">
-    <div class="bg-secondary-400/50 rounded-full {avatarSize} animate-pulse" />
+    <div class="rounded-full bg-secondary-400/50 {avatarSize} animate-pulse" />
   </div>
 
   <div class="absolute {badgeClasses} flex items-center justify-between">
     <div
       class="flex items-center gap-1.5 rounded-xl bg-black/30 px-2 py-1.5 backdrop-blur-sm sm:gap-2 sm:px-3 sm:py-2"
     >
-      <div class="bg-secondary-400/50 h-5 w-5 animate-pulse rounded-full sm:h-6 sm:w-6" />
-      <div class="bg-secondary-400/50 h-3 w-16 animate-pulse rounded sm:w-24" />
+      <div class="h-5 w-5 animate-pulse rounded-full bg-secondary-400/50 sm:h-6 sm:w-6" />
+      <div class="h-3 w-16 animate-pulse rounded bg-secondary-400/50 sm:w-24" />
     </div>
   </div>
 
   {#if variant === "main"}
     <div class="absolute left-4 top-4 sm:left-6 sm:top-6">
       <div
-        class="bg-secondary-500/50 flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 backdrop-blur-sm"
+        class="flex items-center gap-1.5 rounded-xl bg-secondary-500/50 px-2.5 py-1.5 backdrop-blur-sm"
       >
-        <div class="bg-secondary-400/50 h-2.5 w-2.5 animate-pulse rounded-full" />
-        <div class="bg-secondary-400/50 h-2 w-16 animate-pulse rounded" />
+        <div class="h-2.5 w-2.5 animate-pulse rounded-full bg-secondary-400/50" />
+        <div class="h-2 w-16 animate-pulse rounded bg-secondary-400/50" />
       </div>
     </div>
   {/if}

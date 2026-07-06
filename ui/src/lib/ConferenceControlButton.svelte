@@ -14,7 +14,7 @@
     if (disabled) return "bg-secondary-400/50 cursor-not-allowed";
 
     if (variant === "danger") {
-      return "bg-error-500 hover:bg-error-600 shadow-lg shadow-error-500/25";
+      return "bg-primary-500 hover:bg-primary-600 shadow-lg shadow-primary-500/30";
     }
 
     if (variant === "primary") {
@@ -42,7 +42,7 @@
       case "lg":
         return "h-[clamp(48px,13vw,56px)] w-[clamp(48px,13vw,56px)] sm:h-14 sm:w-14 md:h-16 md:w-16";
       default:
-        return "h-[clamp(44px,11vw,48px)] w-[clamp(44px,11vw,48px)] sm:h-12 sm:w-12 md:h-14 md:w-14";
+        return "h-[52px] w-[52px] md:h-14 md:w-14";
     }
   }
 
@@ -53,7 +53,7 @@
       case "lg":
         return "h-5 w-5 sm:h-6 sm:w-6 md:h-7 md:w-7";
       default:
-        return "h-[clamp(18px,5vw,20px)] w-[clamp(18px,5vw,20px)] sm:h-5 sm:w-5 md:h-6 md:w-6";
+        return "h-[22px] w-[22px] md:h-6 md:w-6";
     }
   }
 
@@ -63,10 +63,10 @@
   $: textColor = disabled ? "text-tertiary-400" : "text-white";
 </script>
 
-<div class="flex flex-col items-center gap-1">
+<div class="flex flex-shrink-0 flex-col items-center gap-1">
   <button
     on:click
-    class="focus:ring-offset-secondary-500 group flex items-center justify-center rounded-full transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 {bgClasses} {sizeClasses}
+    class="group flex items-center justify-center rounded-2xl transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-secondary-500 {bgClasses} {sizeClasses}
       {disabled ? 'opacity-40' : 'hover:scale-105 active:scale-95'}"
     {disabled}
     {title}
@@ -80,6 +80,6 @@
   </button>
 
   {#if showLabel && label}
-    <span class="text-tertiary-500 text-[10px] font-medium sm:text-xs">{label}</span>
+    <span class="text-[10px] font-medium text-tertiary-500 sm:text-xs">{label}</span>
   {/if}
 </div>

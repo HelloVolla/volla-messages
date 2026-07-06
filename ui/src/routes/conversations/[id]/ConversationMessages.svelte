@@ -1,11 +1,21 @@
 <script lang="ts">
   import { isMobile, isSameDay, isWithinFiveMinutes } from "$lib/utils";
   import type { ActionHashB64 } from "@holochain/client";
-  import { MessageType, type MessageExtended, type CellIdB64 } from "$lib/types";
+  import {
+    MessageType,
+    type MessageExtended,
+    type CellIdB64,
+    isConferenceLog,
+    parseConferenceLog,
+  } from "$lib/types";
   import BaseMessage from "./Message.svelte";
   import NoticeMessage from "./NoticeMessage.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
-  import { afterUpdate, createEventDispatcher, onMount, tick } from "svelte";
+  import { afterUpdate, createEventDispatcher, onMount, setContext, tick } from "svelte";
+  import { writable } from "svelte/store";
+
+  const endedConferenceIds = writable<Set<string>>(new Set());
+  setContext("endedConferenceIds", endedConferenceIds);
 
   const dispatch = createEventDispatcher<{
     scrollAtTop: null;
@@ -24,6 +34,18 @@
 
   $: chronologicalMessages = messages ?? [];
 
+  $: {
+    const ids = new Set<string>();
+    for (const [, m] of chronologicalMessages) {
+      const content = m.message.content;
+      if (isConferenceLog(content)) {
+        const log = parseConferenceLog(content);
+        if (log?.event === "ended") ids.add(log.conference_id);
+      }
+    }
+    endedConferenceIds.set(ids);
+  }
+
   const TOP_TRIGGER_PX = 160;
   const BOTTOM_EPSILON_PX = 8;
   const SCROLL_DEBOUNCE_MS = 120;
@@ -40,37 +62,37 @@
   const rowElements = new Map<ActionHashB64, HTMLElement>();
 
   $: {
-  console.log("[ConversationMessages] received messages:", chronologicalMessages.length);
-  if (chronologicalMessages.length > 0) {
-    console.log("[ConversationMessages] oldest:", {
-      hash: chronologicalMessages[0][0],
-      timestamp: chronologicalMessages[0][1].timestamp,
-      bucket: chronologicalMessages[0][1].message.bucket,
-    });
-    console.log("[ConversationMessages] newest:", {
-      hash: chronologicalMessages[chronologicalMessages.length - 1][0],
-      timestamp: chronologicalMessages[chronologicalMessages.length - 1][1].timestamp,
-      bucket: chronologicalMessages[chronologicalMessages.length - 1][1].message.bucket,
-    });
+    console.log("[ConversationMessages] received messages:", chronologicalMessages.length);
+    if (chronologicalMessages.length > 0) {
+      console.log("[ConversationMessages] oldest:", {
+        hash: chronologicalMessages[0][0],
+        timestamp: chronologicalMessages[0][1].timestamp,
+        bucket: chronologicalMessages[0][1].message.bucket,
+      });
+      console.log("[ConversationMessages] newest:", {
+        hash: chronologicalMessages[chronologicalMessages.length - 1][0],
+        timestamp: chronologicalMessages[chronologicalMessages.length - 1][1].timestamp,
+        bucket: chronologicalMessages[chronologicalMessages.length - 1][1].message.bucket,
+      });
+    }
   }
-}
 
-function registerRow(node: HTMLElement, hash: ActionHashB64) {
-  rowElements.set(hash, node);
+  function registerRow(node: HTMLElement, hash: ActionHashB64) {
+    rowElements.set(hash, node);
 
-  return {
-    update(newHash: ActionHashB64) {
-      if (newHash !== hash) {
+    return {
+      update(newHash: ActionHashB64) {
+        if (newHash !== hash) {
+          rowElements.delete(hash);
+          hash = newHash;
+          rowElements.set(hash, node);
+        }
+      },
+      destroy() {
         rowElements.delete(hash);
-        hash = newHash;
-        rowElements.set(hash, node);
-      }
-    },
-    destroy() {
-      rowElements.delete(hash);
-    },
-  };
-}
+      },
+    };
+  }
 
   function clearScrollDebounce() {
     if (scrollDebounceTimer) {
@@ -121,7 +143,7 @@ function registerRow(node: HTMLElement, hash: ActionHashB64) {
         const currentTop = node.getBoundingClientRect().top - containerTop;
         const delta = currentTop - anchorTopBeforeLoad;
         containerEl.scrollTop += delta;
-          console.log("[ConversationMessages] anchor restored", {
+        console.log("[ConversationMessages] anchor restored", {
           anchorHash,
           currentTop,
           anchorTopBeforeLoad,
@@ -183,14 +205,14 @@ function registerRow(node: HTMLElement, hash: ActionHashB64) {
         anchorTopBeforeLoad = anchor.top;
         pendingAnchorRestore = true;
       }
-console.log("[ConversationMessages] scrollAtTop fired", {
-  scrollTop: containerEl?.scrollTop,
-  currentCount: chronologicalMessages.length,
-  anchorHash,
-  anchorTopBeforeLoad,
-  loadingTop,
-  pendingAnchorRestore,
-});
+      console.log("[ConversationMessages] scrollAtTop fired", {
+        scrollTop: containerEl?.scrollTop,
+        currentCount: chronologicalMessages.length,
+        anchorHash,
+        anchorTopBeforeLoad,
+        loadingTop,
+        pendingAnchorRestore,
+      });
       dispatch("scrollAtTop");
       scrollDebounceTimer = undefined;
     }, SCROLL_DEBOUNCE_MS);
@@ -284,7 +306,9 @@ console.log("[ConversationMessages] scrollAtTop fired", {
 
   {#if loadingTop}
     <div class="flex h-12 items-center justify-center">
-      <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"></div>
+      <div
+        class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"
+      ></div>
     </div>
   {/if}
 
@@ -292,7 +316,7 @@ console.log("[ConversationMessages] scrollAtTop fired", {
     <div use:registerRow={actionHashB64} class="w-full">
       <div class="flex flex-shrink-0 flex-col">
         {#if shouldShowDaySeparator(currentIndex)}
-          <div class="text-secondary-400 dark:text-secondary-300 my-4 px-4 text-center text-xs">
+          <div class="my-4 px-4 text-center text-xs text-secondary-400 dark:text-secondary-300">
             {new Date(messageExtended.timestamp / 1000).toLocaleDateString("en-US", {
               weekday: "long",
               month: "long",

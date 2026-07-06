@@ -11,6 +11,7 @@
   import AppLanding from "$lib/AppLanding.svelte";
   import { MIN_FIRST_NAME_LENGTH, ROLE_NAME, ZOME_NAME } from "$config";
   import Button from "$lib/Button.svelte";
+  import SvgIcon from "$lib/SvgIcon.svelte";
   import ProfileSetupName from "./ProfileSetupName.svelte";
   import ProfileSetupAvatar from "./ProfileSetupAvatar.svelte";
   import { createContactStore, type ContactStore } from "$store/ContactStore";
@@ -144,17 +145,27 @@
         )?.[0]
       : null;
 
+  function minimizedPeerName(conf: (typeof $conferenceStore.data)[string]): string {
+    if (!conf?.participants) return "In call";
+    const all = profileStore ? $profileStore.data : {};
+    for (const [pk, p] of conf.participants) {
+      if (pk === myPubKeyB64 || !p.hasJoined) continue;
+      for (const cellProfiles of Object.values(all)) {
+        const fields = cellProfiles?.[pk]?.profile?.fields;
+        if (fields) return `${fields.firstName || ""} ${fields.lastName || ""}`.trim() || "In call";
+      }
+    }
+    return "In call";
+  }
+
   // Track which conferences we've already logged to prevent duplicates
   // This is necessary because the ConferenceView component may unmount before its reactive
   // statement can fire (due to activeConference becoming null when ended: true)
   const loggedConferenceEnds = new Set<string>();
 
-  // Watch for conferences that end and log them from the layout level
-  // ONLY the initiator logs to prevent duplicate messages
-  // This fixes the race condition where ConferenceView unmounts before it can call onConferenceEnded
   $: if (conferenceStore && $conferenceStore) {
     for (const [roomId, conf] of Object.entries($conferenceStore.data)) {
-      if (conf && conf.ended && conf.isInitiator) {
+      if (conf && conf.ended && conf.endedByMe) {
         handleConferenceEnded(roomId);
       }
     }
@@ -198,11 +209,6 @@
       !conference.initiatorPubKeyB64
     ) {
       console.warn("[ConferenceLog] Cannot send ended log - missing metadata");
-      return;
-    }
-
-    if (!conference.isInitiator) {
-      console.log("[ConferenceLog] Skipping ended log - not the initiator");
       return;
     }
 
@@ -471,7 +477,7 @@
 
 {#if isStoresSetup && conferenceStore}
   <div
-    class="pointer-events-none fixed inset-x-0 bottom-[max(5rem,calc(env(safe-area-inset-bottom)+5rem))]"
+    class="pointer-events-none fixed inset-x-0 top-0 flex justify-center px-2 pt-[max(0.6rem,env(safe-area-inset-top))] sm:justify-end sm:px-4"
     style="z-index: 55;"
   >
     <IncomingCallBanner />
@@ -500,7 +506,9 @@
       persistKey="conference-pip-position"
       on:click={handleMaximizeConference}
     >
-      <div class="relative flex h-full w-full items-center justify-center bg-zinc-900">
+      <div
+        class="group relative flex h-full w-full items-center justify-center overflow-hidden rounded-2xl bg-secondary-800 shadow-2xl ring-1 ring-white/10"
+      >
         {#if conf?.localStream}
           <!-- svelte-ignore a11y-media-has-caption -->
           <video
@@ -511,36 +519,32 @@
             use:setVideoStream={conf.localStream}
           />
         {:else}
-          <div class="text-xs text-white/60">In Call</div>
+          <div class="text-xs text-tertiary-500">In call</div>
         {/if}
-
-        <div
-          class="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors hover:bg-black/30"
-        >
-          <div class="opacity-0 transition-opacity hover:opacity-100">
-            <svg class="h-8 w-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
-              />
-            </svg>
-          </div>
-        </div>
 
         {#if conf?.participants}
           {@const participantCount = Array.from(conf.participants.values()).filter(
             (p) => p.hasJoined,
           ).length}
-          {#if participantCount > 0}
-            <div
-              class="absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-xs text-white"
-            >
-              {participantCount} in call
-            </div>
-          {/if}
+          <div
+            class="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white"
+          >
+            <span class="h-1.5 w-1.5 rounded-full bg-success-500"></span>
+            {Math.max(participantCount, 1)} in call
+          </div>
         {/if}
+
+        <div
+          class="absolute bottom-2 left-2 truncate rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white"
+        >
+          {conf ? minimizedPeerName(conf) : "In call"}
+        </div>
+
+        <div
+          class="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white"
+        >
+          <SvgIcon icon="expand" moreClasses="h-4 w-4" />
+        </div>
       </div>
     </ResizablePip>
   </div>

@@ -40,8 +40,10 @@ export interface ConferenceStreams {
   setLocalVideo: (roomId: string, enabled: boolean) => Promise<void>;
   startScreenShare: (roomId: string) => Promise<void>;
   stopScreenShare: (roomId: string) => Promise<void>;
+  switchDevice: (roomId: string, kind: "audio" | "video", deviceId: string) => Promise<void>;
   initializeWebRTC: (roomId: string) => Promise<void>;
   cleanupWebRTC: (roomId: string) => void;
+  blockParticipant: (roomId: string, targetB64: string) => void;
 }
 
 export function createConferenceStreams(ctx: ConferenceContext): ConferenceStreams {
@@ -51,8 +53,7 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     string,
     { screen: MediaStreamTrack; camera: MediaStreamTrack | null }
   >();
-
-  // ---- peer lifecycle ----
+  const blockedAgents = new Set<string>();
 
   function createPeer(
     roomId: string,
@@ -169,8 +170,6 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     return report;
   }
 
-  // ---- signaling ----
-
   function handleSimplePeerSignal(roomId: string, signal: SimplePeerSignalPayload): void {
     const state = safeGetConference(ctx, roomId);
     if (!state) {
@@ -202,6 +201,7 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
   function handleInitRequest(roomId: string, signal: SimplePeerSignalPayload): void {
     const state = safeGetConference(ctx, roomId);
     if (!state?.cellIdB64) return;
+    if (blockedAgents.has(signal.from)) return;
 
     const participant = state.participants.get(signal.from);
     if (participant?.peer && !isParticipantDestroyed(participant)) return;
@@ -227,6 +227,7 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
   }
 
   function handleInitAccept(roomId: string, signal: SimplePeerSignalPayload): void {
+    if (blockedAgents.has(signal.from)) return;
     const state = safeGetConference(ctx, roomId);
     if (!state?.localStream) return;
 
@@ -284,6 +285,8 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
 
     for (const [pubKey, participant] of state.participants.entries()) {
       if (pubKey === myPubKey) continue;
+      if (blockedAgents.has(pubKey)) continue;
+      if (participant.declined) continue;
       if (isParticipantConnected(participant)) continue;
       if (participant.peer && !isParticipantDestroyed(participant)) continue;
 
@@ -322,8 +325,6 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     }
   }
 
-  // ---- heartbeat: the sole retry + liveness driver ----
-
   function startConnectionHealthMonitoring(roomId: string): void {
     const state = safeGetConference(ctx, roomId);
     if (!state) return;
@@ -342,6 +343,11 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
       const gone: string[] = [];
       currentState.participants.forEach((participant, pubKey) => {
         if (pubKey === myPubKey) return;
+
+        if (blockedAgents.has(pubKey)) {
+          gone.push(pubKey);
+          return;
+        }
 
         const stale =
           participant.lastPongAt !== undefined &&
@@ -422,8 +428,6 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
       }));
     }
   }
-
-  // ---- media ----
 
   async function getUserMediaWithFallback(): Promise<MediaStream> {
     const constraints = [
@@ -634,6 +638,70 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     });
   }
 
+  async function switchDevice(
+    roomId: string,
+    kind: "audio" | "video",
+    deviceId: string,
+  ): Promise<void> {
+    const state = safeGetConference(ctx, roomId);
+    if (!state?.localStream) return;
+    const stream = state.localStream;
+    const self = encodeHashToBase64(ctx.client.client.myPubKey);
+
+    let newTrack: MediaStreamTrack | undefined;
+    try {
+      const constraints: MediaStreamConstraints =
+        kind === "audio"
+          ? { audio: { deviceId: { exact: deviceId } } }
+          : { video: { deviceId: { exact: deviceId } } };
+      const media = await navigator.mediaDevices.getUserMedia(constraints);
+      newTrack = kind === "audio" ? media.getAudioTracks()[0] : media.getVideoTracks()[0];
+    } catch (e) {
+      console.warn("[SimplePeer] switchDevice getUserMedia failed:", e);
+      return;
+    }
+    if (!newTrack) return;
+
+    const share = screenShares.get(roomId);
+    if (kind === "video" && share) {
+      newTrack.enabled = state.videoEnabled ?? true;
+      if (share.camera && share.camera !== newTrack) {
+        try {
+          share.camera.stop();
+        } catch {
+          void 0;
+        }
+      }
+      screenShares.set(roomId, { screen: share.screen, camera: newTrack });
+      return;
+    }
+
+    const oldTrack = kind === "audio" ? stream.getAudioTracks()[0] : stream.getVideoTracks()[0];
+    newTrack.enabled = oldTrack
+      ? oldTrack.enabled
+      : kind === "audio"
+        ? (state.audioEnabled ?? true)
+        : (state.videoEnabled ?? true);
+
+    await Promise.all(
+      [...state.participants].map(([pk, p]) =>
+        pk !== self && p.conn ? p.conn.replaceLocalTrack(kind, newTrack!) : Promise.resolve(false),
+      ),
+    );
+
+    if (oldTrack) {
+      stream.removeTrack(oldTrack);
+      try {
+        oldTrack.stop();
+      } catch {
+        void 0;
+      }
+    }
+    stream.addTrack(newTrack);
+
+    ctx.conferences.updateKeyValue(roomId, (c) => ({ ...c, localStream: stream }));
+  }
+
   async function initializeWebRTC(roomId: string): Promise<void> {
     if (initializingRooms.has(roomId)) return;
     initializingRooms.add(roomId);
@@ -764,6 +832,17 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     }
   }
 
+  function blockParticipant(roomId: string, targetB64: string): void {
+    blockedAgents.add(targetB64);
+    cleanupPeer(roomId, targetB64);
+    ctx.conferences.updateKeyValue(roomId, (conf) => {
+      if (!conf.participants.has(targetB64)) return conf;
+      const next = new Map(conf.participants);
+      next.delete(targetB64);
+      return { ...conf, participants: next };
+    });
+  }
+
   return {
     createPeer,
     cleanupPeer,
@@ -777,7 +856,9 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     setLocalVideo,
     startScreenShare,
     stopScreenShare,
+    switchDevice,
     initializeWebRTC,
     cleanupWebRTC,
+    blockParticipant,
   };
 }

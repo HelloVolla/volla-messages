@@ -269,6 +269,46 @@ export class PeerConnection {
     }
   }
 
+  async replaceLocalTrack(
+    kind: "audio" | "video",
+    newTrack: MediaStreamTrack | null,
+  ): Promise<boolean> {
+    if (this.peer.destroyed) return false;
+    const pc = (this.peer as unknown as { _pc?: RTCPeerConnection })._pc;
+    if (!pc) return false;
+    try {
+      const sender = pc.getSenders().find((s) => s.track?.kind === kind);
+      if (!sender) return false;
+      await sender.replaceTrack(newTrack);
+      return true;
+    } catch (e) {
+      console.warn(
+        `[SimplePeer] replaceLocalTrack ${kind} for ${this.pubKey.slice(0, 20)} failed:`,
+        e,
+      );
+      return false;
+    }
+  }
+
+  getAudioLevel(): number {
+    if (this.peer.destroyed || !this.peer.connected) return 0;
+    const pc = (this.peer as unknown as { _pc?: RTCPeerConnection })._pc;
+    if (!pc) return 0;
+    try {
+      let level = 0;
+      for (const receiver of pc.getReceivers()) {
+        if (receiver.track?.kind !== "audio") continue;
+        const sources = receiver.getSynchronizationSources?.() ?? [];
+        for (const s of sources) {
+          if (typeof s.audioLevel === "number" && s.audioLevel > level) level = s.audioLevel;
+        }
+      }
+      return level;
+    } catch {
+      return 0;
+    }
+  }
+
   async isMediaStalled(): Promise<boolean> {
     if (!this.peer.connected || this.peer.destroyed) {
       this.stalledTicks = 0;

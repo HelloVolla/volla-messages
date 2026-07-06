@@ -81,11 +81,16 @@
   }
 
   function handleDrag(e: CustomEvent) {
-    const { left, top } = e.detail;
-    x = left;
-    y = top;
-    target.style.left = `${left}px`;
-    target.style.top = `${top}px`;
+    const rect = container.getBoundingClientRect();
+    if (rect.width && rect.height) {
+      containerBounds = { width: rect.width, height: rect.height };
+    }
+    const maxX = Math.max(boundsPadding, rect.width - width - boundsPadding);
+    const maxY = Math.max(boundsPadding, rect.height - height - boundsPadding);
+    x = Math.min(Math.max(e.detail.left, boundsPadding), maxX);
+    y = Math.min(Math.max(e.detail.top, boundsPadding), maxY);
+    target.style.left = `${x}px`;
+    target.style.top = `${y}px`;
   }
 
   function handleDragEnd() {

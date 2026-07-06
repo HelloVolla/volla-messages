@@ -2,10 +2,8 @@
   import { createEventDispatcher } from "svelte";
   import { fade, scale } from "svelte/transition";
   import { t } from "$translations/index";
-  import { ConferenceRole } from "$lib/types";
   import Avatar from "$lib/Avatar.svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
-  import RoleBadge from "$lib/RoleBadge.svelte";
   import ParticipantActionMenu from "$lib/ParticipantActionMenu.svelte";
   import type { ParticipantData } from "./types";
 
@@ -14,16 +12,14 @@
   export let localStream: MediaStream | null | undefined = undefined;
   export let isLocalVideoEnabled: boolean = true;
   export let isLocalMuted: boolean = false;
-  export let myRole: ConferenceRole | undefined = undefined;
   export let getName: (pubKey: string) => string = () => "Unknown";
   export let canKick: (pubKey: string) => boolean = () => false;
   export let activeMenuPubKey: string | null = null;
   export let cellIdB64: string | undefined = undefined;
+  export let isActiveSpeaker: boolean = false;
 
   const dispatch = createEventDispatcher<{
     toggleMenu: { pubKey: string };
-    promote: { pubKey: string };
-    transferHost: { pubKey: string };
     kick: { pubKey: string };
   }>();
 
@@ -60,40 +56,6 @@
     return videoTracks.length > 0 && videoTracks.some((track) => track.enabled);
   }
 
-  function getQualityIndicatorClass(quality?: string): string {
-    switch (quality) {
-      case "excellent":
-        return "bg-green-500";
-      case "good":
-        return "bg-green-400";
-      case "fair":
-        return "bg-yellow-500";
-      case "poor":
-        return "bg-orange-500";
-      case "disconnected":
-        return "bg-red-500";
-      default:
-        return "bg-gray-500";
-    }
-  }
-
-  function getQualityLabel(quality?: string): string {
-    switch (quality) {
-      case "excellent":
-        return "Excellent connection";
-      case "good":
-        return "Good connection";
-      case "fair":
-        return "Fair connection";
-      case "poor":
-        return "Poor connection";
-      case "disconnected":
-        return "Disconnected";
-      default:
-        return "Unknown";
-    }
-  }
-
   $: showLocalVideo = participant.isLocal && localStream && isLocalVideoEnabled;
   $: showRemoteVideo = !participant.isLocal && participant._stream && hasVideoEnabled(participant);
 
@@ -113,13 +75,11 @@
     participant.connectionStatus === "init-received" ||
     (!participant.isLocal && participant.hasJoined && !participant._connected);
   $: isFailed = participant.connectionStatus === "failed";
-  $: showMenu =
-    !participant.isLocal && (myRole === ConferenceRole.Host || myRole === ConferenceRole.CoHost);
+  $: showMenu = !participant.isLocal && canKick(participant.pubKey);
   $: isMenuOpen = activeMenuPubKey === participant.pubKey;
 
   $: avatarSize =
     variant === "main" ? 120 : variant === "pip" ? 40 : variant === "sidebar" ? 48 : 64;
-  $: avatarClasses = "";
 
   $: containerClasses =
     variant === "main"
@@ -128,7 +88,7 @@
         ? "relative aspect-[4/3] h-full w-full overflow-hidden rounded-lg bg-gradient-to-br from-secondary-400 to-secondary-500"
         : variant === "sidebar"
           ? "relative aspect-[4/3] h-full w-full overflow-hidden rounded-lg bg-gradient-to-br from-secondary-400 to-secondary-500 sm:aspect-video sm:rounded-xl"
-          : "relative aspect-[4/3] h-full w-full overflow-hidden rounded-xl bg-gradient-to-br from-secondary-400 to-secondary-500 sm:aspect-video sm:rounded-2xl";
+          : "relative h-full w-full overflow-hidden rounded-xl bg-gradient-to-br from-secondary-400 to-secondary-500 sm:rounded-2xl";
 
   $: displayName = getName(participant.pubKey);
   $: truncatedName = variant === "sidebar" ? displayName.split(" ")[0] : displayName;
@@ -163,12 +123,7 @@
     <div
       class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary-500/10 via-secondary-400 to-secondary-500"
     >
-      <Avatar
-        agentPubKeyB64={participant.pubKey}
-        size={avatarSize}
-        moreClasses={avatarClasses}
-        {cellIdB64}
-      />
+      <Avatar agentPubKeyB64={participant.pubKey} size={avatarSize} {cellIdB64} />
     </div>
   {:else if showWaiting}
     <div class="absolute inset-0 flex items-center justify-center bg-secondary-500 p-2">
@@ -243,16 +198,16 @@
     </div>
   {/if}
 
+  {#if isActiveSpeaker}
+    <div class="active-speaker-ring pointer-events-none absolute inset-0"></div>
+  {/if}
+
   {#if showMenu}
     <div class="absolute right-2 top-2 sm:right-4 sm:top-4">
       <ParticipantActionMenu
         isOpen={isMenuOpen}
-        {myRole}
-        participantRole={participant.role}
         canKick={canKick(participant.pubKey)}
         on:toggle={() => dispatch("toggleMenu", { pubKey: participant.pubKey })}
-        on:promote={() => dispatch("promote", { pubKey: participant.pubKey })}
-        on:transferHost={() => dispatch("transferHost", { pubKey: participant.pubKey })}
         on:kick={() => dispatch("kick", { pubKey: participant.pubKey })}
       />
     </div>
@@ -267,7 +222,7 @@
       >
         <div
           class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full sm:h-6 sm:w-6 md:h-8 md:w-8
-          {isMuted ? 'bg-error-500' : 'bg-success-500/80'}"
+          {isMuted ? 'bg-primary-500' : 'bg-success-500/80'}"
         >
           <SvgIcon
             icon={isMuted ? "micOff" : "mic"}
@@ -278,31 +233,20 @@
           <span class="truncate text-xs font-semibold text-white sm:text-sm md:text-base">
             {displayName}{participant.isLocal ? " (You)" : ""}
           </span>
-          <RoleBadge role={participant.role} size="sm" showIcon />
+          {#if participant.isHost}
+            <span
+              class="rounded bg-primary-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white"
+              >Host</span
+            >
+          {/if}
         </div>
       </div>
-
-      {#if !participant.isLocal && participant.connectionQuality}
-        <div
-          class="flex flex-shrink-0 items-center gap-1 rounded-md bg-black/60 px-1.5 py-1 backdrop-blur-md sm:gap-1.5 sm:rounded-lg sm:px-2.5 sm:py-1.5"
-          title={getQualityLabel(participant.connectionQuality)}
-        >
-          <div
-            class="h-2 w-2 rounded-full sm:h-2.5 sm:w-2.5 {getQualityIndicatorClass(
-              participant.connectionQuality,
-            )}"
-          />
-          <span class="hidden text-[10px] text-tertiary-400 sm:inline sm:text-xs"
-            >{participant.connectionQuality}</span
-          >
-        </div>
-      {/if}
     </div>
   {:else if variant === "pip"}
     <div class="absolute bottom-1 left-1 right-1 flex items-center justify-between">
       <div
         class="flex h-5 w-5 items-center justify-center rounded-full {isMuted
-          ? 'bg-error-500'
+          ? 'bg-primary-500'
           : 'bg-success-500/80'}"
       >
         <SvgIcon icon={isMuted ? "micOff" : "mic"} moreClasses="h-2.5 w-2.5 text-white" />
@@ -320,7 +264,7 @@
       >
         <div
           class="flex h-4 w-4 items-center justify-center rounded-full sm:h-5 sm:w-5
-          {isMuted ? 'bg-error-500' : 'bg-success-500/80'}"
+          {isMuted ? 'bg-primary-500' : 'bg-success-500/80'}"
         >
           <SvgIcon
             icon={isMuted ? "micOff" : "mic"}
@@ -336,14 +280,14 @@
     </div>
   {:else}
     <div
-      class="absolute bottom-1.5 left-1.5 right-1.5 flex flex-wrap items-end justify-between gap-1 sm:bottom-2 sm:left-2 sm:right-2 sm:gap-1.5 md:bottom-3 md:left-3 md:right-3"
+      class="absolute bottom-1.5 left-1.5 right-1.5 flex items-end sm:bottom-2 sm:left-2 sm:right-2 md:bottom-3 md:left-3 md:right-3"
     >
       <div
-        class="flex min-w-0 flex-1 items-center gap-1 rounded-lg bg-black/60 px-1.5 py-1 backdrop-blur-md sm:gap-1.5 sm:px-2 sm:py-1.5 md:rounded-xl md:px-3 md:py-2"
+        class="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg bg-black/60 px-2 py-1.5 backdrop-blur-md sm:gap-2 sm:px-2.5 md:rounded-xl md:px-3 md:py-2"
       >
         <div
           class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full sm:h-5 sm:w-5 md:h-6 md:w-6
-          {isMuted ? 'bg-error-500' : 'bg-success-500/80'}"
+          {isMuted ? 'bg-primary-500' : 'bg-success-500/80'}"
         >
           <SvgIcon
             icon={isMuted ? "micOff" : "mic"}
@@ -356,25 +300,40 @@
           >
             {displayName}{participant.isLocal ? " (You)" : ""}
           </span>
-          <RoleBadge role={participant.role} size="sm" />
+          {#if participant.isHost}
+            <span
+              class="rounded bg-primary-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white"
+              >Host</span
+            >
+          {/if}
         </div>
       </div>
-
-      {#if !participant.isLocal && participant.connectionQuality}
-        <div
-          class="flex flex-shrink-0 items-center gap-0.5 rounded-md bg-black/60 px-1 py-0.5 backdrop-blur-md sm:gap-1 sm:rounded-lg sm:px-1.5 sm:py-1"
-          title={getQualityLabel(participant.connectionQuality)}
-        >
-          <div
-            class="h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2 {getQualityIndicatorClass(
-              participant.connectionQuality,
-            )}"
-          />
-          <span class="hidden text-[8px] text-tertiary-500 sm:inline sm:text-[9px]"
-            >{participant.connectionQuality}</span
-          >
-        </div>
-      {/if}
     </div>
   {/if}
 </div>
+
+<style>
+  .active-speaker-ring {
+    border-radius: inherit;
+    animation: speaker-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes speaker-pulse {
+    0%,
+    100% {
+      box-shadow:
+        inset 0 0 0 2px rgba(119, 187, 65, 0.6),
+        inset 0 0 8px 0 rgba(119, 187, 65, 0.25);
+    }
+    50% {
+      box-shadow:
+        inset 0 0 0 2px rgba(119, 187, 65, 0.95),
+        inset 0 0 14px 2px rgba(119, 187, 65, 0.5);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .active-speaker-ring {
+      animation: none;
+      box-shadow: inset 0 0 0 2px rgba(119, 187, 65, 0.8);
+    }
+  }
+</style>
