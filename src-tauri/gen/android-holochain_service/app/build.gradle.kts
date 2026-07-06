@@ -34,7 +34,7 @@ android {
         minSdk = 27
         targetSdk = 34
         versionCode = 12003
-        versionName = "0.12.4-av"
+        versionName = "0.12.5-av"
         // versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         // versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
