@@ -16,20 +16,14 @@ import {
   type ConnectionQuality,
   MAX_CONFERENCE_PARTICIPANTS,
   INVITATION_TIMEOUT_MS,
+  updateParticipant,
   createUIStateManager,
   createRoleManager,
-  createConnectionMonitor,
-  createSignalHandler,
-  createPeerConnectionManager,
-  createMediaManager,
+  createConferenceStreams,
   createConferenceLifecycle,
 } from "./conference";
 
-export type {
-  SimplePeerConferenceState,
-  SimplePeerParticipant,
-  ConnectionQuality,
-};
+export type { SimplePeerConferenceState, SimplePeerParticipant, ConnectionQuality };
 export { MAX_CONFERENCE_PARTICIPANTS, INVITATION_TIMEOUT_MS };
 
 export interface SimplePeerConferenceStore {
@@ -51,8 +45,14 @@ export interface SimplePeerConferenceStore {
     videoEnabled: boolean,
     audioEnabled: boolean,
   ) => Promise<void>;
-  handleSimplePeerSignal: (roomId: string, signal: import("$lib/types").SimplePeerSignalPayload) => void;
+  handleSimplePeerSignal: (
+    roomId: string,
+    signal: import("$lib/types").SimplePeerSignalPayload,
+  ) => void;
   initializeWebRTC: (roomId: string) => Promise<void>;
+  setLocalVideo: (roomId: string, enabled: boolean) => Promise<void>;
+  startScreenShare: (roomId: string) => Promise<void>;
+  stopScreenShare: (roomId: string) => Promise<void>;
   initiateConnections: (roomId: string) => Promise<void>;
   cleanupWebRTC: (roomId: string) => void;
   cleanupPeer: (roomId: string, pubKey: string) => void;
@@ -69,6 +69,7 @@ export interface SimplePeerConferenceStore {
   getActiveConferenceRoom: (cellIdB64: string) => Promise<string | null>;
   getMyActiveCall: () => { roomId: string; cellIdB64?: string } | null;
   reconcilePresence: (roomId: string) => Promise<void>;
+  recordPeerActivity: (agentB64: string) => void;
   cleanupAll: () => void;
   getIncomingInvitations: () => SimplePeerConferenceState[];
   fetchRoles: (roomId: string) => Promise<void>;
@@ -93,56 +94,31 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
       ([_, conference]) => conference?.invitationTimestamp || Date.now(),
     ]);
 
-  const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const networkMonitorTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const healthMonitorIntervals = new Map<string, ReturnType<typeof setInterval>>();
   const mediaStateDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const outgoingSdpBuffer = new Map<string, Array<{ data: string; timestamp: number }>>();
 
   const ctx: ConferenceContext = {
     client,
     conferences,
-    reconnectTimers,
-    networkMonitorTimers,
     healthMonitorIntervals,
     mediaStateDebounceTimers,
-    outgoingSdpBuffer,
   };
 
-  let peerManager: ReturnType<typeof createPeerConnectionManager>;
+  function recordPeerActivity(agentB64: string): void {
+    const now = Date.now();
+    const all = get(conferences).data;
+    for (const roomId of Object.keys(all)) {
+      const conf = all[roomId];
+      if (!conf || conf.ended || !conf.participants.has(agentB64)) continue;
+      updateParticipant(ctx, roomId, agentB64, (p) => ({ ...p, lastPongAt: now }));
+    }
+  }
 
-  const connectionMonitor = createConnectionMonitor(
-    ctx,
-    (roomId: string, pubKey: string) => peerManager.cleanupPeer(roomId, pubKey),
-    (roomId: string) => signalHandler.initiateConnections(roomId),
-  );
+  const streams = createConferenceStreams(ctx);
 
-  peerManager = createPeerConnectionManager(
-    ctx,
-    connectionMonitor.scheduleReconnect,
-    connectionMonitor.startNetworkMonitoring,
-    connectionMonitor.stopNetworkMonitoring,
-  );
+  const lifecycle = createConferenceLifecycle(ctx, streams.cleanupPeer, streams.cleanupWebRTC);
 
-  const signalHandler = createSignalHandler(ctx, peerManager.createPeer);
-
-  const mediaManager = createMediaManager(
-    ctx,
-    peerManager.cleanupPeer,
-    peerManager.cleanupPeerWithVerification,
-    signalHandler.handleSimplePeerSignal,
-    signalHandler.initiateConnections,
-    connectionMonitor.startConnectionHealthMonitoring,
-    connectionMonitor.stopConnectionHealthMonitoring,
-  );
-
-  const lifecycle = createConferenceLifecycle(
-    ctx,
-    peerManager.cleanupPeer,
-    mediaManager.cleanupWebRTC,
-  );
-
-  const roleManager = createRoleManager(ctx, peerManager.cleanupPeer);
+  const roleManager = createRoleManager(ctx, streams.cleanupPeer);
 
   const uiState = createUIStateManager(ctx);
 
@@ -183,36 +159,6 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
     );
     const myPubKey = encodeHashToBase64(client.client.myPubKey);
 
-    if (!activeAgents.has(myPubKey)) {
-      mediaManager.cleanupWebRTC(roomId);
-      conferences.updateKeyValue(roomId, (c) => ({
-        ...c,
-        ended: true,
-        invitationStatus: "left" as const,
-      }));
-      return;
-    }
-
-    const toDrop: string[] = [];
-    for (const [pk, p] of conf.participants) {
-      if (pk !== myPubKey && p.hasJoined && !activeAgents.has(pk)) {
-        toDrop.push(pk);
-      }
-    }
-    for (const pk of toDrop) {
-      peerManager.cleanupPeer(roomId, pk);
-    }
-    if (toDrop.length > 0) {
-      conferences.updateKeyValue(roomId, (c) => {
-        const next = new Map(c.participants);
-        for (const pk of toDrop) {
-          const p = next.get(pk);
-          if (p) next.set(pk, { ...p, hasJoined: false, connectionStatus: "idle" });
-        }
-        return { ...c, participants: next };
-      });
-    }
-
     const hasActiveHost = records.some((r) => r.is_active && r.role === ConferenceRole.Host);
     if (!hasActiveHost) {
       const activeSorted = Array.from(activeAgents).sort();
@@ -244,10 +190,8 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
       if (conf.invitationTimeoutHandle) clearTimeout(conf.invitationTimeoutHandle);
       if (conf.healthMonitorInterval) clearInterval(conf.healthMonitorInterval);
       for (const p of conf.participants.values()) {
-        if (p.reconnectTimer) clearTimeout(p.reconnectTimer);
         if (p.connectionTimeout) clearTimeout(p.connectionTimeout);
         if (p.mediaWaitTimer) clearTimeout(p.mediaWaitTimer);
-        if (p.networkMonitorTimeout) clearTimeout(p.networkMonitorTimeout);
         if (p.peer && !p.peer.destroyed) {
           try {
             p.peer.destroy();
@@ -265,9 +209,13 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
     getActiveConferenceRoom,
     getMyActiveCall,
     reconcilePresence,
+    recordPeerActivity,
     cleanupAll,
     joinConference: lifecycle.joinConference,
-    acceptConferenceInvitation: lifecycle.acceptConferenceInvitation,
+    acceptConferenceInvitation: async (roomId: string) => {
+      await lifecycle.acceptConferenceInvitation(roomId);
+      await streams.initializeWebRTC(roomId);
+    },
     rejectConferenceInvitation: lifecycle.rejectConferenceInvitation,
     leaveConference: lifecycle.leaveConference,
     endConferenceForAll: lifecycle.endConferenceForAll,
@@ -277,14 +225,17 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
     setMediaEnabled: uiState.setMediaEnabled,
     getIncomingInvitations: uiState.getIncomingInvitations,
 
-    sendMediaStateToAll: mediaManager.sendMediaStateToAll,
-    initializeWebRTC: mediaManager.initializeWebRTC,
-    cleanupWebRTC: mediaManager.cleanupWebRTC,
+    sendMediaStateToAll: streams.sendMediaStateToAll,
+    initializeWebRTC: streams.initializeWebRTC,
+    setLocalVideo: streams.setLocalVideo,
+    startScreenShare: streams.startScreenShare,
+    stopScreenShare: streams.stopScreenShare,
+    cleanupWebRTC: streams.cleanupWebRTC,
 
-    handleSimplePeerSignal: signalHandler.handleSimplePeerSignal,
-    initiateConnections: signalHandler.initiateConnections,
+    handleSimplePeerSignal: streams.handleSimplePeerSignal,
+    initiateConnections: streams.initiateConnections,
 
-    cleanupPeer: peerManager.cleanupPeer,
+    cleanupPeer: streams.cleanupPeer,
 
     fetchRoles: roleManager.fetchRoles,
     transferHost: roleManager.transferHost,

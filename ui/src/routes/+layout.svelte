@@ -470,7 +470,10 @@
 </div>
 
 {#if isStoresSetup && conferenceStore}
-  <div class="pointer-events-none fixed inset-x-0 bottom-0" style="z-index: 55;">
+  <div
+    class="pointer-events-none fixed inset-x-0 bottom-[max(5rem,calc(env(safe-area-inset-bottom)+5rem))]"
+    style="z-index: 55;"
+  >
     <IncomingCallBanner />
   </div>
 {/if}

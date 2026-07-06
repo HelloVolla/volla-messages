@@ -19,11 +19,6 @@ import {
   type SimplePeerConferenceState,
   INVITATION_TIMEOUT_MS,
 } from "./SimplePeerConferenceStore";
-import {
-  ConferenceLifecycleManager,
-  ConferenceTransition,
-  logTransition,
-} from "$lib/conference/ConferenceLifecycleManager";
 import { page } from "$app/stores";
 import { get, type Writable } from "svelte/store";
 
@@ -52,6 +47,7 @@ export function createSignalHandler(
     if (payload.type === "PeerPing" || payload.type === "PeerPong") {
       const fromAgent = encodeHashToBase64(payload.from_agent);
       onlinePeers.update((set) => new Set([...set, fromAgent]));
+      conferenceStore.recordPeerActivity(fromAgent);
       return;
     }
 
@@ -158,8 +154,7 @@ export function createSignalHandler(
 
         const $callPage = get(page);
         const viewingThisConversation =
-          $callPage.params.id === cellIdB64 &&
-          $callPage.route.id === "/conversations/[id]";
+          $callPage.params.id === cellIdB64 && $callPage.route.id === "/conversations/[id]";
         if (!viewingThisConversation) {
           sendCallNotification("Incoming call", "You have an incoming call", roomId, cellIdB64);
         }
@@ -282,98 +277,11 @@ export function createSignalHandler(
 
           conferenceStore.updateConference(roomId, (conf) => {
             if (!conf) return conf;
-
-            const participant = conf.participants.get(leftAgent);
-            if (participant) {
-              conf.participants.set(leftAgent, {
-                ...participant,
-                hasJoined: false,
-                connectionStatus: "idle",
-                pendingInitRequest: undefined,
-              });
-            }
-
-            return conf;
+            if (!conf.participants.has(leftAgent)) return conf;
+            const next = new Map(conf.participants);
+            next.delete(leftAgent);
+            return { ...conf, participants: next };
           });
-
-          let conference;
-          try {
-            conference = conferenceStore.getConference(roomId);
-          } catch {
-            return;
-          }
-          if (conference && !conference.ended) {
-            const currentState = ConferenceLifecycleManager.getLifecycleState(conference);
-
-            const edgeCaseResult = ConferenceLifecycleManager.evaluateEdgeCases({
-              roomId,
-              myPubKey,
-              conference,
-              trigger: `ConferenceLeft:${leftAgent.slice(0, 20)}`,
-            });
-
-            if (edgeCaseResult.shouldHandle && edgeCaseResult.actions) {
-              console.log(`[SignalHandler] Edge case detected: ${edgeCaseResult.reason}`, {
-                transition: edgeCaseResult.transition,
-              });
-
-              if (edgeCaseResult.transition) {
-                const targetState = ConferenceLifecycleManager.getTargetState(
-                  currentState,
-                  edgeCaseResult.transition,
-                );
-                if (targetState) {
-                  logTransition(
-                    roomId,
-                    currentState,
-                    edgeCaseResult.transition,
-                    targetState,
-                    edgeCaseResult.reason,
-                  );
-                }
-              }
-
-              for (const action of edgeCaseResult.actions) {
-                switch (action.type) {
-                  case "update_state":
-                    conferenceStore.updateConference(roomId, (conf) => ({
-                      ...conf,
-                      ...(action.payload as Record<string, unknown>),
-                    }));
-                    break;
-
-                  case "auto_promote":
-                    conferenceStore.updateConference(roomId, (conf) => ({
-                      ...conf,
-                      myRole: ConferenceRole.Host,
-                      currentHostPubKeyB64: action.payload?.newHostPubKey as string,
-                      rolesFetchedAt: undefined, // Invalidate cache
-                    }));
-                    console.log(
-                      "[SignalHandler] Auto-promoted to Host (local state only - host failover)",
-                    );
-                    break;
-
-                  case "cleanup":
-                    conferenceStore.cleanupWebRTC(roomId);
-                    break;
-
-                  case "remove":
-                    setTimeout(() => {
-                      conferenceStore.removeConference(roomId);
-                      console.log(
-                        "[SignalHandler] Conference removed from store via lifecycle manager",
-                      );
-                    }, 500);
-                    break;
-
-                  case "notify_user":
-                    console.log(`[SignalHandler] User notification: ${action.payload?.message}`);
-                    break;
-                }
-              }
-            }
-          }
         }
         break;
       }

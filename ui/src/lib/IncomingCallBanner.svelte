@@ -12,7 +12,10 @@
   const profileStore = getContext<{ getStore: () => ProfileStore }>("profileStore").getStore();
 
   $: incomingCalls = Object.entries($conferenceStore?.data || {})
-    .filter(([_, conf]) => conf && !conf.ended && conf.invitationStatus === "pending")
+    .filter(
+      ([_, conf]) =>
+        conf && !conf.ended && conf.invitationStatus === "pending" && !conf.showPreJoinScreen,
+    )
     .map(([roomId, conf]) => ({ roomId, ...conf }));
 
   function getCallerName(agentPubKeyB64: string | undefined): string {

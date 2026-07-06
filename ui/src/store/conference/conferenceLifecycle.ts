@@ -1,12 +1,6 @@
 import { decodeHashFromBase64, encodeHashToBase64, type AgentPubKeyB64 } from "@holochain/client";
 import { type ConferenceRoom, ConferenceRole } from "$lib/types";
 import {
-  ConferenceLifecycleManager,
-  ConferenceTransition,
-  buildTransitionPayload,
-  logTransition,
-} from "$lib/conference/ConferenceLifecycleManager";
-import {
   type ConferenceContext,
   type SimplePeerConferenceState,
   MAX_CONFERENCE_PARTICIPANTS,
@@ -280,113 +274,39 @@ export function createConferenceLifecycle(
 
   async function leaveConference(roomId: string): Promise<void> {
     const state = safeGetConference(ctx, roomId);
-
-    if (!state?.cellIdB64) {
-      console.warn("Conference state missing cellIdB64, skipping leave signal");
-      cleanupWebRTC(roomId);
-      return;
-    }
+    if (!state) return;
 
     const myPubKey = encodeHashToBase64(ctx.client.client.myPubKey);
-    const currentLifecycleState = ConferenceLifecycleManager.getLifecycleState(state);
 
-    const validation = ConferenceLifecycleManager.validateTransition(
-      state,
-      ConferenceTransition.LEAVE_CONFERENCE,
-      { myPubKey },
-    );
-
-    if (!validation.valid) {
-      console.warn(`[SimplePeer] Cannot leave conference: ${validation.reason}`);
-      return;
+    if (state.cellIdB64) {
+      try {
+        await ctx.client.leaveConference(roomId, ctx.client.decodeCellId(state.cellIdB64));
+      } catch (e) {
+        console.error("[SimplePeer] leaveConference DHT write failed; leaving locally anyway:", e);
+      }
     }
-
-    const cellId = ctx.client.decodeCellId(state.cellIdB64);
-    await ctx.client.leaveConference(roomId, cellId);
 
     cleanupWebRTC(roomId);
 
-    const canRejoin = ConferenceLifecycleManager.canRejoin(state, myPubKey);
-    const remoteActiveCount = ConferenceLifecycleManager.countRemoteActiveParticipants(
-      state,
-      myPubKey,
+    const othersActive = Array.from(state.participants.entries()).some(
+      ([pk, p]) => pk !== myPubKey && p.hasJoined,
     );
 
-    if (remoteActiveCount === 0 || !canRejoin) {
-      console.log(
-        `[SimplePeer] No remaining participants (${remoteActiveCount}) - ending conference completely`,
-      );
+    ctx.conferences.updateKeyValue(roomId, (conf) => ({
+      ...conf,
+      localStream: undefined,
+      leftTimestamp: Date.now(),
+      invitationStatus: "left" as const,
+      ended: othersActive ? conf.ended : true,
+    }));
 
-      const targetState = ConferenceLifecycleManager.getTargetState(
-        currentLifecycleState,
-        ConferenceTransition.LAST_PARTICIPANT_LEFT,
-      );
-
-      logTransition(
-        roomId,
-        currentLifecycleState,
-        ConferenceTransition.LAST_PARTICIPANT_LEFT,
-        targetState!,
-        "No remaining participants after leaving",
-      );
-
-      const payload = buildTransitionPayload(ConferenceTransition.LAST_PARTICIPANT_LEFT);
-      ctx.conferences.updateKeyValue(roomId, (conf) => ({
-        ...conf,
-        ...payload,
-        localStream: undefined,
-        endedByMe: true,
-        leftTimestamp: Date.now(),
-      }));
-
+    if (!othersActive) {
       setTimeout(() => {
         const cur = safeGetConference(ctx, roomId);
-        if (
-          cur &&
-          (cur.ended || cur.invitationStatus === "left" || cur.invitationStatus === "rejected")
-        ) {
+        if (cur && (cur.ended || cur.invitationStatus === "left")) {
           ctx.conferences.removeKeyValue(roomId);
         }
       }, 500);
-    } else {
-      console.log(
-        `[SimplePeer] ${remoteActiveCount} participants remain - leaving with rejoin option`,
-      );
-
-      const targetState = ConferenceLifecycleManager.getTargetState(
-        currentLifecycleState,
-        ConferenceTransition.LEAVE_CONFERENCE,
-      );
-
-      logTransition(
-        roomId,
-        currentLifecycleState,
-        ConferenceTransition.LEAVE_CONFERENCE,
-        targetState!,
-        `${remoteActiveCount} participants remain`,
-      );
-
-      const payload = buildTransitionPayload(ConferenceTransition.LEAVE_CONFERENCE);
-      ctx.conferences.updateKeyValue(roomId, (conf) => ({
-        ...conf,
-        ...payload,
-        localStream: undefined,
-        leftTimestamp: Date.now(),
-        participants: new Map(
-          Array.from(conf.participants.entries()).map(([key, participant]) => [
-            key,
-            {
-              publicKey: participant.publicKey,
-              hasJoined: participant.hasJoined,
-              connectionStatus: "idle" as const,
-              videoEnabled: participant.videoEnabled,
-              audioEnabled: participant.audioEnabled,
-              peer: undefined,
-              connectionId: undefined,
-            },
-          ]),
-        ),
-      }));
     }
 
     console.log(`[SimplePeer] Left conference: ${roomId}`);
@@ -394,17 +314,7 @@ export function createConferenceLifecycle(
 
   async function endConferenceForAll(roomId: string): Promise<void> {
     const conference = safeGetConference(ctx, roomId);
-    if (!conference?.room?.participants) {
-      console.error("[SimplePeer] Cannot end conference - no participants found");
-      return;
-    }
-
-    if (!conference.cellIdB64) {
-      console.error("[SimplePeer] Cannot end conference - no cellIdB64 found");
-      cleanupWebRTC(roomId);
-      ctx.conferences.removeKeyValue(roomId);
-      return;
-    }
+    if (!conference) return;
 
     ctx.conferences.updateKeyValue(roomId, (conf) => ({
       ...conf,
@@ -412,50 +322,25 @@ export function createConferenceLifecycle(
       endedByMe: true,
       invitationStatus: "left" as const,
     }));
-
-    console.log(`[SimplePeer] Marked conference ${roomId} as ended, stopping async operations`);
-
-    const cellId = ctx.client.decodeCellId(conference.cellIdB64);
-
-    const maxRetries = 3;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await ctx.client.endConferenceForAll(roomId, conference.room.participants, cellId);
-        break;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-
-        if (errorMessage.includes("Source chain error") && attempt < maxRetries) {
-          console.warn(
-            `[SimplePeer] Source chain error on endConferenceForAll (attempt ${attempt}/${maxRetries}), retrying...`,
-            { roomId, error: errorMessage },
-          );
-          await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
-          continue;
-        }
-
-        console.error(
-          `[SimplePeer] Failed to notify peers about conference end after ${attempt} attempts:`,
-          { roomId, error: errorMessage },
-        );
-        break;
-      }
-    }
-
     cleanupWebRTC(roomId);
 
-    const postCleanupState = safeGetConference(ctx, roomId);
-    if (postCleanupState) {
-      const hasActiveResources =
-        Array.from(postCleanupState.participants.values()).some(
-          (p) => p.peer && !p.peer.destroyed,
-        ) || postCleanupState.localStream;
-
-      if (hasActiveResources) {
-        console.warn(
-          `[SimplePeer] Conference ${roomId} has active resources after cleanup, forcing removal`,
-        );
+    const participants = conference.room?.participants;
+    if (conference.cellIdB64 && participants) {
+      const cellId = ctx.client.decodeCellId(conference.cellIdB64);
+      const maxRetries = 3;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          await ctx.client.endConferenceForAll(roomId, participants, cellId);
+          break;
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (errorMessage.includes("Source chain error") && attempt < maxRetries) {
+            await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+            continue;
+          }
+          console.error("[SimplePeer] Failed to notify peers about conference end:", errorMessage);
+          break;
+        }
       }
     }
 
@@ -465,8 +350,6 @@ export function createConferenceLifecycle(
         ctx.conferences.removeKeyValue(roomId);
       }
     }, 500);
-
-    console.log(`[SimplePeer] Conference ${roomId} fully ended and cleaned up`);
   }
 
   return {

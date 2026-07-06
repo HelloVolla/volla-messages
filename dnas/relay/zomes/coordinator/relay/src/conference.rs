@@ -46,15 +46,7 @@ fn get_active_conference_record() -> ExternResult<Option<(ActionHash, Conference
                     let now = sys_time()?;
                     let age = now.as_micros() - conference.created_at.as_micros();
                     if conference.is_active && age <= MAX_CALL_AGE_MICROS {
-                        let active_count = get_all_participants(&action_hash)?
-                            .into_iter()
-                            .filter(|p| p.is_active)
-                            .count();
-                        if active_count > 0 {
-                            active.push((action_hash, conference));
-                        } else {
-                            remove_active_call_link(&action_hash)?;
-                        }
+                        active.push((action_hash, conference));
                     } else {
                         remove_active_call_link(&action_hash)?;
                     }

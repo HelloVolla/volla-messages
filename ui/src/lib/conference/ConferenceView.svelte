@@ -96,6 +96,7 @@
 
   $: isMuted = !audioEnabled;
   $: isVideoEnabled = videoEnabled;
+  $: isScreenSharing = $conferenceStore?.isScreenSharing ?? false;
   $: myRole = $conferenceStore?.myRole;
   $: canEndForAll = conferenceStoreBase.canEndConference(roomId);
   $: currentError = $conferenceStore?.error;
@@ -245,24 +246,31 @@
 
   function toggleVideo() {
     if ($conferenceStore?.localStream) {
-      const videoTracks = $conferenceStore.localStream.getVideoTracks();
       const nextState = !videoEnabled;
-      videoTracks.forEach((track: MediaStreamTrack) => {
-        track.enabled = nextState;
-      });
-      conferenceStoreBase.setMediaEnabled(roomId, nextState, audioEnabled);
-      conferenceStoreBase.sendMediaStateToAll(roomId, nextState, audioEnabled);
+      conferenceStoreBase.setLocalVideo(roomId, nextState);
+    }
+  }
+
+  function handleToggleScreenShare() {
+    if (!roomId) return;
+    if (isScreenSharing) {
+      conferenceStoreBase.stopScreenShare(roomId);
+    } else {
+      conferenceStoreBase.startScreenShare(roomId);
     }
   }
 
   async function endCall() {
-    if (roomId && canEndForAll) {
+    if (!roomId) return;
+    const othersInCall = remoteParticipants.some((p) => p.hasJoined || p._connected);
+    if (canEndForAll && othersInCall) {
       showEndCallDialog = true;
+    } else if (canEndForAll) {
+      conferenceStoreBase.cleanupWebRTC(roomId);
+      await conferenceStoreBase.endConferenceForAll(roomId);
     } else {
-      if (roomId) {
-        await conferenceStoreBase.leaveConference(roomId);
-        conferenceStoreBase.cleanupWebRTC(roomId);
-      }
+      await conferenceStoreBase.leaveConference(roomId);
+      conferenceStoreBase.cleanupWebRTC(roomId);
     }
   }
 
@@ -461,35 +469,35 @@
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
-    class="bg-secondary-500 fixed inset-0 z-50"
+    class="fixed inset-0 z-50 bg-secondary-500"
     transition:fade={{ duration: 200 }}
     on:click={handleScreenInteraction}
     on:touchstart={handleScreenInteraction}
   >
     {#if $conferenceStore && !$conferenceStore.localStream && $conferenceStore.invitationStatus === "accepted"}
       <div
-        class="bg-secondary-500 absolute inset-0 z-50 flex flex-col items-center justify-center"
+        class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-secondary-500"
         transition:fade={{ duration: 200 }}
       >
         <div
-          class="bg-secondary-400/50 flex flex-col items-center gap-6 rounded-3xl p-8 backdrop-blur-sm"
+          class="flex flex-col items-center gap-6 rounded-3xl bg-secondary-400/50 p-8 backdrop-blur-sm"
         >
           <div class="relative">
-            <div class="bg-primary-500/20 h-20 w-20 animate-pulse rounded-full"></div>
+            <div class="h-20 w-20 animate-pulse rounded-full bg-primary-500/20"></div>
             <div class="absolute inset-0 flex items-center justify-center">
               <SvgIcon icon="videocam" moreClasses="h-10 w-10 text-primary-500" />
             </div>
             <div
-              class="bg-secondary-500 absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full"
+              class="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full bg-secondary-500"
             >
               <SvgIcon icon="spinner" moreClasses="h-5 w-5 animate-spin text-tertiary-400" />
             </div>
           </div>
           <div class="text-center">
-            <p class="text-tertiary-300 text-lg font-semibold">
+            <p class="text-lg font-semibold text-tertiary-300">
               {$t("common.conference_connecting")}
             </p>
-            <p class="text-tertiary-500 mt-1 text-sm">{$t("common.conference_setupMessage")}</p>
+            <p class="mt-1 text-sm text-tertiary-500">{$t("common.conference_setupMessage")}</p>
           </div>
         </div>
       </div>
@@ -668,10 +676,13 @@
     <ConferenceFooter
       {isMuted}
       {isVideoEnabled}
+      {isScreenSharing}
       {callDurationSeconds}
       visible={true}
+      screenShareEnabled={true}
       on:toggleMute={toggleMute}
       on:toggleVideo={toggleVideo}
+      on:toggleScreenShare={handleToggleScreenShare}
       on:endCall={endCall}
     />
   </div>
@@ -679,10 +690,10 @@
 
 <Dialog bind:open={showEndCallDialog} title={$t("common.conference_endCallOptions")}>
   <div class="flex flex-col items-center gap-4 text-center">
-    <div class="bg-error-500/10 flex h-12 w-12 items-center justify-center rounded-full">
+    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-error-500/10">
       <SvgIcon icon="phone" moreClasses="h-6 w-6 rotate-[135deg] text-error-500" />
     </div>
-    <p class="text-secondary-500 dark:text-tertiary-500 text-sm">
+    <p class="text-sm text-secondary-500 dark:text-tertiary-500">
       {$t("common.conference_endCallMessage")}
     </p>
   </div>
@@ -710,10 +721,10 @@
 
 <Dialog bind:open={showErrorDialog} title={errorDialogTitle}>
   <div class="flex flex-col items-center gap-4 text-center">
-    <div class="bg-error-500/10 flex h-12 w-12 items-center justify-center rounded-full">
+    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-error-500/10">
       <SvgIcon icon="alertTriangle" moreClasses="h-6 w-6 text-error-500" />
     </div>
-    <p class="text-secondary-500 dark:text-tertiary-500 text-sm">{errorDialogMessage}</p>
+    <p class="text-sm text-secondary-500 dark:text-tertiary-500">{errorDialogMessage}</p>
   </div>
   <div class="mt-6 flex justify-center">
     <Button
@@ -737,16 +748,16 @@
   }}
 >
   <div class="flex flex-col items-center gap-4 text-center">
-    <div class="bg-error-500/10 flex h-12 w-12 items-center justify-center rounded-full">
+    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-error-500/10">
       <SvgIcon icon="alertCircle" moreClasses="h-6 w-6 text-error-500" />
     </div>
     {#if targetParticipantPubKey}
       <div class="flex flex-col items-center gap-2">
         <Avatar agentPubKeyB64={targetParticipantPubKey} size={48} />
-        <p class="text-secondary-700 dark:text-tertiary-300 font-medium">{targetParticipantName}</p>
+        <p class="font-medium text-secondary-700 dark:text-tertiary-300">{targetParticipantName}</p>
       </div>
     {/if}
-    <p class="text-secondary-500 dark:text-tertiary-500 text-sm">
+    <p class="text-sm text-secondary-500 dark:text-tertiary-500">
       {$t("common.conference_kickMessage")}
     </p>
   </div>
@@ -764,16 +775,16 @@
   }}
 >
   <div class="flex flex-col items-center gap-4 text-center">
-    <div class="bg-primary-500/10 flex h-12 w-12 items-center justify-center rounded-full">
+    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary-500/10">
       <SvgIcon icon="arrowUpCircle" moreClasses="h-6 w-6 text-primary-500" />
     </div>
     {#if targetParticipantPubKey}
       <div class="flex flex-col items-center gap-2">
         <Avatar agentPubKeyB64={targetParticipantPubKey} size={48} />
-        <p class="text-secondary-700 dark:text-tertiary-300 font-medium">{targetParticipantName}</p>
+        <p class="font-medium text-secondary-700 dark:text-tertiary-300">{targetParticipantName}</p>
       </div>
     {/if}
-    <p class="text-secondary-500 dark:text-tertiary-500 text-sm">
+    <p class="text-sm text-secondary-500 dark:text-tertiary-500">
       {$t("common.conference_transferHostMessage")}
     </p>
   </div>
@@ -791,16 +802,16 @@
   }}
 >
   <div class="flex flex-col items-center gap-4 text-center">
-    <div class="bg-warning-500/10 flex h-12 w-12 items-center justify-center rounded-full">
+    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-warning-500/10">
       <SvgIcon icon="star" moreClasses="h-6 w-6 text-warning-500" />
     </div>
     {#if targetParticipantPubKey}
       <div class="flex flex-col items-center gap-2">
         <Avatar agentPubKeyB64={targetParticipantPubKey} size={48} />
-        <p class="text-secondary-700 dark:text-tertiary-300 font-medium">{targetParticipantName}</p>
+        <p class="font-medium text-secondary-700 dark:text-tertiary-300">{targetParticipantName}</p>
       </div>
     {/if}
-    <p class="text-secondary-500 dark:text-tertiary-500 text-sm">
+    <p class="text-sm text-secondary-500 dark:text-tertiary-500">
       {$t("common.conference_promoteMessage")}
     </p>
   </div>

@@ -9,7 +9,8 @@
   export let isVideoEnabled: boolean = true;
   export let callDurationSeconds: number = 0;
   export let visible: boolean = true;
-  export let screenShareEnabled: boolean = false; // Future feature flag
+  export let screenShareEnabled: boolean = false;
+  export let isScreenSharing: boolean = false;
 
   const dispatch = createEventDispatcher<{
     toggleMute: void;
@@ -70,9 +71,10 @@
         <div class="hidden sm:block">
           <ConferenceControlButton
             icon="screenShare"
+            active={isScreenSharing}
             disabled={!screenShareEnabled}
-            label={screenShareEnabled ? "Share Screen" : $t("common.conference_comingSoon")}
-            title={screenShareEnabled ? "Share Screen" : $t("common.conference_comingSoon")}
+            label={isScreenSharing ? "Stop sharing" : "Share Screen"}
+            title={isScreenSharing ? "Stop sharing" : "Share Screen"}
             on:click={() => dispatch("toggleScreenShare")}
           />
         </div>

@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    encodeHashToBase64,
-    type ActionHashB64,
-    type AgentPubKeyB64,
-  } from "@holochain/client";
+  import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import { getContext, onDestroy, onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
@@ -126,8 +122,8 @@
     : $messages.list.filter(([, msg]) => !msg.message.reply_to);
 
   $: if ($page.params.id) {
-  noMoreOlderMessages = false;
-}
+    noMoreOlderMessages = false;
+  }
 
   async function handleDeleteMessage() {
     if (deleteMessageActionHashB64 === undefined) return;
@@ -178,17 +174,17 @@
   }
 
   async function loadMessages() {
-     clearTimeout(messageTimeout);
+    clearTimeout(messageTimeout);
 
-  if (!loadingMessagesOld && !userIsPagingHistory && !loadingMessagesNew) {
-    await loadMessagesInCurrentBucket(true);
-    isFirstLoadMessages = false;
-  }
+    if (!loadingMessagesOld && !userIsPagingHistory && !loadingMessagesNew) {
+      await loadMessagesInCurrentBucket(true);
+      isFirstLoadMessages = false;
+    }
 
-  messageTimeout = setTimeout(
-    loadMessages,
-    $messages.count === 0 ? POLLING_INTERVAL_FAST : POLLING_INTERVAL_SLOW,
-  );
+    messageTimeout = setTimeout(
+      loadMessages,
+      $messages.count === 0 ? POLLING_INTERVAL_FAST : POLLING_INTERVAL_SLOW,
+    );
   }
 
   const loadData = () => {
@@ -197,30 +193,30 @@
     loadMessages();
   };
 
-async function loadMoreMessages() {
-  if (loadingMessagesOld || noMoreOlderMessages) return;
+  async function loadMoreMessages() {
+    if (loadingMessagesOld || noMoreOlderMessages) return;
 
-  loadingMessagesOld = true;
-  userIsPagingHistory = true;
+    loadingMessagesOld = true;
+    userIsPagingHistory = true;
 
-  try {
-    const loadedCount = await messages.loadMoreMessages();
-    console.log("loadedCount:", loadedCount);
+    try {
+      const loadedCount = await messages.loadMoreMessages();
+      console.log("loadedCount:", loadedCount);
 
-    if (loadedCount === 0) {
-      noMoreOlderMessages = true;
-      console.log("History exhausted at UI level");
+      if (loadedCount === 0) {
+        noMoreOlderMessages = true;
+        console.log("History exhausted at UI level");
+      }
+    } catch (e) {
+      console.error("Error loading more messages:", e);
+    } finally {
+      loadingMessagesOld = false;
+
+      setTimeout(() => {
+        userIsPagingHistory = false;
+      }, 1200);
     }
-  } catch (e) {
-    console.error("Error loading more messages:", e);
-  } finally {
-    loadingMessagesOld = false;
-
-    setTimeout(() => {
-      userIsPagingHistory = false;
-    }, 1200);
   }
-}
 
   async function loadMessagesInCurrentBucket(local: boolean) {
     if (loadingMessagesNew) return;
@@ -377,12 +373,15 @@ async function loadMoreMessages() {
     ([_, c]) => c.invitationStatus === "accepted" || c.isInitiator || c.showPreJoinScreen,
   );
   $: amInCall = !!activeCallEntry;
-  $: callIsOngoing =
-    amInCall ||
-    !!dhtActiveRoomId ||
-    myCellCalls.some(
-      ([_, c]) => c.invitationStatus === "pending" || c.invitationStatus === "active",
-    );
+  $: callOngoingElsewhere =
+    !amInCall &&
+    (!!dhtActiveRoomId ||
+      myCellCalls.some(
+        ([_, c]) =>
+          c.invitationStatus === "pending" ||
+          c.invitationStatus === "active" ||
+          c.invitationStatus === "left",
+      ));
 
   async function refreshActiveCall() {
     if (amInCall) {
@@ -393,6 +392,7 @@ async function loadMoreMessages() {
   }
 
   function handleCallButton() {
+    if (isStartingCall || callOngoingElsewhere) return;
     if (activeCallEntry) {
       conferenceStore.setMinimized(activeCallEntry[0], false);
       return;
@@ -446,11 +446,17 @@ async function loadMoreMessages() {
   <div class="flex items-center justify-center" slot="right">
     <ButtonIconBare
       moreClasses="h-[24px] w-[24px]"
-      moreClassesButton="p-4 {isStartingCall ? 'opacity-50' : ''}"
+      moreClassesButton="p-4 {isStartingCall || callOngoingElsewhere
+        ? 'cursor-not-allowed opacity-40'
+        : ''}"
       icon="videoCall"
-      disabled={isStartingCall}
+      disabled={isStartingCall || callOngoingElsewhere}
       on:click={handleCallButton}
-      title={amInCall ? "Return to call" : callIsOngoing ? "Join call" : "Start video call"}
+      title={amInCall
+        ? "Return to call"
+        : callOngoingElsewhere
+          ? "Call in progress"
+          : "Start video call"}
     />
 
     <ButtonIconBare

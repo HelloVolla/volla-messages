@@ -62,8 +62,7 @@ export function createUIStateManager(ctx: ConferenceContext): UIStateManager {
     unsubscribe();
 
     return Object.values(currentData).filter(
-      (conf: SimplePeerConferenceState) =>
-        conf.invitationStatus === "pending" && !conf.isInitiator,
+      (conf: SimplePeerConferenceState) => conf.invitationStatus === "pending" && !conf.isInitiator,
     );
   }
 

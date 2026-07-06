@@ -6,7 +6,6 @@ export {
   type CleanupReport,
   type PeerCleanupReport,
   ICE_CONFIG,
-  RECONNECT_CONFIG,
   CONNECTION_TIMEOUT_MS,
   MAX_CONFERENCE_PARTICIPANTS,
   INVITATION_TIMEOUT_MS,
@@ -25,28 +24,9 @@ export { createUIStateManager, type UIStateManager } from "./uiState";
 
 export { createRoleManager, type RoleManager } from "./roleManagement";
 
-export { createConnectionMonitor, type ConnectionMonitor } from "./connectionMonitoring";
+export { PeerConnection, type PeerConnectionHooks } from "./peerConnection";
 
-export { createSignalHandler, type SignalHandler, type CreatePeerFn } from "./signalHandling";
-
-export {
-  createPeerConnectionManager,
-  type PeerConnectionManager,
-  type ScheduleReconnectFn,
-  type StartNetworkMonitoringFn,
-  type StopNetworkMonitoringFn,
-} from "./peerConnection";
-
-export {
-  createMediaManager,
-  type MediaManager,
-  type CleanupPeerFn,
-  type CleanupPeerWithVerificationFn,
-  type HandleInitRequestFn,
-  type InitiateConnectionsFn,
-  type StartConnectionHealthMonitoringFn,
-  type StopConnectionHealthMonitoringFn,
-} from "./mediaManagement";
+export { createConferenceStreams, type ConferenceStreams } from "./conferenceStreams";
 
 export {
   createConferenceLifecycle,

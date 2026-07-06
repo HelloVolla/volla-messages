@@ -27,7 +27,7 @@
     kick: { pubKey: string };
   }>();
 
-  function mediaStream(node: HTMLVideoElement, stream?: MediaStream | null) {
+  function mediaStream(node: HTMLMediaElement, stream?: MediaStream | null) {
     let currentStream: MediaStream | null | undefined;
 
     const applyStream = (next?: MediaStream | null) => {
@@ -135,6 +135,9 @@
 </script>
 
 <div class={containerClasses} in:scale={{ duration: 200, start: 0.9 }} out:fade={{ duration: 150 }}>
+  {#if !participant.isLocal && participant._stream}
+    <audio use:mediaStream={participant._stream} autoplay class="hidden"></audio>
+  {/if}
   {#if showLocalVideo}
     <video
       use:mediaStream={localStream}
@@ -150,6 +153,7 @@
     <video
       use:mediaStream={participant._stream}
       autoplay
+      muted
       playsinline
       class="absolute inset-0 h-full w-full object-cover"
     >
@@ -157,7 +161,7 @@
     </video>
   {:else if showAvatar}
     <div
-      class="from-primary-500/10 via-secondary-400 to-secondary-500 absolute inset-0 flex items-center justify-center bg-gradient-to-br"
+      class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary-500/10 via-secondary-400 to-secondary-500"
     >
       <Avatar
         agentPubKeyB64={participant.pubKey}
@@ -167,23 +171,23 @@
       />
     </div>
   {:else if showWaiting}
-    <div class="bg-secondary-500 absolute inset-0 flex items-center justify-center p-2">
+    <div class="absolute inset-0 flex items-center justify-center bg-secondary-500 p-2">
       <div class="text-center">
         {#if variant === "main"}
           <div
-            class="bg-secondary-400 mx-auto mb-3 flex h-[clamp(80px,20vw,192px)] w-[clamp(80px,20vw,192px)] items-center justify-center rounded-full"
+            class="mx-auto mb-3 flex h-[clamp(80px,20vw,192px)] w-[clamp(80px,20vw,192px)] items-center justify-center rounded-full bg-secondary-400"
           >
             <SvgIcon
               icon="user"
               moreClasses="h-[clamp(40px,10vw,96px)] w-[clamp(40px,10vw,96px)] text-tertiary-500"
             />
           </div>
-          <p class="text-tertiary-500 text-xs sm:text-sm md:text-base">
+          <p class="text-xs text-tertiary-500 sm:text-sm md:text-base">
             {$t("common.conference_waitingToJoin") || "Waiting to join..."}
           </p>
         {:else if variant === "pip"}
           <div
-            class="bg-secondary-400 flex h-[clamp(28px,8vw,40px)] w-[clamp(28px,8vw,40px)] items-center justify-center rounded-full"
+            class="flex h-[clamp(28px,8vw,40px)] w-[clamp(28px,8vw,40px)] items-center justify-center rounded-full bg-secondary-400"
           >
             <SvgIcon
               icon="user"
@@ -192,7 +196,7 @@
           </div>
         {:else if variant === "sidebar"}
           <div
-            class="bg-secondary-400 flex h-[clamp(40px,12vw,80px)] w-[clamp(40px,12vw,80px)] items-center justify-center rounded-full"
+            class="flex h-[clamp(40px,12vw,80px)] w-[clamp(40px,12vw,80px)] items-center justify-center rounded-full bg-secondary-400"
           >
             <SvgIcon
               icon="user"
@@ -201,14 +205,14 @@
           </div>
         {:else}
           <div
-            class="bg-secondary-400 mx-auto mb-1.5 flex h-[clamp(48px,14vw,80px)] w-[clamp(48px,14vw,80px)] items-center justify-center rounded-full sm:mb-2"
+            class="mx-auto mb-1.5 flex h-[clamp(48px,14vw,80px)] w-[clamp(48px,14vw,80px)] items-center justify-center rounded-full bg-secondary-400 sm:mb-2"
           >
             <SvgIcon
               icon="user"
               moreClasses="h-[clamp(24px,7vw,40px)] w-[clamp(24px,7vw,40px)] text-tertiary-500"
             />
           </div>
-          <p class="text-tertiary-500 text-[10px] sm:text-xs">
+          <p class="text-[10px] text-tertiary-500 sm:text-xs">
             {$t("common.conference_waiting") || "Waiting..."}
           </p>
         {/if}
@@ -224,10 +228,10 @@
     >
       {#if isConnecting}
         <div class="relative h-2.5 w-2.5">
-          <div class="bg-warning-500/50 absolute inset-0 animate-ping rounded-full"></div>
-          <div class="bg-warning-500 relative h-2.5 w-2.5 rounded-full"></div>
+          <div class="absolute inset-0 animate-ping rounded-full bg-warning-500/50"></div>
+          <div class="relative h-2.5 w-2.5 rounded-full bg-warning-500"></div>
         </div>
-        <span class="text-tertiary-400 text-[10px] font-medium sm:text-xs">
+        <span class="text-[10px] font-medium text-tertiary-400 sm:text-xs">
           {$t("common.conference_statusConnecting")}
         </span>
       {:else if isFailed}
@@ -288,7 +292,7 @@
               participant.connectionQuality,
             )}"
           />
-          <span class="text-tertiary-400 hidden text-[10px] sm:inline sm:text-xs"
+          <span class="hidden text-[10px] text-tertiary-400 sm:inline sm:text-xs"
             >{participant.connectionQuality}</span
           >
         </div>
@@ -366,7 +370,7 @@
               participant.connectionQuality,
             )}"
           />
-          <span class="text-tertiary-500 hidden text-[8px] sm:inline sm:text-[9px]"
+          <span class="hidden text-[8px] text-tertiary-500 sm:inline sm:text-[9px]"
             >{participant.connectionQuality}</span
           >
         </div>

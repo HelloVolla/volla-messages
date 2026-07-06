@@ -592,28 +592,6 @@ export class RelayClient {
     console.log("[RelayClient] sendSdpData() complete");
   }
 
-  public async sendMediaStateSignal(
-    room_id: string,
-    target: AgentPubKey,
-    connection_id: string,
-    videoEnabled: boolean,
-    audioEnabled: boolean,
-    cellId: CellId,
-  ): Promise<void> {
-    console.log("[RelayClient] sendMediaStateSignal() - Sending media state via Holochain");
-
-    const wrappedData = JSON.stringify({ connection_id, videoEnabled, audioEnabled });
-
-    await this.client.callZome({
-      cell_id: cellId,
-      zome_name: ZOME_NAME,
-      fn_name: "send_signal",
-      payload: { room_id, target, payload_type: "MediaState", data: wrappedData },
-    });
-
-    console.log("[RelayClient] sendMediaStateSignal() complete");
-  }
-
   public async getMyConferenceRole(
     room_id: string,
     cellId: CellId,

@@ -1,8 +1,7 @@
 import SimplePeer from "simple-peer";
-import { decodeHashFromBase64, encodeHashToBase64, type AgentPubKeyB64 } from "@holochain/client";
+import { decodeHashFromBase64 } from "@holochain/client";
 import {
   type ConferenceContext,
-  type PeerCleanupReport,
   ICE_CONFIG,
   CONNECTION_TIMEOUT_MS,
   MEDIA_WAIT_MS,
@@ -12,642 +11,287 @@ import {
   deriveConnectionQuality,
 } from "./types";
 
-export interface PeerConnectionManager {
-  createPeer: (
-    roomId: string,
-    participantPubKey: AgentPubKeyB64,
-    connectionId: string,
-    initiator: boolean,
-    localStream?: MediaStream,
-  ) => SimplePeer.Instance;
+export interface PeerConnectionHooks {
   cleanupPeer: (roomId: string, pubKey: string) => void;
-  cleanupPeerWithVerification: (roomId: string, pubKey: string) => PeerCleanupReport;
 }
 
-export type ScheduleReconnectFn = (roomId: string, pubKey: string) => void;
-export type StartNetworkMonitoringFn = (
-  roomId: string,
-  pubKey: string,
-  timeoutMs: number,
-) => void;
-export type StopNetworkMonitoringFn = (roomId: string, pubKey: string) => void;
+export class PeerConnection {
+  readonly peer: SimplePeer.Instance;
+  readonly pubKey: string;
+  readonly connectionId: string;
+  private connectionTimeout?: ReturnType<typeof setTimeout>;
+  private lastBytesReceived = 0;
+  private stalledTicks = 0;
 
-export function createPeerConnectionManager(
-  ctx: ConferenceContext,
-  scheduleReconnect: ScheduleReconnectFn,
-  startNetworkMonitoring: StartNetworkMonitoringFn,
-  stopNetworkMonitoring: StopNetworkMonitoringFn,
-): PeerConnectionManager {
-
-  function cleanupPeer(roomId: string, pubKey: string): void {
-    const state = safeGetConference(ctx, roomId);
-    if (!state) return;
-
-    const participant = state.participants.get(pubKey);
-    if (!participant) return;
-
-    if (participant.reconnectTimer) {
-      clearTimeout(participant.reconnectTimer);
-    }
-    if (participant.connectionTimeout) {
-      clearTimeout(participant.connectionTimeout);
-    }
-    if (participant.mediaWaitTimer) {
-      clearTimeout(participant.mediaWaitTimer);
-    }
-    if (participant.networkMonitorTimeout) {
-      clearTimeout(participant.networkMonitorTimeout);
-    }
-
-    if (participant.peer && !participant.peer.destroyed) {
-      try {
-        participant.peer.destroy();
-      } catch (e) {
-        console.warn(`[SimplePeer] Error destroying peer for ${pubKey.slice(0, 20)}:`, e);
-      }
-    }
-
-    updateParticipant(ctx, roomId, pubKey, (p) => ({
-      publicKey: p.publicKey,
-      hasJoined: p.hasJoined,
-      connectionStatus: "idle",
-      videoEnabled: p.videoEnabled,
-      audioEnabled: p.audioEnabled,
-      peer: undefined,
-      stream: undefined,
-      connectionId: undefined,
-      pendingSdpSignals: [],
-      reconnectTimer: undefined,
-      connectionTimeout: undefined,
-      mediaWaitTimer: undefined,
-      networkMonitorTimeout: undefined,
-      lastIceState: undefined,
-      videoTrackActive: undefined,
-      audioTrackActive: undefined,
-      trackFailureDetected: undefined,
-      pendingInitRequest: undefined,
-    }));
-
-    console.log(`[SimplePeer] Cleaned up peer connection: ${pubKey.slice(0, 20)}`);
-  }
-
-  function createPeer(
-    roomId: string,
-    participantPubKey: AgentPubKeyB64,
+  constructor(
+    private ctx: ConferenceContext,
+    private roomId: string,
+    pubKey: string,
     connectionId: string,
     initiator: boolean,
-    localStream?: MediaStream,
-  ): SimplePeer.Instance {
+    localStream: MediaStream | undefined,
+    private hooks: PeerConnectionHooks,
+  ) {
+    this.pubKey = pubKey;
+    this.connectionId = connectionId;
+
     console.log(
-      `[SimplePeer] Creating peer for ${participantPubKey.slice(0, 20)}, initiator: ${initiator}, connectionId: ${connectionId}`,
+      `[SimplePeer] Creating peer for ${pubKey.slice(0, 20)}, initiator: ${initiator}, connectionId: ${connectionId}`,
     );
 
-    const peerOpts: SimplePeer.Options = {
+    const opts: SimplePeer.Options = {
       initiator,
       config: { iceServers: ICE_CONFIG },
       trickle: false,
+      objectMode: true,
     };
+    if (localStream) opts.stream = localStream;
 
-    if (localStream) {
-      peerOpts.stream = localStream;
+    this.peer = new SimplePeer(opts);
+    this.wire();
+
+    this.connectionTimeout = setTimeout(() => this.onHandshakeTimeout(), CONNECTION_TIMEOUT_MS);
+    this.patch({ connectionTimeout: this.connectionTimeout });
+
+    this.flushBufferedSignals();
+  }
+
+  private patch(fields: Partial<Record<string, unknown>>): void {
+    updateParticipant(this.ctx, this.roomId, this.pubKey, (p) => ({ ...p, ...fields }));
+  }
+
+  private wire(): void {
+    this.peer.on("signal", (data) => this.relaySignal(data));
+    this.peer.on("data", (raw: unknown) => this.onData(raw));
+    this.peer.on("stream", (remoteStream) => this.onStream(remoteStream));
+    this.peer.on("iceStateChange", (iceState: RTCIceConnectionState) => this.onIceState(iceState));
+    this.peer.on("connect", () => this.onConnect());
+    this.peer.on("close", () => this.onClose());
+    this.peer.on("error", (err) => this.onError(err));
+  }
+
+  private async relaySignal(data: SimplePeer.SignalData): Promise<void> {
+    if (this.peer.destroyed) return;
+    const state = safeGetConference(this.ctx, this.roomId);
+    if (!state?.cellIdB64) {
+      this.patch({
+        pendingOutgoingSdp: [
+          ...(state?.participants.get(this.pubKey)?.pendingOutgoingSdp || []),
+          JSON.stringify(data),
+        ],
+      });
+      return;
     }
-
-    const peer = new SimplePeer(peerOpts);
-
-    peer.on("signal", async (data) => {
-      if (peer.destroyed) {
-        console.warn(
-          `[SimplePeer] Peer destroyed, skipping signal for ${participantPubKey.slice(0, 20)}`,
-        );
-        return;
-      }
-
-      console.log(
-        `[SimplePeer] Signal event for ${participantPubKey.slice(0, 20)}:`,
-        data.type || "ice-candidate",
+    try {
+      await this.ctx.client.sendSdpData(
+        this.roomId,
+        decodeHashFromBase64(this.pubKey),
+        this.connectionId,
+        data,
+        this.ctx.client.decodeCellId(state.cellIdB64),
       );
+    } catch (error) {
+      if (!this.peer.destroyed) console.error(`[SimplePeer] Error sending SDP data:`, error);
+    }
+  }
 
-      const state = safeGetConference(ctx, roomId);
-
-      if (!state?.cellIdB64) {
-        console.warn(
-          `[SimplePeer] No cellIdB64 yet, buffering outgoing SDP for ${participantPubKey.slice(0, 20)}`,
-        );
-        updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-          ...p,
-          pendingOutgoingSdp: [...(p.pendingOutgoingSdp || []), JSON.stringify(data)],
-        }));
-        return;
+  private onData(raw: unknown): void {
+    try {
+      const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw as ArrayBufferView);
+      const msg = JSON.parse(text);
+      if (msg && msg.t === "media") {
+        this.patch({ videoEnabled: !!msg.video, audioEnabled: !!msg.audio });
       }
+    } catch (e) {
+      console.warn(`[SimplePeer] Bad data-channel message from ${this.pubKey.slice(0, 20)}:`, e);
+    }
+  }
 
-      const cellId = ctx.client.decodeCellId(state.cellIdB64);
-      const targetDecoded = decodeHashFromBase64(participantPubKey);
-
-      try {
-        await ctx.client.sendSdpData(roomId, targetDecoded, connectionId, data, cellId);
-      } catch (error) {
-        if (!peer.destroyed) {
-          console.error(`[SimplePeer] Error sending SDP data:`, error);
-        }
-      }
-    });
-
-    peer.on("stream", (remoteStream) => {
-      console.log(
-        `[SimplePeer] Received remote stream from ${participantPubKey.slice(0, 20)}:`,
-        remoteStream.getTracks().map((t) => ({ kind: t.kind, enabled: t.enabled })),
-      );
-
-      console.log(`[SimplePeer] peer.streams after stream event:`, {
-        streamsCount: peer.streams?.length ?? 0,
-        peerConnected: peer.connected,
-        peerDestroyed: peer.destroyed,
-      });
-
-      updateParticipant(ctx, roomId, participantPubKey, (p) => {
-        if (p.connectionTimeout) {
-          clearTimeout(p.connectionTimeout);
-        }
-        if (p.reconnectTimer) {
-          clearTimeout(p.reconnectTimer);
-        }
-        if (p.mediaWaitTimer) {
-          clearTimeout(p.mediaWaitTimer);
-        }
-
-        return {
-          ...p,
-          stream: remoteStream,
-          connectionStatus: "connected",
-          streamVersion: (p.streamVersion || 0) + 1,
-          reconnectAttempts: 0,
-          reconnectTimer: undefined,
-          connectionTimeout: undefined,
-          mediaWaitTimer: undefined,
-        };
-      });
-
-      const state = safeGetConference(ctx, roomId);
-      const updatedParticipant = state?.participants.get(participantPubKey);
-      console.log(`[SimplePeer] Participant state after stream update:`, {
-        hasPeer: !!updatedParticipant?.peer,
-        hasStream: !!updatedParticipant?.stream,
-        streamVersion: updatedParticipant?.streamVersion,
-        connectionStatus: updatedParticipant?.connectionStatus,
-        peerStreamsCount: updatedParticipant?.peer?.streams?.length ?? 0,
-      });
-    });
-
-    peer.on("iceStateChange", (iceState: RTCIceConnectionState) => {
-      if (peer.destroyed) {
-        console.log(
-          `[SimplePeer] ICE state change on destroyed peer for ${participantPubKey.slice(0, 20)}, ignoring`,
-        );
-        return;
-      }
-
-      const currentState = safeGetConference(ctx, roomId);
-      if (!currentState || currentState.ended) {
-        console.log(
-          `[SimplePeer] ICE state change for ended conference ${roomId.slice(0, 20)}, ignoring`,
-        );
-        return;
-      }
-
-      const quality = deriveConnectionQuality(iceState);
-      console.log(
-        `[SimplePeer] ICE state change for ${participantPubKey.slice(0, 20)}: ${iceState} (quality: ${quality})`,
-      );
-
-      updateParticipant(ctx, roomId, participantPubKey, (p) => ({
+  private onStream(remoteStream: MediaStream): void {
+    const remoteVideo = remoteStream.getVideoTracks();
+    const remoteAudio = remoteStream.getAudioTracks();
+    updateParticipant(this.ctx, this.roomId, this.pubKey, (p) => {
+      if (p.connectionTimeout) clearTimeout(p.connectionTimeout);
+      if (p.mediaWaitTimer) clearTimeout(p.mediaWaitTimer);
+      return {
         ...p,
-        lastIceState: iceState,
-        connectionQuality: quality,
-      }));
-
-      switch (iceState) {
-        case "disconnected":
-          console.warn(
-            `[SimplePeer] ICE disconnected for ${participantPubKey.slice(0, 20)}, monitoring for recovery`,
-          );
-          startNetworkMonitoring(roomId, participantPubKey, 5000);
-          break;
-
-        case "failed":
-          console.error(
-            `[SimplePeer] ICE failed for ${participantPubKey.slice(0, 20)}, triggering reconnect`,
-          );
-          stopNetworkMonitoring(roomId, participantPubKey);
-          scheduleReconnect(roomId, participantPubKey);
-          break;
-
-        case "connected":
-        case "completed":
-          console.log(`[SimplePeer] ICE ${iceState} for ${participantPubKey.slice(0, 20)}`);
-          stopNetworkMonitoring(roomId, participantPubKey);
-          break;
-      }
-    });
-
-    peer.on("track", (track, _stream) => {
-      console.log(
-        `[SimplePeer] Track received: ${track.kind} from ${participantPubKey.slice(0, 20)}`,
-        `(enabled: ${track.enabled}, muted: ${track.muted}, readyState: ${track.readyState})`,
-      );
-
-      const trackKindKey = track.kind === "video" ? "videoTrackActive" : "audioTrackActive";
-      updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-        ...p,
-        [trackKindKey]: track.readyState === "live",
-      }));
-
-      track.onended = () => {
-        console.warn(
-          `[SimplePeer] ${track.kind} track ended for ${participantPubKey.slice(0, 20)}`,
-        );
-
-        updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-          ...p,
-          [trackKindKey]: false,
-          trackFailureDetected: true,
-        }));
-
-        if (track.kind === "audio") {
-          console.warn(
-            `[SimplePeer] Audio track failure detected - connection may need renegotiation`,
-          );
-        }
-      };
-
-      track.onmute = () => {
-        console.log(
-          `[SimplePeer] ${track.kind} track muted for ${participantPubKey.slice(0, 20)}`,
-        );
-      };
-
-      track.onunmute = () => {
-        console.log(
-          `[SimplePeer] ${track.kind} track unmuted for ${participantPubKey.slice(0, 20)}`,
-        );
+        stream: remoteStream,
+        connectionStatus: "connected",
+        videoEnabled: p.videoEnabled ?? remoteVideo.some((t) => t.enabled && !t.muted),
+        audioEnabled: p.audioEnabled ?? remoteAudio.length > 0,
+        connectionTimeout: undefined,
+        mediaWaitTimer: undefined,
       };
     });
+    this.connectionTimeout = undefined;
+  }
 
-    peer.on("connect", () => {
-      console.log(`[SimplePeer] Data channel open with ${participantPubKey.slice(0, 20)}, awaiting media`);
+  private onIceState(iceState: RTCIceConnectionState): void {
+    if (this.peer.destroyed) return;
+    const state = safeGetConference(this.ctx, this.roomId);
+    if (!state || state.ended) return;
+    this.patch({ lastIceState: iceState, connectionQuality: deriveConnectionQuality(iceState) });
+  }
 
-      const mediaWaitTimer = setTimeout(() => {
-        const cur = safeGetConference(ctx, roomId);
-        const p = cur?.participants.get(participantPubKey);
-        if (cur && !cur.ended && p && p.hasJoined && !p.stream && !peer.destroyed) {
-          console.warn(
-            `[SimplePeer] No media from ${participantPubKey.slice(0, 20)} after ${MEDIA_WAIT_MS}ms, renegotiating`,
-          );
-          cleanupPeer(roomId, participantPubKey);
-          scheduleReconnect(roomId, participantPubKey);
-        }
-      }, MEDIA_WAIT_MS);
-
-      updateParticipant(ctx, roomId, participantPubKey, (p) => {
-        if (p.reconnectTimer) {
-          clearTimeout(p.reconnectTimer);
-        }
-        if (p.connectionTimeout) {
-          clearTimeout(p.connectionTimeout);
-        }
-        if (p.mediaWaitTimer) {
-          clearTimeout(p.mediaWaitTimer);
-        }
-
-        return {
-          ...p,
-          connectionStatus: "connecting",
-          reconnectTimer: undefined,
-          connectionTimeout: undefined,
-          mediaWaitTimer,
-        };
-      });
-
-      const currentState = safeGetConference(ctx, roomId);
-      if (currentState?.localStream && currentState.cellIdB64) {
-        const videoTracks = currentState.localStream.getVideoTracks();
-        const audioTracks = currentState.localStream.getAudioTracks();
-        const videoEnabled = videoTracks.some((track) => track.enabled);
-        const audioEnabled = audioTracks.some((track) => track.enabled);
-
-        const cellId = ctx.client.decodeCellId(currentState.cellIdB64);
-        const targetDecoded = decodeHashFromBase64(participantPubKey);
-
-        const participant = currentState.participants.get(participantPubKey);
-        if (participant?.connectionId) {
-          ctx.client
-            .sendMediaStateSignal(
-              roomId,
-              targetDecoded,
-              participant.connectionId,
-              videoEnabled,
-              audioEnabled,
-              cellId,
-            )
-            .then(() => {
-              console.log(
-                `[SimplePeer] Sent media state to late joiner ${participantPubKey.slice(0, 20)}: video=${videoEnabled}, audio=${audioEnabled}`,
-              );
-            })
-            .catch((err) =>
-              console.error("[SimplePeer] Error sending initial media state:", err),
-            );
-        }
-      }
-
-      if (currentState) {
-        const myPubKey = encodeHashToBase64(ctx.client.client.myPubKey);
-        currentState.participants.forEach((otherParticipant, otherPubKey) => {
-          if (otherPubKey !== participantPubKey && otherPubKey !== myPubKey) {
-            const otherTargetDecoded = decodeHashFromBase64(otherPubKey);
-            if (otherParticipant?.connectionId && currentState.cellIdB64) {
-              const otherCellId = ctx.client.decodeCellId(currentState.cellIdB64);
-              ctx.client
-                .sendMediaStateSignal(
-                  roomId,
-                  otherTargetDecoded,
-                  otherParticipant.connectionId,
-                  otherParticipant.videoEnabled || false,
-                  otherParticipant.audioEnabled || false,
-                  otherCellId,
-                )
-                .catch((err) =>
-                  console.warn("[SimplePeer] Error syncing media state for late joiner:", err),
-                );
-            }
-          }
-        });
-      }
-    });
-
-    peer.on("close", () => {
-      console.log(`[SimplePeer] Connection closed with ${participantPubKey.slice(0, 20)}`);
-
-      const currentState = safeGetConference(ctx, roomId);
-      if (currentState?.ended) return;
-
-      const participant = currentState?.participants.get(participantPubKey);
-      if (!participant?.hasJoined) {
-        console.log(
-          `[SimplePeer] Participant ${participantPubKey.slice(0, 20)} has left the conference, not reconnecting`,
+  private onConnect(): void {
+    const mediaWaitTimer = setTimeout(() => {
+      const cur = safeGetConference(this.ctx, this.roomId);
+      const p = cur?.participants.get(this.pubKey);
+      if (cur && !cur.ended && p && p.hasJoined && !p.stream && !this.peer.destroyed) {
+        console.warn(
+          `[SimplePeer] No media from ${this.pubKey.slice(0, 20)}, dropping to reconnect`,
         );
-        return;
+        this.hooks.cleanupPeer(this.roomId, this.pubKey);
       }
+    }, MEDIA_WAIT_MS);
 
-      updateParticipant(ctx, roomId, participantPubKey, (p) => ({
+    updateParticipant(this.ctx, this.roomId, this.pubKey, (p) => {
+      if (p.connectionTimeout) clearTimeout(p.connectionTimeout);
+      if (p.mediaWaitTimer) clearTimeout(p.mediaWaitTimer);
+      return {
         ...p,
-        connectionStatus: "idle",
-      }));
-
-      scheduleReconnect(roomId, participantPubKey);
+        connectionStatus: "connected",
+        connectionTimeout: undefined,
+        mediaWaitTimer,
+      };
     });
+    this.connectionTimeout = undefined;
 
-    peer.on("error", (err) => {
-      console.error(`[SimplePeer] Error with ${participantPubKey.slice(0, 20)}:`, err);
+    const state = safeGetConference(this.ctx, this.roomId);
+    if (state?.localStream) {
+      const video = state.videoEnabled ?? state.localStream.getVideoTracks().some((t) => t.enabled);
+      const audio = state.audioEnabled ?? state.localStream.getAudioTracks().some((t) => t.enabled);
+      this.sendMediaState(video, audio);
+    }
+  }
 
-      const currentState = safeGetConference(ctx, roomId);
-      const participant = currentState?.participants.get(participantPubKey);
-      if (!participant?.hasJoined || currentState?.ended) {
-        console.log(
-          `[SimplePeer] Participant ${participantPubKey.slice(0, 20)} has left or conference ended, not reconnecting after error`,
-        );
-        return;
-      }
+  private onClose(): void {
+    console.log(`[SimplePeer] Connection closed with ${this.pubKey.slice(0, 20)}`);
+    const state = safeGetConference(this.ctx, this.roomId);
+    if (state?.ended) return;
+    const p = state?.participants.get(this.pubKey);
+    if (!p?.hasJoined) return;
+    this.patch({ connectionStatus: "idle" });
+  }
 
-      updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-        ...p,
-        connectionStatus: "failed",
-      }));
+  private onError(err: Error): void {
+    console.error(`[SimplePeer] Error with ${this.pubKey.slice(0, 20)}:`, err);
+    const state = safeGetConference(this.ctx, this.roomId);
+    const p = state?.participants.get(this.pubKey);
+    if (!p?.hasJoined || state?.ended) return;
+    this.patch({ connectionStatus: "failed" });
+  }
 
-      scheduleReconnect(roomId, participantPubKey);
-    });
+  private onHandshakeTimeout(): void {
+    console.error(`[SimplePeer] Connection timeout for ${this.pubKey.slice(0, 20)}`);
+    this.hooks.cleanupPeer(this.roomId, this.pubKey);
+  }
 
-    const timeout = setTimeout(() => {
-      console.error(
-        `[SimplePeer] Connection timeout (${CONNECTION_TIMEOUT_MS}ms) for ${participantPubKey.slice(0, 20)}`,
-      );
+  private flushBufferedSignals(): void {
+    const state = safeGetConference(this.ctx, this.roomId);
+    const participant = state?.participants.get(this.pubKey);
+    if (!participant) return;
 
-      updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-        ...p,
-        connectionStatus: "failed",
-      }));
-
-      if (!peer.destroyed) {
-        peer.destroy();
-      }
-
-      scheduleReconnect(roomId, participantPubKey);
-    }, CONNECTION_TIMEOUT_MS);
-
-    updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-      ...p,
-      connectionTimeout: timeout,
-    }));
-
-    const currentState = safeGetConference(ctx, roomId);
-    const participant = currentState?.participants.get(participantPubKey);
-
-    if (participant?.pendingSdpSignals?.length) {
-      console.log(
-        `[SimplePeer] Flushing ${participant.pendingSdpSignals.length} buffered SDP signals for ${participantPubKey.slice(0, 20)}`,
-      );
-
+    if (participant.pendingSdpSignals?.length) {
       const now = Date.now();
-      const validSignals = participant.pendingSdpSignals.filter((signal) => {
+      const valid = participant.pendingSdpSignals.filter((s) => {
         try {
-          const parsed = JSON.parse(signal);
-          const signalTime = parsed.timestamp || now;
-          return now - signalTime < SDP_BUFFER_EXPIRY_MS;
+          return now - (JSON.parse(s).timestamp || now) < SDP_BUFFER_EXPIRY_MS;
         } catch {
           return false;
         }
       });
-
-      if (validSignals.length < participant.pendingSdpSignals.length) {
-        console.log(
-          `[SimplePeer] Discarded ${participant.pendingSdpSignals.length - validSignals.length} expired/invalid signals`,
-        );
-      }
-
-      for (const bufferedData of validSignals) {
+      for (const buffered of valid) {
+        if (this.peer.destroyed) break;
         try {
-          if (peer.destroyed) {
-            console.warn(
-              `[SimplePeer] Peer destroyed, skipping buffered signal for ${participantPubKey.slice(0, 20)}`,
-            );
-            break;
-          }
-
-          const signalData = JSON.parse(bufferedData);
-          peer.signal(signalData);
-
-          updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-            ...p,
-            lastSignalReceived: now,
-          }));
+          const wrapper = JSON.parse(buffered);
+          this.peer.signal(wrapper.sdp || wrapper);
         } catch (error) {
           console.error("[SimplePeer] Error processing buffered SDP signal:", error);
         }
       }
-
-      updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-        ...p,
-        pendingSdpSignals: [],
-        signalBufferExpiry: undefined,
-      }));
+      this.patch({ pendingSdpSignals: [], lastSignalReceived: now });
     }
 
-    if (participant?.pendingOutgoingSdp?.length && currentState?.cellIdB64) {
-      const cellId = ctx.client.decodeCellId(currentState.cellIdB64);
-      const targetDecoded = decodeHashFromBase64(participantPubKey);
-
+    if (participant.pendingOutgoingSdp?.length && state?.cellIdB64) {
+      const cellId = this.ctx.client.decodeCellId(state.cellIdB64);
+      const target = decodeHashFromBase64(this.pubKey);
       for (const outData of participant.pendingOutgoingSdp) {
-        ctx.client
-          .sendSdpData(roomId, targetDecoded, connectionId, JSON.parse(outData), cellId)
-          .catch((err) =>
-            console.error("[SimplePeer] Error sending buffered outgoing SDP:", err),
-          );
+        this.ctx.client
+          .sendSdpData(this.roomId, target, this.connectionId, JSON.parse(outData), cellId)
+          .catch((err) => console.error("[SimplePeer] Error sending buffered outgoing SDP:", err));
       }
-
-      updateParticipant(ctx, roomId, participantPubKey, (p) => ({
-        ...p,
-        pendingOutgoingSdp: [],
-      }));
+      this.patch({ pendingOutgoingSdp: [] });
     }
-
-    return peer;
   }
 
-  function cleanupPeerWithVerification(roomId: string, pubKey: string): PeerCleanupReport {
-    const state = safeGetConference(ctx, roomId);
-    if (!state)
-      return { peersDestroyed: 0, timersCleared: 0, buffersCleared: 0, errors: [] };
+  applyRemoteSignal(data: SimplePeer.SignalData): void {
+    if (!this.peer.destroyed) this.peer.signal(data);
+  }
 
-    const participant = state.participants.get(pubKey);
-    if (!participant)
-      return { peersDestroyed: 0, timersCleared: 0, buffersCleared: 0, errors: [] };
-
-    const report: PeerCleanupReport = {
-      peersDestroyed: 0,
-      timersCleared: 0,
-      buffersCleared: 0,
-      errors: [],
-    };
-
-    if (participant.reconnectTimer) {
-      try {
-        clearTimeout(participant.reconnectTimer);
-        report.timersCleared++;
-        console.log(`[SimplePeer] Cleared reconnect timer for ${pubKey.slice(0, 20)}`);
-      } catch (e) {
-        const error = `[SimplePeer] Error clearing reconnect timer for ${pubKey.slice(0, 20)}: ${e}`;
-        console.warn(error);
-        report.errors.push(error);
-      }
-    }
-    if (participant.connectionTimeout) {
-      try {
-        clearTimeout(participant.connectionTimeout);
-        report.timersCleared++;
-        console.log(`[SimplePeer] Cleared connection timeout for ${pubKey.slice(0, 20)}`);
-      } catch (e) {
-        const error = `[SimplePeer] Error clearing connection timeout for ${pubKey.slice(0, 20)}: ${e}`;
-        console.warn(error);
-        report.errors.push(error);
-      }
-    }
-    if (participant.mediaWaitTimer) {
-      try {
-        clearTimeout(participant.mediaWaitTimer);
-        report.timersCleared++;
-      } catch (e) {
-        const error = `[SimplePeer] Error clearing media wait timer for ${pubKey.slice(0, 20)}: ${e}`;
-        console.warn(error);
-        report.errors.push(error);
-      }
-    }
-    if (participant.networkMonitorTimeout) {
-      try {
-        clearTimeout(participant.networkMonitorTimeout);
-        report.timersCleared++;
-        console.log(`[SimplePeer] Cleared network monitor timeout for ${pubKey.slice(0, 20)}`);
-      } catch (e) {
-        const error = `[SimplePeer] Error clearing network monitor timeout for ${pubKey.slice(0, 20)}: ${e}`;
-        console.warn(error);
-        report.errors.push(error);
-      }
-    }
-
-    if (participant.peer && !participant.peer.destroyed) {
-      try {
-        participant.peer.destroy();
-        report.peersDestroyed++;
-        console.log(`[SimplePeer] Destroyed peer for ${pubKey.slice(0, 20)}`);
-      } catch (e) {
-        const error = `[SimplePeer] Error destroying peer for ${pubKey.slice(0, 20)}: ${e}`;
-        console.warn(error);
-        report.errors.push(error);
-      }
-    }
-
-    const bufferCount =
-      (participant.pendingSdpSignals?.length || 0) +
-      (participant.pendingOutgoingSdp?.length || 0);
-    if (bufferCount > 0) {
-      console.log(
-        `[SimplePeer] Clearing ${bufferCount} buffered signals for ${pubKey.slice(0, 20)}`,
-      );
-    }
-
+  sendMediaState(video: boolean, audio: boolean): void {
+    if (!this.peer.connected || this.peer.destroyed) return;
     try {
-      updateParticipant(ctx, roomId, pubKey, (p) => ({
-        publicKey: p.publicKey,
-        hasJoined: p.hasJoined,
-        connectionStatus: "idle",
-        videoEnabled: p.videoEnabled,
-        audioEnabled: p.audioEnabled,
-        peer: undefined,
-        stream: undefined,
-        connectionId: undefined,
-        pendingSdpSignals: [],
-        pendingOutgoingSdp: [],
-        reconnectTimer: undefined,
-        connectionTimeout: undefined,
-        networkMonitorTimeout: undefined,
-        signalBufferExpiry: undefined,
-        lastSignalReceived: undefined,
-        lastIceState: undefined,
-        videoTrackActive: undefined,
-        audioTrackActive: undefined,
-        trackFailureDetected: undefined,
-        connectionRetryCount: p.connectionRetryCount,
-      }));
-      report.buffersCleared += bufferCount;
+      this.peer.send(JSON.stringify({ t: "media", video, audio }));
     } catch (e) {
-      const error = `[SimplePeer] Error resetting participant state for ${pubKey.slice(0, 20)}: ${e}`;
-      console.warn(error);
-      report.errors.push(error);
+      console.warn(`[SimplePeer] media state send to ${this.pubKey.slice(0, 20)} failed:`, e);
     }
-
-    console.log(
-      `[SimplePeer] Verified cleanup for ${pubKey.slice(0, 20)}: ${JSON.stringify({
-        peersDestroyed: report.peersDestroyed,
-        timersCleared: report.timersCleared,
-        buffersCleared: report.buffersCleared,
-        errors: report.errors.length,
-      })}`,
-    );
-
-    return report;
   }
 
-  return {
-    createPeer,
-    cleanupPeer,
-    cleanupPeerWithVerification,
-  };
+  addVideoTrack(track: MediaStreamTrack, stream: MediaStream): void {
+    if (this.peer.destroyed || !this.peer.connected) return;
+    try {
+      this.peer.addTrack(track, stream);
+    } catch (e) {
+      console.warn(`[SimplePeer] addTrack to ${this.pubKey.slice(0, 20)} failed:`, e);
+    }
+  }
+
+  removeVideoTrack(track: MediaStreamTrack, stream: MediaStream): void {
+    if (this.peer.destroyed) return;
+    try {
+      this.peer.removeTrack(track, stream);
+    } catch (e) {
+      console.warn(`[SimplePeer] removeTrack from ${this.pubKey.slice(0, 20)} failed:`, e);
+    }
+  }
+
+  replaceVideoTrack(
+    oldTrack: MediaStreamTrack,
+    newTrack: MediaStreamTrack,
+    stream: MediaStream,
+  ): void {
+    if (this.peer.destroyed || !this.peer.connected) return;
+    try {
+      this.peer.replaceTrack(oldTrack, newTrack, stream);
+    } catch (e) {
+      console.warn(`[SimplePeer] replaceTrack for ${this.pubKey.slice(0, 20)} failed:`, e);
+    }
+  }
+
+  async isMediaStalled(): Promise<boolean> {
+    if (!this.peer.connected || this.peer.destroyed) {
+      this.stalledTicks = 0;
+      return false;
+    }
+    const pc = (this.peer as unknown as { _pc?: RTCPeerConnection })._pc;
+    if (!pc) return false;
+    try {
+      const stats = await pc.getStats();
+      let bytes = 0;
+      stats.forEach((r) => {
+        if (r.type === "inbound-rtp") bytes += (r as RTCInboundRtpStreamStats).bytesReceived || 0;
+      });
+      if (bytes > this.lastBytesReceived) {
+        this.lastBytesReceived = bytes;
+        this.stalledTicks = 0;
+        return false;
+      }
+      if (this.lastBytesReceived === 0) return false;
+      this.stalledTicks++;
+      return this.stalledTicks >= 3;
+    } catch {
+      return false;
+    }
+  }
 }

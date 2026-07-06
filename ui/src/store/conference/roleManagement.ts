@@ -48,9 +48,7 @@ export function createRoleManager(
       const participants = await ctx.client.getConferenceParticipants(roomId, cellId);
 
       const hostRecord = participants.find((p) => p.role === ConferenceRole.Host);
-      const currentHostPubKeyB64 = hostRecord
-        ? encodeHashToBase64(hostRecord.agent)
-        : undefined;
+      const currentHostPubKeyB64 = hostRecord ? encodeHashToBase64(hostRecord.agent) : undefined;
 
       ctx.conferences.updateKeyValue(roomId, (conf) => {
         if (!conf) return conf;
@@ -83,10 +81,7 @@ export function createRoleManager(
     }
   }
 
-  async function transferHost(
-    roomId: string,
-    newHostPubKeyB64: AgentPubKeyB64,
-  ): Promise<void> {
+  async function transferHost(roomId: string, newHostPubKeyB64: AgentPubKeyB64): Promise<void> {
     const state = safeGetConference(ctx, roomId);
     if (!state?.cellIdB64) {
       throw new Error("Cannot transfer host - no cellIdB64");
@@ -104,10 +99,7 @@ export function createRoleManager(
     await fetchRoles(roomId);
   }
 
-  async function kickParticipant(
-    roomId: string,
-    targetPubKeyB64: AgentPubKeyB64,
-  ): Promise<void> {
+  async function kickParticipant(roomId: string, targetPubKeyB64: AgentPubKeyB64): Promise<void> {
     const state = safeGetConference(ctx, roomId);
     if (!state?.cellIdB64) {
       throw new Error("Cannot kick participant - no cellIdB64");

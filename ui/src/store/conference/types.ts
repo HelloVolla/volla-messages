@@ -8,11 +8,14 @@ import {
 } from "../generic/GenericKeyValueStore";
 import { type RelayClient } from "../RelayClient";
 import { type ConferenceRoom, type SimplePeerSignalPayload, ConferenceRole } from "$lib/types";
+import type { PeerConnection } from "./peerConnection";
 
 export {
   ICE_CONFIG,
-  RECONNECT_CONFIG,
   CONNECTION_TIMEOUT_MS,
+  HEARTBEAT_INTERVAL_MS,
+  INIT_RETRY_MS,
+  PONG_STALE_MS,
   MEDIA_WAIT_MS,
   MAX_CONFERENCE_PARTICIPANTS,
   INVITATION_TIMEOUT_MS,
@@ -45,6 +48,7 @@ export function deriveConnectionQuality(iceState?: RTCIceConnectionState): Conne
 export interface SimplePeerParticipant {
   publicKey: AgentPubKeyB64;
   peer?: SimplePeer.Instance;
+  conn?: PeerConnection;
   connectionId?: string;
   hasJoined: boolean;
   connectionStatus?: "idle" | "init-sent" | "init-received" | "connecting" | "connected" | "failed";
@@ -53,21 +57,14 @@ export interface SimplePeerParticipant {
   role?: ConferenceRole;
   pendingSdpSignals?: string[];
   pendingOutgoingSdp?: string[];
-  reconnectAttempts?: number;
-  reconnectTimer?: ReturnType<typeof setTimeout>;
   connectionTimeout?: ReturnType<typeof setTimeout>;
   mediaWaitTimer?: ReturnType<typeof setTimeout>;
-  signalBufferExpiry?: number;
   lastSignalReceived?: number;
-  connectionRetryCount?: number;
-  networkMonitorTimeout?: ReturnType<typeof setTimeout>;
   lastIceState?: RTCIceConnectionState;
-  videoTrackActive?: boolean;
-  audioTrackActive?: boolean;
-  trackFailureDetected?: boolean;
+  initSentAt?: number;
+  lastPongAt?: number;
   connectionQuality?: ConnectionQuality;
   pendingInitRequest?: SimplePeerSignalPayload;
-  streamVersion?: number;
   stream?: MediaStream;
 }
 
@@ -92,6 +89,7 @@ export interface SimplePeerConferenceState {
   isMinimized?: boolean;
   videoEnabled?: boolean;
   audioEnabled?: boolean;
+  isScreenSharing?: boolean;
   invitedBy?: AgentPubKeyB64;
   invitationTimestamp?: number;
   leftTimestamp?: number;
@@ -110,11 +108,8 @@ export interface SimplePeerConferenceState {
 export interface ConferenceContext {
   client: RelayClient;
   conferences: GenericKeyValueStore<SimplePeerConferenceState>;
-  reconnectTimers: Map<string, ReturnType<typeof setTimeout>>;
-  networkMonitorTimers: Map<string, ReturnType<typeof setTimeout>>;
   healthMonitorIntervals: Map<string, ReturnType<typeof setInterval>>;
   mediaStateDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
-  outgoingSdpBuffer: Map<string, Array<{ data: string; timestamp: number }>>;
 }
 
 export function safeGetConference(
