@@ -1,6 +1,6 @@
 {
   "name": "ui",
-  "version": "0.12.5-av",
+  "version": "0.12.6-av",
   "private": true,
   "scripts": {
     "start": "vite --clearScreen false",
