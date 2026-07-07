@@ -11,7 +11,7 @@
   import MessageFilePreview from "./MessageFilePreview.svelte";
   import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import AgentNickname from "$lib/AgentNickname.svelte";
-  import { open } from "@tauri-apps/plugin-shell";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import DeliveryStatusIndicator from "./DeliveryStatusIndicator.svelte";
   import { computeDeliveryStatus } from "$lib/utils";
 
@@ -37,7 +37,7 @@
 
     e.preventDefault();
     e.stopPropagation();
-    open(anchor.getAttribute("href") as string);
+    openUrl(anchor.getAttribute("href") as string);
   }
 </script>
 
