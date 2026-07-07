@@ -10,21 +10,20 @@
     status === DeliveryStatus.DeliveredPartial || status === DeliveryStatus.DeliveredAll
       ? "doubleCheck"
       : "checkMark";
-
   $: colorClass =
     status === DeliveryStatus.DeliveredAll
       ? "text-primary-500"
       : "text-secondary-400 dark:text-secondary-300";
-
-  $: showCount = status === DeliveryStatus.DeliveredPartial && recipientCount > 1;
+  $: showCount =
+    status === DeliveryStatus.DeliveredPartial && recipientCount > 1;
 </script>
 
 <span
-  class="inline-flex items-center gap-0.5 leading-none {colorClass}"
+  class="inline-flex items-center gap-0.5 text-xxs {colorClass}"
   aria-label="delivery status {status}"
 >
   <SvgIcon {icon} size="h-3 w-3" />
   {#if showCount}
-    <span class="text-xxs leading-none">{deliveredCount}/{recipientCount}</span>
+    <span class="ml-0.5 text-xxs leading-none">{deliveredCount}/{recipientCount}</span>
   {/if}
 </span>
