@@ -165,8 +165,15 @@ export interface MessageExtended {
   timestamp: number;
   replyToMessage?: MessageExtended;
   replyCount?: number;
-  // True if this message has ever been replied to (independent of cache)
   hasReplies?: boolean;
+  deliveredTo: AgentPubKeyB64[];
+}
+
+export enum DeliveryStatus {
+  Sending = "Sending",
+  Sent = "Sent",
+  DeliveredPartial = "DeliveredPartial",
+  DeliveredAll = "DeliveredAll",
 }
 
 export interface MessageRecord {
@@ -229,6 +236,11 @@ export function parseConferenceLog(content: string): ConferenceLog | null {
 export interface SendMessageInput {
   message: Message;
   agents: AgentPubKey[];
+}
+
+export interface NotifyMessageDeliveryInput {
+  agent: AgentPubKey;
+  message_record: MessageRecord;
 }
 
 export interface DeleteMessageInput {

@@ -515,6 +515,9 @@
           messages={displayMessages}
           {participantCount}
           threadViewEnabled={$threadViewEnabled}
+          recipientPubKeyB64s={$joined.list
+            .map(([k]) => k)
+            .filter((k) => k !== myPubKeyB64)}
           on:delete={(e) => {
             deleteMessageActionHashB64 = e.detail;
             showDeleteDialog = true;

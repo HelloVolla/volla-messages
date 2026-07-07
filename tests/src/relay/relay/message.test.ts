@@ -120,12 +120,12 @@ test('create and update Message', async () => {
     await dhtSync([alice, bob], alice.cells[0].cell_id[0]);
         
     // Bob gets the updated Message
-    const readUpdatedOutput0: Record = await bob.cells[0].callZome({
+    const readUpdatedOutput0: any = await bob.cells[0].callZome({
       zome_name: "relay",
       fn_name: "get_latest_message",
-      payload: updatedRecord.signed_action.hashed.hash,
+      payload: { input: updatedRecord.signed_action.hashed.hash, local: true },
     });
-    assert.deepEqual(contentUpdate, decode((readUpdatedOutput0.entry as any).Present.entry) as any);
+    assert.deepEqual(contentUpdate, readUpdatedOutput0.message);
 
     // Alice updates the Message again
     contentUpdate = await sampleMessage(alice.cells[0]);
@@ -146,12 +146,12 @@ test('create and update Message', async () => {
     await dhtSync([alice, bob], alice.cells[0].cell_id[0]);
         
     // Bob gets the updated Message
-    const readUpdatedOutput1: Record = await bob.cells[0].callZome({
+    const readUpdatedOutput1: any = await bob.cells[0].callZome({
       zome_name: "relay",
       fn_name: "get_latest_message",
-      payload: updatedRecord.signed_action.hashed.hash,
+      payload: { input: updatedRecord.signed_action.hashed.hash, local: true },
     });
-    assert.deepEqual(contentUpdate, decode((readUpdatedOutput1.entry as any).Present.entry) as any);
+    assert.deepEqual(contentUpdate, readUpdatedOutput1.message);
 
     // Bob gets all the revisions for Message
     const revisions: Record[] = await bob.cells[0].callZome({
@@ -194,7 +194,10 @@ test('create and delete Message', async () => {
     const deleteActionHash = await alice.cells[0].callZome({
       zome_name: "relay",
       fn_name: "delete_message",
-      payload: record.signed_action.hashed.hash,
+      payload: {
+        original_message_hash: record.signed_action.hashed.hash,
+        agents: [],
+      },
     });
     assert.ok(deleteActionHash);
 
@@ -220,3 +223,105 @@ test('create and delete Message', async () => {
 
   });
 });
+
+function buildSendMessageInput(agents: any[] = []) {
+  return {
+    message: {
+      content: "Hello, world!",
+      bucket: 0,
+      images: [],
+      message_type: "User",
+    },
+    agents,
+  };
+}
+
+async function createMessageWithInput(cell: CallableCell, agents: any[] = []): Promise<Record> {
+  return cell.callZome({
+    zome_name: "relay",
+    fn_name: "create_message",
+    payload: buildSendMessageInput(agents),
+  });
+}
+
+function recordToMessageRecord(record: Record) {
+  return {
+    original_action: record.signed_action.hashed.hash,
+    signed_action: record.signed_action,
+    message: decode((record.entry as any).Present.entry),
+  };
+}
+
+test('notify_message_delivery returns true when recipient is online', async () => {
+  await runScenario(async scenario => {
+    const testAppPath = process.cwd() + '/../workdir/relay.happ';
+    const appSource = { appBundleSource: { type: "path", value: testAppPath } };
+
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+
+    const record = await createMessageWithInput(alice.cells[0]);
+    assert.ok(record);
+
+    const delivered: boolean = await alice.cells[0].callZome({
+      zome_name: "relay",
+      fn_name: "notify_message_delivery",
+      payload: {
+        agent: bob.agentPubKey,
+        messageRecord: recordToMessageRecord(record),
+      },
+    });
+
+    assert.equal(delivered, true);
+  });
+});
+
+test('notify_message_delivery returns false when notifying self', async () => {
+  await runScenario(async scenario => {
+    const testAppPath = process.cwd() + '/../workdir/relay.happ';
+    const appSource = { appBundleSource: { type: "path", value: testAppPath } };
+
+    const [alice] = await scenario.addPlayersWithApps([appSource]);
+    await scenario.shareAllAgents();
+
+    const record = await createMessageWithInput(alice.cells[0]);
+    assert.ok(record);
+
+    const delivered: boolean = await alice.cells[0].callZome({
+      zome_name: "relay",
+      fn_name: "notify_message_delivery",
+      payload: {
+        agent: alice.agentPubKey,
+        messageRecord: recordToMessageRecord(record),
+      },
+    });
+
+    assert.equal(delivered, false);
+  });
+});
+
+test('notify_message_delivery returns false when recipient is offline', async () => {
+  await runScenario(async scenario => {
+    const testAppPath = process.cwd() + '/../workdir/relay.happ';
+    const appSource = { appBundleSource: { type: "path", value: testAppPath } };
+
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+
+    const record = await createMessageWithInput(alice.cells[0]);
+    assert.ok(record);
+
+    await bob.conductor.shutDown();
+
+    const delivered: boolean = await alice.cells[0].callZome({
+      zome_name: "relay",
+      fn_name: "notify_message_delivery",
+      payload: {
+        agent: bob.agentPubKey,
+        messageRecord: recordToMessageRecord(record),
+      },
+    }, 240000);
+
+    assert.equal(delivered, false);
+  });
+}, 300000);

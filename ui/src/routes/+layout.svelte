@@ -2,7 +2,7 @@
   import type { AgentPubKeyB64, AppClient, CellId } from "@holochain/client";
   import { AppWebsocket, CellType, encodeHashToBase64 } from "@holochain/client";
   import { writable, type Writable } from "svelte/store";
-  import { onMount, setContext } from "svelte";
+  import { onMount, onDestroy, setContext } from "svelte";
   import { t } from "$translations";
   import { createSignalHandler } from "$store/SignalHandler";
   import toast, { Toaster } from "svelte-french-toast";
@@ -60,7 +60,6 @@
   import { ConferenceView, ResizablePip } from "$lib/conference";
   import IncomingCallBanner from "$lib/IncomingCallBanner.svelte";
   import { sendConferenceEndedLog } from "$lib/conferenceLogging";
-  import { onDestroy } from "svelte";
 
   // Svelte action to set video srcObject
   function setVideoStream(videoElement: HTMLVideoElement, stream: MediaStream) {
@@ -362,13 +361,44 @@
     }
   }
 
+  // Track when app was backgrounded (for detecting Android Doze scenarios)
+  let lastBackgroundTime = 0;
+
+  async function handleVisibilityChange() {
+    if (document.visibilityState === "hidden") {
+      lastBackgroundTime = Date.now();
+      console.log(`[visibility] backgrounded at ${lastBackgroundTime}`);
+      return;
+    }
+
+    const now = Date.now();
+    const backgroundDurationMs = now - lastBackgroundTime;
+    const backgroundDurationMin = Math.round(backgroundDurationMs / 1000 / 60);
+    const isLikelyDoze = backgroundDurationMs > 10 * 60 * 1000;
+
+    if (isLikelyDoze) {
+      console.log(
+        `[visibility] [doze] Reloading app after ${backgroundDurationMin} minute(s) in background...`,
+      );
+      window.location.reload();
+      return;
+    }
+  }
+
   async function setupApp() {
     initLightDarkModeSwitcher();
     await initHolochainClient();
     await initStores();
   }
 
-  onMount(setupApp);
+  onMount(async () => {
+    await setupApp();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+  });
+
+  onDestroy(() => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  });
 
   onDestroy(() => {
     conferenceStore?.cleanupAll();

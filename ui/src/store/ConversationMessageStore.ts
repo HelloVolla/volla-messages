@@ -17,6 +17,8 @@ import {
   decodeHashFromBase64,
   encodeHashToBase64,
   type ActionHashB64,
+  type AgentPubKey,
+  type AgentPubKeyB64,
   type CellId,
 } from "@holochain/client";
 import { flatten, range, sum } from "lodash-es";
@@ -790,6 +792,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
     replyTo?: ActionHashB64,
   ): Promise<void> {
     const cellId = decodeCellIdFromBase64(key1);
+    const myPubKeyB64 = encodeHashToBase64(client.client.myPubKey);
 
     const messageFiles = await Promise.all(
       files.map(async (file) => {
@@ -808,7 +811,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
     const mergedProfileContact = deriveCellMergedProfileContactInviteStore(
       mergedProfileContactInviteStore,
       key1,
-      encodeHashToBase64(client.client.myPubKey),
+      myPubKeyB64,
     );
     const agentPubKeys = get(mergedProfileContact).list.map(([a]) => decodeHashFromBase64(a));
 
@@ -826,16 +829,85 @@ const paginationState = writable<Record<string, PaginationState>>({});
     const message = new EntryRecord<Message>(record).entry;
     if (!message) throw new Error("Failed to decode Message entry from record");
 
-    const messageExtended = await _makeMessageExtended(cellId, {
+    const messageRecord: MessageRecord = {
       message,
       original_action: record.signed_action.hashed.hash,
       signed_action: record.signed_action,
-    });
+    };
+    const messageExtended = await _makeMessageExtended(cellId, messageRecord);
 
     const actionHashB64 = encodeHashToBase64(record.signed_action.hashed.hash);
 
     await messageDB.storeMessage(key1, actionHashB64, messageExtended);
     _insertNewestIntoMemory(key1, actionHashB64, messageExtended);
+
+    const recipients = agentPubKeys.filter((a) => encodeHashToBase64(a) !== myPubKeyB64);
+    void _notifyAndTrackDelivery(key1, cellId, actionHashB64, messageRecord, recipients);
+  }
+
+  async function _notifyAndTrackDelivery(
+    cellIdB64: CellIdB64,
+    cellId: CellId,
+    actionHashB64: ActionHashB64,
+    messageRecord: MessageRecord,
+    recipients: AgentPubKey[],
+  ): Promise<void> {
+    if (recipients.length === 0) return;
+
+    const results = await Promise.all(
+      recipients.map(async (agent) => {
+        try {
+          const delivered = await client.notifyMessageDelivery(cellId, {
+            agent,
+            message_record: messageRecord,
+          });
+          return { agentB64: encodeHashToBase64(agent), delivered };
+        } catch (err) {
+          _log("delivery:notify-failed", {
+            cell: _cid(cellIdB64),
+            agent: encodeHashToBase64(agent).slice(0, 10),
+            err: String(err),
+          });
+          return { agentB64: encodeHashToBase64(agent), delivered: false };
+        }
+      }),
+    );
+
+    const deliveredAgents = results.filter((r) => r.delivered).map((r) => r.agentB64);
+    if (deliveredAgents.length === 0) return;
+
+    _mergeDeliveredTo(cellIdB64, actionHashB64, deliveredAgents);
+
+    const finalMessage = get(messages).data[cellIdB64]?.[actionHashB64];
+    if (finalMessage) {
+      await messageDB.storeMessage(cellIdB64, actionHashB64, finalMessage);
+    }
+  }
+
+  function _mergeDeliveredTo(
+    cellIdB64: CellIdB64,
+    actionHashB64: ActionHashB64,
+    newAgents: AgentPubKeyB64[],
+  ): void {
+    messages.update((m) => {
+      const existing = m[cellIdB64]?.[actionHashB64];
+      if (!existing) return m;
+
+      const merged = new Set(existing.deliveredTo);
+      for (const a of newAgents) merged.add(a);
+      if (merged.size === existing.deliveredTo.length) return m;
+
+      return {
+        ...m,
+        [cellIdB64]: {
+          ...m[cellIdB64],
+          [actionHashB64]: {
+            ...existing,
+            deliveredTo: Array.from(merged),
+          },
+        },
+      };
+    });
   }
 
   async function sendJoinNotice(key1: CellIdB64): Promise<void> {
@@ -1022,6 +1094,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
         messageRecord.signed_action.hashed.content.author,
       ),
       timestamp: messageRecord.signed_action.hashed.content.timestamp,
+      deliveredTo: [],
     };
 
     // Hydrate the parent message if this is a reply (for inline reply context)
@@ -1039,6 +1112,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
               replyToRecord[0].signed_action.hashed.content.author,
             ),
             timestamp: replyToRecord[0].signed_action.hashed.content.timestamp,
+            deliveredTo: [],
           };
         } else {
           console.warn("[ConversationMessageStore] Reply-to record not found or invalid");

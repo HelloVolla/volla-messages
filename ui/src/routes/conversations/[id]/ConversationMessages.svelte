@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isMobile, isSameDay, isWithinFiveMinutes } from "$lib/utils";
-  import type { ActionHashB64 } from "@holochain/client";
+  import type { ActionHashB64, AgentPubKeyB64 } from "@holochain/client";
   import {
     MessageType,
     type MessageExtended,
@@ -27,6 +27,7 @@
   export let loadingTop = false;
   export let participantCount: number = 0;
   export let threadViewEnabled: boolean = false;
+  export let recipientPubKeyB64s: AgentPubKeyB64[] = [];
 
   let selected: ActionHashB64 | undefined;
   let containerEl: HTMLDivElement | null = null;
@@ -337,6 +338,7 @@
               {actionHashB64}
               {participantCount}
               {threadViewEnabled}
+              {recipientPubKeyB64s}
               on:press={() => handlePress(actionHashB64)}
               on:click={(e) => handleClick(e, actionHashB64)}
               on:clickoutside={handleClickOutside}

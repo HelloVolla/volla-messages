@@ -19,9 +19,11 @@
   import ConferenceLogMessage from "./ConferenceLogMessage.svelte";
   import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import AgentNickname from "$lib/AgentNickname.svelte";
-  import { open } from "@tauri-apps/plugin-shell";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import ReplyPreview from "./ReplyPreview.svelte";
   import ThreadIndicator from "./ThreadIndicator.svelte";
+  import DeliveryStatusIndicator from "./DeliveryStatusIndicator.svelte";
+  import { computeDeliveryStatus } from "$lib/utils";
 
   const myPubKeyB64 = getContext<{ getMyPubKeyB64: () => AgentPubKeyB64 }>(
     "myPubKey",
@@ -34,6 +36,7 @@
   export let actionHashB64: ActionHashB64;
   export let participantCount: number = 0;
   export let threadViewEnabled: boolean = false;
+  export let recipientPubKeyB64s: AgentPubKeyB64[] = [];
 
   const dispatch = createEventDispatcher<{
     scrollToMessage: ActionHashB64;
@@ -47,6 +50,8 @@
   $: conferenceLog = isConferenceLog(message.message.content)
     ? parseConferenceLog(message.message.content)
     : null;
+  $: deliveryStatus = computeDeliveryStatus(message, recipientPubKeyB64s);
+  $: deliveredCount = message.deliveredTo.length;
 
   $: if (message.message.reply_to || message.replyToMessage) {
     console.log("[Message] Message with reply data:", {
@@ -66,7 +71,7 @@
 
     e.preventDefault();
     e.stopPropagation();
-    open(anchor.getAttribute("href") as string);
+    openUrl(anchor.getAttribute("href") as string);
   }
 
   function handleMessageContentKeydown(e: KeyboardEvent) {
@@ -76,7 +81,7 @@
 
       e.preventDefault();
       e.stopPropagation();
-      open(anchor.getAttribute("href") as string);
+      openUrl(anchor.getAttribute("href") as string);
     }
   }
 </script>
@@ -177,7 +182,18 @@
               }),
             )}
           </div>
+
+          {#if fromMe && recipientPubKeyB64s.length > 0}
+            <div class="mt-1 flex justify-end">
+              <DeliveryStatusIndicator
+                status={deliveryStatus}
+                {deliveredCount}
+                recipientCount={recipientPubKeyB64s.length}
+              />
+            </div>
+          {/if}
         </div>
+
 
         {#if !isSmallConversation && message.hasReplies && !fromMe}
           <!-- svelte-ignore a11y-click-events-have-key-events -->

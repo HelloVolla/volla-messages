@@ -20,6 +20,8 @@
     "clipboard-manager:allow-read-text",
     "sharesheet:allow-share-text",
     "shell:default",
+    "opener:default",
+    "opener:allow-open-url",
     "barcode-scanner:default",
     "os:allow-platform",
     "dialog:allow-save",

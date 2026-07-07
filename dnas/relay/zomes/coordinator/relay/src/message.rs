@@ -27,7 +27,6 @@ pub fn create_message(input: SendMessageInput) -> ExternResult<Record> {
         (),
     )?;
 
-    // Create reply link if this is a reply
     if let Some(reply_to_hash) = &input.message.reply_to {
         create_link(
             reply_to_hash.clone(),
@@ -37,7 +36,6 @@ pub fn create_message(input: SendMessageInput) -> ExternResult<Record> {
         )?;
     }
 
-    // Signal other agents that a message was created
     let my_pub_key = agent_info()?.agent_initial_pubkey;
     let agents = input
         .agents
@@ -55,6 +53,31 @@ pub fn create_message(input: SendMessageInput) -> ExternResult<Record> {
 
     debug!("create message all messages link: {:?}", link);
     Ok(record)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NotifyMessageDeliveryInput {
+    pub agent: AgentPubKey,
+    pub message_record: MessageRecord,
+}
+
+#[hdk_extern]
+pub fn notify_message_delivery(input: NotifyMessageDeliveryInput) -> ExternResult<bool> {
+    let me = agent_info()?.agent_initial_pubkey;
+    if input.agent == me {
+        return Ok(false);
+    }
+
+    let response = call_remote(
+        input.agent,
+        zome_info()?.name,
+        "recv_remote_signal".into(),
+        None,
+        crate::RemoteSignalPayload::Message(input.message_record),
+    );
+
+    Ok(matches!(response, Ok(ZomeCallResponse::Ok(_))))
 }
 
 #[derive(Serialize, Deserialize, Debug)]
