@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
   import { fade, scale } from "svelte/transition";
   import { t } from "$translations/index";
   import Avatar from "$lib/Avatar.svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
-  import ParticipantActionMenu from "$lib/ParticipantActionMenu.svelte";
   import type { ParticipantData } from "./types";
 
   export let participant: ParticipantData;
@@ -13,15 +11,8 @@
   export let isLocalVideoEnabled: boolean = true;
   export let isLocalMuted: boolean = false;
   export let getName: (pubKey: string) => string = () => "Unknown";
-  export let canKick: (pubKey: string) => boolean = () => false;
-  export let activeMenuPubKey: string | null = null;
   export let cellIdB64: string | undefined = undefined;
   export let isActiveSpeaker: boolean = false;
-
-  const dispatch = createEventDispatcher<{
-    toggleMenu: { pubKey: string };
-    kick: { pubKey: string };
-  }>();
 
   function mediaStream(node: HTMLMediaElement, stream?: MediaStream | null) {
     let currentStream: MediaStream | null | undefined;
@@ -75,8 +66,6 @@
     participant.connectionStatus === "init-received" ||
     (!participant.isLocal && participant.hasJoined && !participant._connected);
   $: isFailed = participant.connectionStatus === "failed";
-  $: showMenu = !participant.isLocal && canKick(participant.pubKey);
-  $: isMenuOpen = activeMenuPubKey === participant.pubKey;
 
   $: avatarSize =
     variant === "main" ? 120 : variant === "pip" ? 40 : variant === "sidebar" ? 48 : 64;
@@ -200,17 +189,6 @@
 
   {#if isActiveSpeaker}
     <div class="active-speaker-ring pointer-events-none absolute inset-0"></div>
-  {/if}
-
-  {#if showMenu}
-    <div class="absolute right-2 top-2 sm:right-4 sm:top-4">
-      <ParticipantActionMenu
-        isOpen={isMenuOpen}
-        canKick={canKick(participant.pubKey)}
-        on:toggle={() => dispatch("toggleMenu", { pubKey: participant.pubKey })}
-        on:kick={() => dispatch("kick", { pubKey: participant.pubKey })}
-      />
-    </div>
   {/if}
 
   {#if variant === "main"}

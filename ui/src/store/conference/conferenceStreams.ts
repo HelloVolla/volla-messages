@@ -43,7 +43,6 @@ export interface ConferenceStreams {
   switchDevice: (roomId: string, kind: "audio" | "video", deviceId: string) => Promise<void>;
   initializeWebRTC: (roomId: string) => Promise<void>;
   cleanupWebRTC: (roomId: string) => void;
-  blockParticipant: (roomId: string, targetB64: string) => void;
 }
 
 export function createConferenceStreams(ctx: ConferenceContext): ConferenceStreams {
@@ -53,7 +52,6 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     string,
     { screen: MediaStreamTrack; camera: MediaStreamTrack | null }
   >();
-  const blockedAgents = new Set<string>();
 
   function createPeer(
     roomId: string,
@@ -201,7 +199,6 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
   function handleInitRequest(roomId: string, signal: SimplePeerSignalPayload): void {
     const state = safeGetConference(ctx, roomId);
     if (!state?.cellIdB64) return;
-    if (blockedAgents.has(signal.from)) return;
 
     const participant = state.participants.get(signal.from);
     if (participant?.peer && !isParticipantDestroyed(participant)) return;
@@ -227,7 +224,6 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
   }
 
   function handleInitAccept(roomId: string, signal: SimplePeerSignalPayload): void {
-    if (blockedAgents.has(signal.from)) return;
     const state = safeGetConference(ctx, roomId);
     if (!state?.localStream) return;
 
@@ -285,7 +281,6 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
 
     for (const [pubKey, participant] of state.participants.entries()) {
       if (pubKey === myPubKey) continue;
-      if (blockedAgents.has(pubKey)) continue;
       if (participant.declined) continue;
       if (isParticipantConnected(participant)) continue;
       if (participant.peer && !isParticipantDestroyed(participant)) continue;
@@ -343,11 +338,6 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
       const gone: string[] = [];
       currentState.participants.forEach((participant, pubKey) => {
         if (pubKey === myPubKey) return;
-
-        if (blockedAgents.has(pubKey)) {
-          gone.push(pubKey);
-          return;
-        }
 
         const stale =
           participant.lastPongAt !== undefined &&
@@ -832,17 +822,6 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     }
   }
 
-  function blockParticipant(roomId: string, targetB64: string): void {
-    blockedAgents.add(targetB64);
-    cleanupPeer(roomId, targetB64);
-    ctx.conferences.updateKeyValue(roomId, (conf) => {
-      if (!conf.participants.has(targetB64)) return conf;
-      const next = new Map(conf.participants);
-      next.delete(targetB64);
-      return { ...conf, participants: next };
-    });
-  }
-
   return {
     createPeer,
     cleanupPeer,
@@ -859,6 +838,5 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     switchDevice,
     initializeWebRTC,
     cleanupWebRTC,
-    blockParticipant,
   };
 }

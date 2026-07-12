@@ -38,7 +38,6 @@ import type {
   ConferenceRole,
   ConferenceParticipantRecord,
   TransferHostInput,
-  KickParticipantInput,
   RoleChangeInput,
   NotifyMessageDeliveryInput,
 } from "$lib/types";
@@ -664,22 +663,6 @@ export class RelayClient {
       payload: input,
     });
     console.log("[RelayClient] transferHost() complete");
-  }
-
-  public async kickParticipant(
-    room_id: string,
-    target: AgentPubKey,
-    cellId: CellId,
-  ): Promise<void> {
-    console.log("[RelayClient] kickParticipant() - Kicking participant");
-    const input: KickParticipantInput = { room_id, target };
-    await this.client.callZome({
-      cell_id: cellId,
-      zome_name: ZOME_NAME,
-      fn_name: "kick_participant",
-      payload: input,
-    });
-    console.log("[RelayClient] kickParticipant() complete");
   }
 
   public async changeParticipantRole(

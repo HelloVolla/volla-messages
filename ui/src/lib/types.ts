@@ -118,11 +118,6 @@ export type RelaySignal =
       from: AgentPubKey;
     }
   | {
-      type: "Kicked";
-      room_id: string;
-      kicked_by: AgentPubKey;
-    }
-  | {
       type: "HostTransfer";
       room_id: string;
       new_host: AgentPubKey;
@@ -429,11 +424,6 @@ export interface ConferenceParticipantRecord {
 export interface TransferHostInput {
   room_id: string;
   new_host: AgentPubKey;
-}
-
-export interface KickParticipantInput {
-  room_id: string;
-  target: AgentPubKey;
 }
 
 export interface RoleChangeInput {

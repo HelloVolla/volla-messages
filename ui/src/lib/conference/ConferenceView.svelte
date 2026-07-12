@@ -4,12 +4,10 @@
   import { fade, scale } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { t } from "$translations/index";
-  import toast from "svelte-french-toast";
   import type { SimplePeerConferenceStore } from "$store/SimplePeerConferenceStore";
   import type { AgentPubKeyB64 } from "@holochain/client";
   import { type CellIdB64 } from "$lib/types";
   import Dialog from "$lib/Dialog.svelte";
-  import DialogConfirm from "$lib/DialogConfirm.svelte";
   import Button from "$lib/Button.svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
   import Avatar from "$lib/Avatar.svelte";
@@ -70,16 +68,12 @@
 
   let showEndCallDialog = false;
   let showErrorDialog = false;
-  let showKickConfirmDialog = false;
 
   let errorDialogMessage = "";
   let errorDialogTitle = "";
   let errorDialogActionLabel = "";
   let suppressErrorDialog = false;
 
-  let activeParticipantMenu: AgentPubKeyB64 | null = null;
-  let targetParticipantPubKey: AgentPubKeyB64 | null = null;
-  let isPerformingAction = false;
 
   $: profiles = $conferenceStore?.cellIdB64
     ? deriveCellMergedProfileContactInviteStore(
@@ -221,10 +215,6 @@
     return "Unknown";
   }
 
-  function canKickParticipant(targetPubKeyB64: AgentPubKeyB64): boolean {
-    return conferenceStoreBase.canKick(roomId, targetPubKeyB64);
-  }
-
   function toggleMute() {
     if ($conferenceStore?.localStream) {
       const audioTracks = $conferenceStore.localStream.getAudioTracks();
@@ -322,26 +312,6 @@
     conferenceStoreBase.setShowPreJoinScreen(roomId, false);
   }
 
-  function handleToggleMenu(event: CustomEvent<{ pubKey: string }>) {
-    activeParticipantMenu =
-      activeParticipantMenu === event.detail.pubKey ? null : event.detail.pubKey;
-  }
-
-  function handleKick(event: CustomEvent<{ pubKey: string }>) {
-    targetParticipantPubKey = event.detail.pubKey;
-    showKickConfirmDialog = true;
-    activeParticipantMenu = null;
-  }
-
-  function confirmKick() {
-    if (!targetParticipantPubKey) return;
-    const name = getParticipantName(targetParticipantPubKey);
-    conferenceStoreBase.kickParticipant(roomId, targetParticipantPubKey);
-    toast.success(`Removed ${name} from the call`);
-    showKickConfirmDialog = false;
-    targetParticipantPubKey = null;
-  }
-
   function handleKeyboardShortcuts(event: KeyboardEvent) {
     if (event.code === "Escape") endCall();
     if (event.code === "KeyM" && (event.ctrlKey || event.metaKey)) {
@@ -402,10 +372,6 @@
     activeSpeakerStore.destroy();
     localMeter?.destroy();
   });
-
-  $: targetParticipantName = targetParticipantPubKey
-    ? getParticipantName(targetParticipantPubKey)
-    : "";
 </script>
 
 <svelte:window on:keydown={handleKeyboardShortcuts} />
@@ -477,11 +443,7 @@
                 isLocalVideoEnabled={isVideoEnabled}
                 isLocalMuted={isMuted}
                 getName={getParticipantName}
-                canKick={canKickParticipant}
-                activeMenuPubKey={activeParticipantMenu}
                 cellIdB64={$conferenceStore?.cellIdB64}
-                on:toggleMenu={handleToggleMenu}
-                on:kick={handleKick}
               />
             </div>
           {/each}
@@ -508,7 +470,6 @@
               isLocalVideoEnabled={isVideoEnabled}
               isLocalMuted={isMuted}
               getName={getParticipantName}
-              canKick={canKickParticipant}
               cellIdB64={$conferenceStore?.cellIdB64}
             />
           {:else if activeParticipant}
@@ -520,11 +481,7 @@
               isLocalVideoEnabled={isVideoEnabled}
               isLocalMuted={isMuted}
               getName={getParticipantName}
-              canKick={canKickParticipant}
-              activeMenuPubKey={activeParticipantMenu}
               cellIdB64={$conferenceStore?.cellIdB64}
-              on:toggleMenu={handleToggleMenu}
-              on:kick={handleKick}
             />
           {:else}
             <ParticipantTile
@@ -544,7 +501,6 @@
               isLocalVideoEnabled={isVideoEnabled}
               isLocalMuted={isMuted}
               getName={getParticipantName}
-              canKick={canKickParticipant}
               cellIdB64={$conferenceStore?.cellIdB64}
             />
           {/if}
@@ -571,7 +527,6 @@
                   isLocalVideoEnabled={isVideoEnabled}
                   isLocalMuted={isMuted}
                   getName={getParticipantName}
-                  canKick={canKickParticipant}
                   cellIdB64={$conferenceStore?.cellIdB64}
                 />
               {:else}
@@ -594,7 +549,6 @@
                   isLocalVideoEnabled={isVideoEnabled}
                   isLocalMuted={isMuted}
                   getName={getParticipantName}
-                  canKick={canKickParticipant}
                   cellIdB64={$conferenceStore?.cellIdB64}
                 />
               {/if}
@@ -683,40 +637,3 @@
     </Button>
   </div>
 </Dialog>
-
-<DialogConfirm
-  bind:open={showKickConfirmDialog}
-  title={$t("common.conference_kickTitle")}
-  actionButtonLabel={$t("common.conference_kickConfirm")}
-  loading={isPerformingAction}
-  on:confirm={confirmKick}
-  on:cancel={() => {
-    showKickConfirmDialog = false;
-    targetParticipantPubKey = null;
-  }}
->
-  <div class="flex flex-col items-center gap-4 text-center">
-    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-error-500/10">
-      <SvgIcon icon="alertCircle" moreClasses="h-6 w-6 text-error-500" />
-    </div>
-    {#if targetParticipantPubKey}
-      <div class="flex flex-col items-center gap-2">
-        <Avatar agentPubKeyB64={targetParticipantPubKey} size={48} />
-        <p class="font-medium text-secondary-700 dark:text-tertiary-300">{targetParticipantName}</p>
-      </div>
-    {/if}
-    <p class="text-sm text-secondary-500 dark:text-tertiary-500">
-      {$t("common.conference_kickMessage")}
-    </p>
-  </div>
-</DialogConfirm>
-
-{#if activeParticipantMenu}
-  <button
-    class="fixed inset-0 z-40 cursor-default bg-black/10"
-    on:click={() => (activeParticipantMenu = null)}
-    aria-label="Close menu"
-    tabindex="-1"
-    transition:fade={{ duration: 150 }}
-  ></button>
-{/if}

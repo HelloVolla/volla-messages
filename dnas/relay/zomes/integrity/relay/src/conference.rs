@@ -55,12 +55,6 @@ pub struct TransferHostInput {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct KickParticipantInput {
-    pub room_id: String,
-    pub target: AgentPubKey,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RoleChangeInput {
     pub room_id: String,
     pub target: AgentPubKey,
@@ -114,7 +108,6 @@ pub enum ConferenceSignalType {
     WebRTC,
     Ack,
     RoleChanged,
-    Kicked,
     HostTransfer,
 }
 

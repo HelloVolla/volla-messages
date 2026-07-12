@@ -72,9 +72,7 @@ export interface SimplePeerConferenceStore {
   recordPeerActivity: (agentB64: string) => void;
   cleanupAll: () => void;
   getIncomingInvitations: () => SimplePeerConferenceState[];
-  kickParticipant: (roomId: string, targetPubKeyB64: AgentPubKeyB64) => void;
   canEndConference: (roomId: string) => boolean;
-  canKick: (roomId: string, targetPubKeyB64: AgentPubKeyB64) => boolean;
   subscribe: (
     run: Subscriber<GenericKeyValueStoreDataExtended<SimplePeerConferenceState>>,
     invalidate?: Invalidator<GenericKeyValueStoreDataExtended<SimplePeerConferenceState>>,
@@ -120,12 +118,6 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
   }
   function canEndConference(roomId: string): boolean {
     return confInitiator(roomId);
-  }
-  function canKick(roomId: string, targetPubKeyB64: AgentPubKeyB64): boolean {
-    return confInitiator(roomId) && targetPubKeyB64 !== encodeHashToBase64(client.client.myPubKey);
-  }
-  function kickParticipant(roomId: string, targetPubKeyB64: AgentPubKeyB64): void {
-    streams.blockParticipant(roomId, targetPubKeyB64);
   }
 
   const uiState = createUIStateManager(ctx);
@@ -246,9 +238,7 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
 
     cleanupPeer: streams.cleanupPeer,
 
-    kickParticipant,
     canEndConference,
-    canKick,
 
     deriveConferenceStore,
     getConference: conferences.getKeyValue,

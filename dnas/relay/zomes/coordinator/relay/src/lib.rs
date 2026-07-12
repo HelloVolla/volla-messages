@@ -147,20 +147,6 @@ fn recv_remote_signal(payload: RemoteSignalPayload) -> ExternResult<()> {
                         )))?;
                     emit_signal(Signal::RoleChanged { room_id, new_role, from })
                 }
-                ConferenceSignalType::Kicked => {
-                    info!("[Rust] ** Kicked signal detected **");
-                    let room_id = conference_record
-                        .room_id
-                        .ok_or(wasm_error!(WasmErrorInner::Guest(
-                            "Room ID required for Kicked signal".into()
-                        )))?;
-                    let kicked_by = conference_record
-                        .agent
-                        .ok_or(wasm_error!(WasmErrorInner::Guest(
-                            "Agent field required for Kicked signal".into()
-                        )))?;
-                    emit_signal(Signal::Kicked { room_id, kicked_by })
-                }
                 ConferenceSignalType::HostTransfer => {
                     info!("[Rust] ** HostTransfer signal detected **");
                     let room_id = conference_record
@@ -303,10 +289,6 @@ pub enum Signal {
         room_id: String,
         new_role: ConferenceRole,
         from: AgentPubKey,
-    },
-    Kicked {
-        room_id: String,
-        kicked_by: AgentPubKey,
     },
     HostTransfer {
         room_id: String,

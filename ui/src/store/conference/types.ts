@@ -179,14 +179,12 @@ export interface SimplePeerConferenceStore {
   getIncomingInvitations: () => SimplePeerConferenceState[];
   fetchRoles: (roomId: string) => Promise<void>;
   transferHost: (roomId: string, newHostPubKeyB64: AgentPubKeyB64) => Promise<void>;
-  kickParticipant: (roomId: string, targetPubKeyB64: AgentPubKeyB64) => Promise<void>;
   changeParticipantRole: (
     roomId: string,
     targetPubKeyB64: AgentPubKeyB64,
     newRole: ConferenceRole,
   ) => Promise<void>;
   canEndConference: (roomId: string) => boolean;
-  canKick: (roomId: string, targetPubKeyB64: AgentPubKeyB64) => boolean;
   subscribe: (
     run: Subscriber<GenericKeyValueStoreDataExtended<SimplePeerConferenceState>>,
     invalidate?: Invalidator<GenericKeyValueStoreDataExtended<SimplePeerConferenceState>>,

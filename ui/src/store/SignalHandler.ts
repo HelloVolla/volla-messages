@@ -74,7 +74,6 @@ export function createSignalHandler(
       payload.type === "ConferenceRejected" ||
       payload.type === "ConferenceEnded" ||
       payload.type === "RoleChanged" ||
-      payload.type === "Kicked" ||
       payload.type === "HostTransfer"
     ) {
       _handleConferenceStateSignal(payload, cellIdB64);
@@ -371,40 +370,6 @@ export function createSignalHandler(
             rolesFetchedAt: undefined, // Invalidate cache to force refresh
           };
         });
-        break;
-      }
-
-      case "Kicked": {
-        const roomId = signal.room_id;
-        const kickedBy = encodeHashToBase64(signal.kicked_by);
-
-        console.log("[SignalHandler] Kicked signal received:", {
-          roomId,
-          kickedBy: kickedBy.slice(0, 20),
-        });
-
-        conferenceStore.cleanupWebRTC(roomId);
-
-        conferenceStore.updateConference(roomId, (conf) => {
-          if (!conf) return conf;
-          return {
-            ...conf,
-            ended: true,
-            error: "You were removed from the conference",
-          };
-        });
-
-        setTimeout(() => {
-          let cur;
-          try {
-            cur = conferenceStore.getConference(roomId);
-          } catch {
-            cur = undefined;
-          }
-          if (cur && cur.ended) {
-            conferenceStore.removeConference(roomId);
-          }
-        }, 3000);
         break;
       }
 
