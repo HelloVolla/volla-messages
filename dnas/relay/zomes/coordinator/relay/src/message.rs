@@ -27,6 +27,21 @@ pub fn create_message(input: SendMessageInput) -> ExternResult<Record> {
         (),
     )?;
 
+    let my_pub_key = agent_info()?.agent_initial_pubkey;
+    let agents = input
+        .agents
+        .into_iter()
+        .filter(|a| a != &my_pub_key)
+        .collect();
+    let _ = send_remote_signal(
+        crate::RemoteSignalPayload::Message(MessageRecord {
+            message: Some(input.message),
+            original_action: message_hash.clone(),
+            signed_action: record.signed_action().clone(),
+        }),
+        agents,
+    );
+
     debug!("create message all messages link: {:?}", link);
     Ok(record)
 }
