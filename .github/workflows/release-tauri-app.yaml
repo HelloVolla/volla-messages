@@ -127,7 +127,9 @@ jobs:
                 libssl-dev \
                 libayatana-appindicator3-dev \
                 librsvg2-dev \
-                pkg-config
+                pkg-config \
+                xdg-utils
+
           fi
 
           # We must pin webkitgtk to 2.44 for x86_64, as we get a blank screen on later versions.
