@@ -42,7 +42,7 @@ export class PeerConnection {
     const opts: SimplePeer.Options = {
       initiator,
       config: { iceServers: ICE_CONFIG },
-      trickle: false,
+      trickle: true,
       objectMode: true,
     };
     if (localStream) opts.stream = localStream;

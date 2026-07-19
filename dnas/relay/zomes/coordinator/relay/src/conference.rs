@@ -24,6 +24,28 @@ fn active_calls_path() -> Path {
     Path::from("active_calls")
 }
 
+// A conference signal is always about something the caller just did, so the caller must never be
+// a recipient. Routing every broadcast through here makes that structural rather than a
+// convention each call site has to remember.
+fn send_conference_signal(
+    record: ConferenceRecord,
+    recipients: Vec<AgentPubKey>,
+    context: &str,
+) -> ExternResult<()> {
+    let me = agent_info()?.agent_initial_pubkey;
+    let targets: Vec<AgentPubKey> = recipients.into_iter().filter(|a| *a != me).collect();
+
+    if targets.is_empty() {
+        return Ok(());
+    }
+
+    if let Err(e) = send_remote_signal(crate::RemoteSignalPayload::Conference(record), targets) {
+        warn!("[Rust] Failed to send {} signal: {:?}", context, e);
+    }
+
+    Ok(())
+}
+
 fn get_active_conference_record() -> ExternResult<Option<(ActionHash, Conference)>> {
     let path = active_calls_path();
     let links = get_links(
@@ -282,8 +304,8 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<CreateCon
                 participants: input.participants.clone(),
                 room_id: room_id.clone(),
             };
-            if let Err(e) = send_remote_signal(
-                crate::RemoteSignalPayload::Conference(ConferenceRecord {
+            send_conference_signal(
+                ConferenceRecord {
                     room: Some(conference_room),
                     agent: Some(agent_info.agent_initial_pubkey.clone()),
                     room_id: None,
@@ -292,11 +314,10 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<CreateCon
                     ack_signal_id: None,
                     new_role: None,
                     new_host: None,
-                }),
+                },
                 invite_targets,
-            ) {
-                warn!("[Rust] Failed to send Invite signal: {:?}", e);
-            }
+                "Invite",
+            )?;
         }
 
         let join_targets: Vec<AgentPubKey> = active_agents
@@ -305,8 +326,8 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<CreateCon
             .collect();
 
         if !join_targets.is_empty() {
-            if let Err(e) = send_remote_signal(
-                crate::RemoteSignalPayload::Conference(ConferenceRecord {
+            send_conference_signal(
+                ConferenceRecord {
                     room: None,
                     room_id: Some(room_id.clone()),
                     agent: Some(agent_info.agent_initial_pubkey.clone()),
@@ -315,11 +336,10 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<CreateCon
                     ack_signal_id: None,
                     new_role: None,
                     new_host: None,
-                }),
+                },
                 join_targets,
-            ) {
-                warn!("[Rust] Failed to send Join signal: {:?}", e);
-            }
+                "Join",
+            )?;
         }
 
         info!("[Rust] Reused active conference: {}", room_id);
@@ -397,8 +417,8 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<CreateCon
         room_id: room_id.clone(),
     };
 
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: Some(conference_room),
             agent: Some(agent_info.agent_initial_pubkey),
             room_id: None,
@@ -407,11 +427,10 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<CreateCon
             ack_signal_id: None,
             new_role: None,
             new_host: None,
-        }),
+        },
         input.participants,
-    ) {
-        warn!("[Rust] Failed to send Invite signal: {:?}", e);
-    }
+        "Invite",
+    )?;
 
     info!("[Rust] ========== create_conference() complete ==========");
     Ok(CreateConferenceOutcome {
@@ -468,8 +487,8 @@ pub fn join_conference(input: JoinConferenceInput) -> ExternResult<()> {
 
     add_room_participant(&input.room_id)?;
 
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: None,
             room_id: Some(input.room_id.clone()),
             agent: Some(agent_info.agent_initial_pubkey),
@@ -478,11 +497,10 @@ pub fn join_conference(input: JoinConferenceInput) -> ExternResult<()> {
             ack_signal_id: None,
             new_role: None,
             new_host: None,
-        }),
+        },
         input.participants,
-    ) {
-        warn!("[Rust] Failed to send Join signal: {:?}", e);
-    }
+        "Join",
+    )?;
 
     info!("[Rust] ========== join_conference() complete ==========");
     Ok(())
@@ -501,8 +519,8 @@ pub fn send_signal(input: SignalInput) -> ExternResult<()> {
         signal_id: Some(generate_signal_id()),
     };
 
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: None,
             room_id: None,
             agent: None,
@@ -511,11 +529,10 @@ pub fn send_signal(input: SignalInput) -> ExternResult<()> {
             ack_signal_id: None,
             new_role: None,
             new_host: None,
-        }),
+        },
         vec![input.target],
-    ) {
-        warn!("[Rust] Failed to send WebRTC signal: {:?}", e);
-    }
+        "WebRTC",
+    )?;
 
     Ok(())
 }
@@ -536,8 +553,8 @@ pub fn leave_conference(room_id: String) -> ExternResult<()> {
 
     let active_participants = get_room_participants(&room_id)?;
 
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: None,
             room_id: Some(room_id.clone()),
             agent: Some(agent_info.agent_initial_pubkey),
@@ -546,11 +563,10 @@ pub fn leave_conference(room_id: String) -> ExternResult<()> {
             ack_signal_id: None,
             new_role: None,
             new_host: None,
-        }),
+        },
         active_participants,
-    ) {
-        warn!("[Rust] Failed to send Leave signal: {:?}", e);
-    }
+        "Leave",
+    )?;
 
     if let Err(e) = remove_room_participant(&room_id) {
         info!("[Rust] Warning: Failed to remove room participant link: {:?}", e);
@@ -621,8 +637,8 @@ pub fn end_conference_for_all(input: EndConferenceInput) -> ExternResult<()> {
         }
     }
 
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: None,
             room_id: Some(input.room_id.clone()),
             agent: Some(agent_info.agent_initial_pubkey),
@@ -631,11 +647,10 @@ pub fn end_conference_for_all(input: EndConferenceInput) -> ExternResult<()> {
             ack_signal_id: None,
             new_role: None,
             new_host: None,
-        }),
+        },
         input.participants,
-    ) {
-        warn!("[Rust] Failed to send End signal: {:?}", e);
-    }
+        "End",
+    )?;
 
     let room_path = room_path(&input.room_id);
     let links = get_links(
@@ -662,8 +677,8 @@ pub fn end_conference_for_all(input: EndConferenceInput) -> ExternResult<()> {
 pub fn reject_conference(input: RejectConferenceInput) -> ExternResult<()> {
     let agent_info = agent_info()?;
 
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: None,
             room_id: Some(input.room_id),
             agent: Some(agent_info.agent_initial_pubkey),
@@ -672,11 +687,10 @@ pub fn reject_conference(input: RejectConferenceInput) -> ExternResult<()> {
             ack_signal_id: None,
             new_role: None,
             new_host: None,
-        }),
+        },
         input.participants,
-    ) {
-        warn!("[Rust] Failed to send Reject signal: {:?}", e);
-    }
+        "Reject",
+    )?;
 
     Ok(())
 }
@@ -685,8 +699,8 @@ pub fn reject_conference(input: RejectConferenceInput) -> ExternResult<()> {
 pub fn send_ack_signal(input: AckSignalInput) -> ExternResult<()> {
     let agent_info = agent_info()?;
 
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: None,
             room_id: None,
             agent: Some(agent_info.agent_initial_pubkey),
@@ -695,11 +709,10 @@ pub fn send_ack_signal(input: AckSignalInput) -> ExternResult<()> {
             ack_signal_id: Some(input.signal_id),
             new_role: None,
             new_host: None,
-        }),
+        },
         vec![input.target],
-    ) {
-        warn!("[Rust] Failed to send Ack signal: {:?}", e);
-    }
+        "Ack",
+    )?;
 
     Ok(())
 }
@@ -743,8 +756,8 @@ pub fn claim_host(room_id: String) -> ExternResult<()> {
         .filter(|a| a != &agent_info.agent_initial_pubkey)
         .collect();
 
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: None,
             room_id: Some(room_id),
             agent: Some(agent_info.agent_initial_pubkey.clone()),
@@ -753,11 +766,10 @@ pub fn claim_host(room_id: String) -> ExternResult<()> {
             ack_signal_id: None,
             new_role: None,
             new_host: Some(agent_info.agent_initial_pubkey.clone()),
-        }),
+        },
         agents,
-    ) {
-        warn!("[Rust] Failed to send HostTransfer signal: {:?}", e);
-    }
+        "HostTransfer",
+    )?;
 
     Ok(())
 }
@@ -817,8 +829,8 @@ pub fn transfer_host(input: TransferHostInput) -> ExternResult<()> {
     let participants = get_all_participants(&conference_hash)?;
     let agents: Vec<AgentPubKey> = participants.iter().map(|p| p.agent.clone()).collect();
 
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: None,
             room_id: Some(input.room_id),
             agent: Some(agent_info.agent_initial_pubkey),
@@ -827,11 +839,10 @@ pub fn transfer_host(input: TransferHostInput) -> ExternResult<()> {
             ack_signal_id: None,
             new_role: None,
             new_host: Some(input.new_host),
-        }),
+        },
         agents,
-    ) {
-        warn!("[Rust] Failed to send HostTransfer signal: {:?}", e);
-    }
+        "HostTransfer",
+    )?;
 
     info!("[Rust] ========== transfer_host() complete ==========");
     Ok(())
@@ -874,8 +885,8 @@ pub fn change_participant_role(input: RoleChangeInput) -> ExternResult<()> {
     update_entry(target_hash, &EntryTypes::ConferenceParticipant(target_participant))?;
 
     // Notify the target of their new role
-    if let Err(e) = send_remote_signal(
-        crate::RemoteSignalPayload::Conference(ConferenceRecord {
+    send_conference_signal(
+        ConferenceRecord {
             room: None,
             room_id: Some(input.room_id),
             agent: Some(agent_info.agent_initial_pubkey),
@@ -884,11 +895,10 @@ pub fn change_participant_role(input: RoleChangeInput) -> ExternResult<()> {
             ack_signal_id: None,
             new_role: Some(input.new_role),
             new_host: None,
-        }),
+        },
         vec![input.target],
-    ) {
-        warn!("[Rust] Failed to send RoleChanged signal: {:?}", e);
-    }
+        "RoleChanged",
+    )?;
 
     info!("[Rust] ========== change_participant_role() complete ==========");
     Ok(())

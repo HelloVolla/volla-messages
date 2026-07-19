@@ -2,6 +2,7 @@
   import type { AgentPubKeyB64, AppClient, CellId } from "@holochain/client";
   import { AppWebsocket, CellType, encodeHashToBase64 } from "@holochain/client";
   import { writable, type Writable } from "svelte/store";
+  import { page } from "$app/stores";
   import { onMount, onDestroy, setContext } from "svelte";
   import { t } from "$translations";
   import { createSignalHandler } from "$store/SignalHandler";
@@ -119,6 +120,10 @@
       ? $provisionedRelayCellProfileStore.data[myPubKeyB64]
       : undefined;
   $: myProfileExists = myProfile !== undefined;
+
+  // Routes with a message composer need the banner lifted clear of it, so it never covers the
+  // input or sits next to the send button.
+  $: hasComposer = $page.route.id === "/conversations/[id]";
 
   $: activeConference =
     conferenceStore && $conferenceStore
@@ -507,7 +512,8 @@
 
 {#if isStoresSetup && conferenceStore}
   <div
-    class="pointer-events-none fixed inset-x-0 top-0 flex justify-center px-2 pt-[max(0.6rem,env(safe-area-inset-top))] sm:justify-end sm:px-4"
+    class="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center px-2 sm:bottom-auto sm:top-0 sm:justify-end sm:px-4 sm:pb-0 sm:pt-[max(0.6rem,env(safe-area-inset-top))]
+      {hasComposer ? 'pb-[4.75rem]' : 'pb-[max(0.75rem,env(safe-area-inset-bottom))]'}"
     style="z-index: 55;"
   >
     <IncomingCallBanner />
@@ -529,10 +535,6 @@
     <ResizablePip
       initialWidth={180}
       initialHeight={135}
-      minWidth={120}
-      minHeight={90}
-      maxWidth={320}
-      maxHeight={240}
       persistKey="conference-pip-position"
       on:click={handleMaximizeConference}
     >

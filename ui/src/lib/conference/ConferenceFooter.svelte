@@ -11,6 +11,7 @@
   export let isScreenSharing: boolean = false;
   export let audioDeviceId: string = "";
   export let videoDeviceId: string = "";
+  export let leaveLabel: string = "Leave";
 
   const dispatch = createEventDispatcher<{
     toggleMute: void;
@@ -80,13 +81,13 @@
       <button
         on:click={() => dispatch("endCall")}
         title="{$t('common.conference_endCall')} (Esc)"
-        aria-label="Leave"
+        aria-label={leaveLabel}
         class="flex h-[52px] w-[52px] items-center justify-center gap-2 rounded-2xl bg-primary-500 text-white transition-all hover:scale-105 hover:bg-primary-600 active:scale-95 sm:w-auto sm:px-6 md:h-14"
       >
         <SvgIcon icon="callEnd" moreClasses="h-5 w-5 md:h-6 md:w-6" />
-        <span class="hidden text-[15px] font-semibold sm:inline">Leave</span>
+        <span class="hidden text-[15px] font-semibold sm:inline">{leaveLabel}</span>
       </button>
-      <span class="text-[10px] font-medium text-tertiary-500 sm:hidden">Leave</span>
+      <span class="text-[10px] font-medium text-tertiary-900 sm:hidden">{leaveLabel}</span>
     </div>
   </div>
 </footer>

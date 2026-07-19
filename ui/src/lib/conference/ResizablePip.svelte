@@ -1,193 +1,129 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from "svelte";
-  import Moveable from "svelte-moveable";
 
   export let initialWidth: number = 160;
   export let initialHeight: number = 120;
-  export let minWidth: number = 100;
-  export let minHeight: number = 75;
-  export let maxWidth: number = 400;
-  export let maxHeight: number = 300;
   export let boundsPadding: number = 16;
   export let persistKey: string | null = null;
-  export let keepAspectRatio: boolean = true;
   export let zIndex: number = 20;
 
   const dispatch = createEventDispatcher<{
     click: void;
-    positionChange: { x: number; y: number; width: number; height: number };
+    positionChange: { x: number; y: number };
   }>();
 
-  let target: HTMLDivElement;
+  const TAP_THRESHOLD = 6;
+  const BOTTOM_RESERVED = 50;
+
   let container: HTMLDivElement;
-  let width = initialWidth;
-  let height = initialHeight;
   let x = 0;
   let y = 0;
   let mounted = false;
-  let containerBounds = { width: 0, height: 0 };
 
-  function loadPersistedState() {
+  let dragging = false;
+  let moved = 0;
+  let startX = 0;
+  let startY = 0;
+  let originX = 0;
+  let originY = 0;
+
+  function loadPersisted(): { x: number; y: number } | null {
     if (!persistKey) return null;
     try {
       const stored = localStorage.getItem(persistKey);
-      if (stored) {
-        return JSON.parse(stored);
-      }
+      return stored ? JSON.parse(stored) : null;
     } catch (e) {
       console.warn("[ResizablePip] Failed to load persisted state:", e);
+      return null;
     }
-    return null;
   }
 
-  function savePersistedState() {
+  function savePersisted() {
     if (!persistKey) return;
     try {
-      localStorage.setItem(persistKey, JSON.stringify({ x, y, width, height }));
+      localStorage.setItem(persistKey, JSON.stringify({ x, y }));
     } catch (e) {
       console.warn("[ResizablePip] Failed to save persisted state:", e);
     }
   }
 
-  function calculateInitialPosition() {
-    const persisted = loadPersistedState();
-    const bottomPadding = boundsPadding + 50;
-
-    if (persisted) {
-      width = Math.max(minWidth, Math.min(maxWidth, persisted.width || initialWidth));
-      height = Math.max(minHeight, Math.min(maxHeight, persisted.height || initialHeight));
-      x = persisted.x ?? 0;
-      y = persisted.y ?? 0;
-
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        x = Math.max(boundsPadding, Math.min(rect.width - width - boundsPadding, x));
-        y = Math.max(boundsPadding, Math.min(rect.height - height - bottomPadding, y));
-      }
-    } else {
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        x = rect.width - width - boundsPadding;
-        y = rect.height - height - bottomPadding;
-      }
-    }
-  }
-
-  function updateContainerBounds() {
-    if (container) {
-      const rect = container.getBoundingClientRect();
-      containerBounds = { width: rect.width, height: rect.height };
-    }
-  }
-
-  function handleDrag(e: CustomEvent) {
+  function clamp() {
+    if (!container) return;
     const rect = container.getBoundingClientRect();
-    if (rect.width && rect.height) {
-      containerBounds = { width: rect.width, height: rect.height };
+    x = Math.max(boundsPadding, Math.min(rect.width - initialWidth - boundsPadding, x));
+    y = Math.max(boundsPadding, Math.min(rect.height - initialHeight - boundsPadding - BOTTOM_RESERVED, y));
+  }
+
+  function onPointerDown(e: PointerEvent) {
+    dragging = true;
+    moved = 0;
+    startX = e.clientX;
+    startY = e.clientY;
+    originX = x;
+    originY = y;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    moved = Math.max(moved, Math.hypot(dx, dy));
+    x = originX + dx;
+    y = originY + dy;
+    clamp();
+  }
+
+  function onPointerUp() {
+    if (!dragging) return;
+    dragging = false;
+    if (moved < TAP_THRESHOLD) {
+      dispatch("click");
+    } else {
+      savePersisted();
+      dispatch("positionChange", { x, y });
     }
-    const maxX = Math.max(boundsPadding, rect.width - width - boundsPadding);
-    const maxY = Math.max(boundsPadding, rect.height - height - boundsPadding);
-    x = Math.min(Math.max(e.detail.left, boundsPadding), maxX);
-    y = Math.min(Math.max(e.detail.top, boundsPadding), maxY);
-    target.style.left = `${x}px`;
-    target.style.top = `${y}px`;
   }
 
-  function handleDragEnd() {
-    savePersistedState();
-    dispatch("positionChange", { x, y, width, height });
-  }
-
-  function handleResize(e: CustomEvent) {
-    const { width: newWidth, height: newHeight, drag } = e.detail;
-    width = newWidth;
-    height = newHeight;
-    target.style.width = `${newWidth}px`;
-    target.style.height = `${newHeight}px`;
-    target.style.transform = drag.transform;
-  }
-
-  function handleResizeEnd() {
-    savePersistedState();
-    dispatch("positionChange", { x, y, width, height });
-  }
-
-  function handleClick() {
-    dispatch("click");
-  }
-
-  function handleWindowResize() {
-    updateContainerBounds();
-    if (container && target) {
-      const rect = container.getBoundingClientRect();
-      x = Math.max(boundsPadding, Math.min(rect.width - width - boundsPadding, x));
-      y = Math.max(boundsPadding, Math.min(rect.height - height - boundsPadding, y));
-      target.style.left = `${x}px`;
-      target.style.top = `${y}px`;
-    }
+  function onWindowResize() {
+    clamp();
   }
 
   onMount(() => {
-    updateContainerBounds();
-    calculateInitialPosition();
-
-    if (target) {
-      target.style.left = `${x}px`;
-      target.style.top = `${y}px`;
-      target.style.width = `${width}px`;
-      target.style.height = `${height}px`;
+    const persisted = loadPersisted();
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      if (persisted) {
+        x = persisted.x;
+        y = persisted.y;
+      } else {
+        x = rect.width - initialWidth - boundsPadding;
+        y = rect.height - initialHeight - boundsPadding - BOTTOM_RESERVED;
+      }
+      clamp();
     }
-
     mounted = true;
-    window.addEventListener("resize", handleWindowResize);
+    window.addEventListener("resize", onWindowResize);
   });
 
   onDestroy(() => {
-    window.removeEventListener("resize", handleWindowResize);
+    window.removeEventListener("resize", onWindowResize);
   });
 </script>
 
-<div
-  bind:this={container}
-  class="absolute inset-0"
-  style="z-index: {zIndex}; pointer-events: none;"
->
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div
-    bind:this={target}
-    class="absolute cursor-move overflow-hidden rounded-xl shadow-2xl ring-2 ring-white/20"
-    style="pointer-events: auto;"
-    on:click={handleClick}
-  >
-    <slot />
-  </div>
-
-  {#if mounted && target}
-    <Moveable
-      {target}
-      draggable={true}
-      resizable={true}
-      keepRatio={keepAspectRatio}
-      throttleDrag={0}
-      throttleResize={0}
-      renderDirections={["se"]}
-      edge={false}
-      origin={false}
-      bounds={{
-        left: boundsPadding,
-        top: boundsPadding,
-        right: containerBounds.width - boundsPadding,
-        bottom: containerBounds.height - boundsPadding,
-      }}
-      {minWidth}
-      {minHeight}
-      {maxWidth}
-      {maxHeight}
-      on:drag={handleDrag}
-      on:dragEnd={handleDragEnd}
-      on:resize={handleResize}
-      on:resizeEnd={handleResizeEnd}
-    />
+<div bind:this={container} class="absolute inset-0" style="z-index: {zIndex}; pointer-events: none;">
+  {#if mounted}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div
+      class="absolute cursor-move touch-none select-none"
+      style="left: {x}px; top: {y}px; width: {initialWidth}px; height: {initialHeight}px; pointer-events: auto;"
+      on:pointerdown={onPointerDown}
+      on:pointermove={onPointerMove}
+      on:pointerup={onPointerUp}
+      on:pointercancel={onPointerUp}
+    >
+      <slot />
+    </div>
   {/if}
 </div>

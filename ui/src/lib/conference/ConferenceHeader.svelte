@@ -7,6 +7,7 @@
   export let participantCount: number = 0;
   export let isGridView: boolean = false;
   export let title: string = "";
+  export let status: string = "";
 
   const dispatch = createEventDispatcher<{
     toggleView: void;
@@ -31,7 +32,9 @@
     <p class="truncate text-[15px] font-semibold text-tertiary-100 sm:text-base">
       {title || "Call"}
     </p>
-    <p class="truncate text-xs tabular-nums text-tertiary-500">{formatted} · {peopleLabel}</p>
+    <p class="truncate text-xs tabular-nums text-tertiary-900">
+      {status || `${formatted} · ${peopleLabel}`}
+    </p>
   </div>
 
   <div class="flex flex-shrink-0 items-center gap-2">

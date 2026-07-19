@@ -33,6 +33,7 @@ export function createSignalHandler(
   client.client.on("signal", _handleSignalReceived);
 
   const processedRejects = new Set<string>();
+  const myPubKeyB64 = encodeHashToBase64(client.client.myPubKey);
 
   async function _handleSignalReceived(signal: Signal) {
     if (signal.type !== SignalType.App) return;
@@ -330,6 +331,10 @@ export function createSignalHandler(
         const rejectedAgent = encodeHashToBase64(signal.agent);
         const roomId = signal.room_id;
 
+        // Nobody can tell us we declined our own call. Guards against a forged Reject naming us,
+        // and against any sender that fails to exclude us from its recipient list.
+        if (rejectedAgent === myPubKeyB64) break;
+
         const rejectKey = `${roomId}:${rejectedAgent}`;
         if (processedRejects.has(rejectKey)) break;
         processedRejects.add(rejectKey);
@@ -347,7 +352,7 @@ export function createSignalHandler(
           });
           return { ...conf, participants: next };
         });
-        toast.error("A participant declined the call");
+        toast("A participant declined the call");
         break;
       }
 

@@ -10,7 +10,6 @@
   import Dialog from "$lib/Dialog.svelte";
   import Button from "$lib/Button.svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
-  import Avatar from "$lib/Avatar.svelte";
   import {
     deriveCellMergedProfileContactInviteStore,
     type MergedProfileContactInviteStore,
@@ -74,7 +73,6 @@
   let errorDialogActionLabel = "";
   let suppressErrorDialog = false;
 
-
   $: profiles = $conferenceStore?.cellIdB64
     ? deriveCellMergedProfileContactInviteStore(
         mergedProfileContactInviteStore,
@@ -108,6 +106,11 @@
   $: remoteParticipants = allParticipants.filter((p) => !p.isLocal);
   $: showWaitingRoster =
     allRemote.length > 0 && !remoteParticipants.some((p) => p._connected || p.hasJoined);
+  $: isConnecting =
+    !!$conferenceStore &&
+    !$conferenceStore.localStream &&
+    $conferenceStore.invitationStatus === "accepted";
+  $: callStatus = isConnecting ? "Connecting" : showWaitingRoster ? "Ringing" : "";
   $: callTitle =
     allRemote.length === 1
       ? getParticipantName(allRemote[0].pubKey)
@@ -333,14 +336,16 @@
     }
   }
 
-  onMount(() => {
+  $: if (!showWaitingRoster && !isConnecting && callStartTime === null) {
     callStartTime = Date.now();
     durationInterval = setInterval(() => {
       if (callStartTime) {
         callDurationSeconds = Math.floor((Date.now() - callStartTime) / 1000);
       }
     }, 1000);
+  }
 
+  onMount(() => {
     activeSpeakerStore.setLevelProvider(() => {
       const levels = new Map<string, number>();
       if (localMeter) levels.set(myPubKeyB64, localMeter.getLevel());
@@ -379,6 +384,7 @@
 {#if showPreJoinScreen && shouldShowPreJoinScreen}
   <PreJoinScreen
     callerName={$conferenceStore?.invitedBy ? getParticipantName($conferenceStore.invitedBy) : ""}
+    participantCount={allParticipants.length}
     on:join={handlePreJoinComplete}
     on:cancel={handlePreJoinCancel}
   />
@@ -387,36 +393,9 @@
     class="fixed inset-0 z-50 flex flex-col bg-secondary-900"
     transition:fade={{ duration: 200 }}
   >
-    {#if $conferenceStore && !$conferenceStore.localStream && $conferenceStore.invitationStatus === "accepted"}
-      <div
-        class="absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-gradient-to-b from-secondary-900 to-secondary-800"
-        transition:fade={{ duration: 200 }}
-      >
-        <div class="relative flex items-center justify-center">
-          <span class="absolute h-[104px] w-[104px] animate-ping rounded-full bg-primary-500/25"
-          ></span>
-          {#if allRemote[0]}
-            <div class="relative rounded-full ring-4 ring-primary-500/40">
-              <Avatar
-                agentPubKeyB64={allRemote[0].pubKey}
-                size={88}
-                cellIdB64={$conferenceStore?.cellIdB64}
-              />
-            </div>
-          {:else}
-            <div class="relative h-[88px] w-[88px] rounded-full bg-secondary-400"></div>
-          {/if}
-        </div>
-        <div class="text-center">
-          <p class="text-xl font-semibold text-tertiary-100">Connecting…</p>
-          <p class="mt-1.5 text-sm text-tertiary-500">Setting up your secure call</p>
-        </div>
-        <SvgIcon icon="gear" moreClasses="h-5 w-5 text-tertiary-600 animate-spin" />
-      </div>
-    {/if}
-
     <ConferenceHeader
       {callDurationSeconds}
+      status={callStatus}
       participantCount={allParticipants.length}
       title={callTitle}
       {isGridView}
@@ -425,11 +404,12 @@
     />
 
     <div class="relative flex min-h-0 w-full flex-1 flex-col p-2 sm:p-3 md:p-4 lg:p-6">
-      {#if showWaitingRoster}
+      {#if showWaitingRoster || isConnecting}
         <ConferenceRoster
           participants={allRemote}
           getName={getParticipantName}
           cellIdB64={$conferenceStore?.cellIdB64}
+          connecting={isConnecting}
         />
       {:else if isGridView}
         <div class="mx-auto grid h-full w-full gap-2 sm:gap-3 {gridClass}">
@@ -509,12 +489,7 @@
             <ResizablePip
               initialWidth={190}
               initialHeight={143}
-              minWidth={130}
-              minHeight={98}
-              maxWidth={320}
-              maxHeight={240}
               boundsPadding={16}
-              keepAspectRatio={true}
               persistKey="conference-pip-v4"
               on:click={() => (pipExpanded = !pipExpanded)}
             >
@@ -565,6 +540,7 @@
       screenShareEnabled={false}
       audioDeviceId={currentAudioDeviceId}
       videoDeviceId={currentVideoDeviceId}
+      leaveLabel={showWaitingRoster || isConnecting ? "Cancel" : "Leave"}
       on:toggleMute={toggleMute}
       on:toggleVideo={toggleVideo}
       on:toggleScreenShare={handleToggleScreenShare}

@@ -419,21 +419,10 @@
     clearTimeout(messageTimeout);
     if (activeCallPollTimer) clearInterval(activeCallPollTimer);
   });
-
-  async function dumpAll() {
-    console.log("Dumping all");
-
-    // Import and dump IndexedDB contents
-    const { messageDB } = await import("$store/db/MessageDatabase");
-    await messageDB.debugDumpAll();
-
-    // Also get all messages from Holochain
-    await messages.debugGetAllMessages();
-  }
 </script>
 
-<Header backUrl="/conversations">
-  <div slot="center" class="flex items-center justify-center gap-1 overflow-hidden px-4">
+<Header backUrl="/conversations" rail="min-w-[7.5rem]">
+  <div slot="center" class="flex min-w-0 items-center justify-center gap-2 px-2">
     <NetworkStatusDot
       connectionCount={$conversationNetwork?.peerCount || 0}
       onClick={() => (showConversationNetworkPanel = !showConversationNetworkPanel)}
@@ -445,8 +434,8 @@
 
   <div class="flex items-center justify-center" slot="right">
     <ButtonIconBare
-      moreClasses="h-[24px] w-[24px]"
-      moreClassesButton="p-4 {isStartingCall || callOngoingElsewhere
+      moreClasses="h-[22px] w-[22px]"
+      moreClassesButton="p-2.5 {isStartingCall || callOngoingElsewhere
         ? 'cursor-not-allowed opacity-40'
         : ''}"
       icon="videoCall"
@@ -459,27 +448,21 @@
           : "Start video call"}
     />
 
-    <ButtonIconBare
-      moreClasses="!w-[18px] !h-auto"
-      moreClassesButton="p-4"
-      icon="archive"
-      on:click={dumpAll}
-    />
-    <ButtonIconBare
-      moreClasses="!w-[18px] !h-auto"
-      moreClassesButton="p-4"
-      icon="gear"
-      on:click={() => goto(`/conversations/${$page.params.id}/details`)}
-    />
-
     {#if $conversation.dnaProperties.privacy === Privacy.Private && iAmProgenitor}
       <ButtonIconBare
-        moreClasses="h-[24px] w-[24px]"
-        moreClassesButton="p-4"
+        moreClasses="h-[22px] w-[22px]"
+        moreClassesButton="p-2.5"
         icon="addPerson"
         on:click={() => goto(`/conversations/${$page.params.id}/invite`)}
       />
     {/if}
+
+    <ButtonIconBare
+      moreClasses="!w-[18px] !h-auto"
+      moreClassesButton="p-2.5"
+      icon="gear"
+      on:click={() => goto(`/conversations/${$page.params.id}/details`)}
+    />
   </div>
 </Header>
 
@@ -515,9 +498,7 @@
           messages={displayMessages}
           {participantCount}
           threadViewEnabled={$threadViewEnabled}
-          recipientPubKeyB64s={$joined.list
-            .map(([k]) => k)
-            .filter((k) => k !== myPubKeyB64)}
+          recipientPubKeyB64s={$joined.list.map(([k]) => k).filter((k) => k !== myPubKeyB64)}
           on:delete={(e) => {
             deleteMessageActionHashB64 = e.detail;
             showDeleteDialog = true;
