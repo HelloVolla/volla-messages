@@ -106,18 +106,12 @@
               url: "noopener noreferrer",
             },
           }),
-        )}
-      </div>
-
-      {#if fromMe && recipientPubKeyB64s.length > 0}
-        <div class="mt-1 flex justify-end">
-          <DeliveryStatusIndicator
+        )}{#if fromMe && recipientPubKeyB64s.length > 0}<DeliveryStatusIndicator
             status={deliveryStatus}
             {deliveredCount}
             recipientCount={recipientPubKeyB64s.length}
-          />
-        </div>
-      {/if}
+          />{/if}
+      </div>
     </div>
   </div>
 
