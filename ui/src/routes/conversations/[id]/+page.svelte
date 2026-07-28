@@ -254,12 +254,12 @@ async function loadMoreMessages() {
   </div>
 
   <div class="flex items-center justify-center" slot="right">
-    <ButtonIconBare
+    <!-- <ButtonIconBare
       moreClasses="!w-[18px] !h-auto"
       moreClassesButton="p-4"
       icon="archive"
       on:click={dumpAll}
-    />
+    /> -->
     <ButtonIconBare
       moreClasses="!w-[18px] !h-auto"
       moreClassesButton="p-4"
