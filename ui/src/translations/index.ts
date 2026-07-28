@@ -1,7 +1,7 @@
 import i18n, { type Config } from "sveltekit-i18n";
 import { flatten } from "lodash-es";
 
-const ALL_LOCALES = ["bg", "da", "de", "en", "es", "fr", "it", "no", "ro", "sk", "sv", "nl"];
+const ALL_LOCALES = ["bg", "da", "de", "en", "es", "fr", "hi", "it", "no", "ro", "sk", "sv", "nl"];
 
 function makeLoaders(locales: string[]) {
   const loaders = locales.map((locale) => [
