@@ -16,6 +16,26 @@ jobs:
     outputs:
       releaseId: ${{ steps.step1.outputs.id }}
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog section for this version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if ($0 ~ "\\[" ver "\\]") { found=1; next }
+              next
+            }
+            found { print }
+          ' CHANGELOG.md > changelog.txt
+
+          if [ ! -s changelog.txt ]; then
+            echo "No changelog entry found for version $VERSION." > changelog.txt
+          fi
+
+          cat changelog.txt
+
       - id: step1
         uses: ncipollo/release-action@v1
         with:
@@ -26,6 +46,7 @@ jobs:
             Android builds are distinguished as either 'rich' or 'lite':
             - The 'rich' build includes a bundled holochain conductor. It can be used on any Android device.
             - The 'lite' build relies on the holochain conductor provided by the [Android Service Runtime app](https://github.com/holochain/android-service-runtime),. The Android Service Runtime app can be installed on any Android device, and will be preinstalled with Volla OS.
+          artifacts: "changelog.txt"
           prerelease: true
           draft: true
 
