@@ -49,6 +49,8 @@ export interface SimplePeerConferenceStore {
     signal: import("$lib/types").SimplePeerSignalPayload,
   ) => void;
   initializeWebRTC: (roomId: string) => Promise<void>;
+  startLocalPreview: (roomId: string) => Promise<void>;
+  stopLocalPreview: (roomId: string) => void;
   setLocalVideo: (roomId: string, enabled: boolean) => Promise<void>;
   startScreenShare: (roomId: string) => Promise<void>;
   stopScreenShare: (roomId: string) => Promise<void>;
@@ -227,6 +229,8 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
 
     sendMediaStateToAll: streams.sendMediaStateToAll,
     initializeWebRTC: streams.initializeWebRTC,
+    startLocalPreview: streams.startLocalPreview,
+    stopLocalPreview: streams.stopLocalPreview,
     setLocalVideo: streams.setLocalVideo,
     startScreenShare: streams.startScreenShare,
     stopScreenShare: streams.stopScreenShare,

@@ -41,6 +41,8 @@ export interface ConferenceStreams {
   startScreenShare: (roomId: string) => Promise<void>;
   stopScreenShare: (roomId: string) => Promise<void>;
   switchDevice: (roomId: string, kind: "audio" | "video", deviceId: string) => Promise<void>;
+  startLocalPreview: (roomId: string) => Promise<void>;
+  stopLocalPreview: (roomId: string) => void;
   initializeWebRTC: (roomId: string) => Promise<void>;
   cleanupWebRTC: (roomId: string) => void;
 }
@@ -692,6 +694,32 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     ctx.conferences.updateKeyValue(roomId, (c) => ({ ...c, localStream: stream }));
   }
 
+  // Acquire the self-view stream on the pre-join screen. Stored in previewStream (not localStream)
+  // so it does not trip the "localStream ⇒ peers initialized" guard in initializeWebRTC; that
+  // function adopts it on accept, so the camera is opened only once.
+  async function startLocalPreview(roomId: string): Promise<void> {
+    const state = safeGetConference(ctx, roomId);
+    if (!state || state.localStream || state.previewStream) return;
+
+    const stream = await getUserMediaWithFallback();
+    const current = safeGetConference(ctx, roomId);
+    if (!current || current.localStream || current.previewStream) {
+      // Raced with accept or a second toggle — discard this stream.
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    stream.getVideoTracks().forEach((t) => (t.enabled = current.videoEnabled ?? false));
+    stream.getAudioTracks().forEach((t) => (t.enabled = current.audioEnabled ?? true));
+    ctx.conferences.updateKeyValue(roomId, (c) => ({ ...c, previewStream: stream }));
+  }
+
+  function stopLocalPreview(roomId: string): void {
+    const state = safeGetConference(ctx, roomId);
+    if (!state?.previewStream) return;
+    state.previewStream.getTracks().forEach((t) => t.stop());
+    ctx.conferences.updateKeyValue(roomId, (c) => ({ ...c, previewStream: undefined }));
+  }
+
   async function initializeWebRTC(roomId: string): Promise<void> {
     if (initializingRooms.has(roomId)) return;
     initializingRooms.add(roomId);
@@ -722,8 +750,13 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     }
 
     try {
-      const stream = await getUserMediaWithFallback();
-      ctx.conferences.updateKeyValue(roomId, (conf) => ({ ...conf, localStream: stream }));
+      // Adopt the pre-join preview stream if one was acquired, so the camera is opened only once.
+      const stream = state.previewStream ?? (await getUserMediaWithFallback());
+      ctx.conferences.updateKeyValue(roomId, (conf) => ({
+        ...conf,
+        localStream: stream,
+        previewStream: undefined,
+      }));
 
       const updatedState = safeGetConference(ctx, roomId);
       const videoEnabled = updatedState?.videoEnabled ?? true;
@@ -804,6 +837,17 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
         });
       }
 
+      // Safety net: stop a pre-join preview stream that was never adopted into the call.
+      if (state.previewStream) {
+        state.previewStream.getTracks().forEach((t) => {
+          try {
+            t.stop();
+          } catch {
+            /* already stopped */
+          }
+        });
+      }
+
       for (const [pubKey] of state.participants.entries()) {
         const peerCleanupReport = cleanupPeerWithVerification(roomId, pubKey);
         cleanupReport.peersDestroyed += peerCleanupReport.peersDestroyed;
@@ -812,7 +856,11 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
         cleanupReport.errors.push(...peerCleanupReport.errors);
       }
 
-      ctx.conferences.updateKeyValue(roomId, (conf) => ({ ...conf, localStream: undefined }));
+      ctx.conferences.updateKeyValue(roomId, (conf) => ({
+        ...conf,
+        localStream: undefined,
+        previewStream: undefined,
+      }));
 
       if (cleanupReport.errors.length > 0) {
         console.warn(`[SimplePeer] Cleanup completed with ${cleanupReport.errors.length} issues`);
@@ -836,6 +884,8 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     startScreenShare,
     stopScreenShare,
     switchDevice,
+    startLocalPreview,
+    stopLocalPreview,
     initializeWebRTC,
     cleanupWebRTC,
   };

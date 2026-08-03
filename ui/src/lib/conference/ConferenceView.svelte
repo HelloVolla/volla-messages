@@ -104,6 +104,7 @@
   $: allRemote = fullList.filter((p) => !p.isLocal);
   $: allParticipants = fullList.filter((p) => !p.declined);
   $: remoteParticipants = allParticipants.filter((p) => !p.isLocal);
+  $: localParticipant = fullList.find((p) => p.isLocal);
   $: showWaitingRoster =
     allRemote.length > 0 && !remoteParticipants.some((p) => p._connected || p.hasJoined);
   $: isConnecting =
@@ -299,6 +300,23 @@
     }
   }
 
+  // Camera/mic toggled on the pre-join screen: keep the flags in sync and acquire (or release) the
+  // self-view preview stream, which initializeWebRTC adopts on accept.
+  async function handlePreJoinMedia(
+    event: CustomEvent<{ videoEnabled: boolean; audioEnabled: boolean }>,
+  ) {
+    conferenceStoreBase.setMediaEnabled(
+      roomId,
+      event.detail.videoEnabled,
+      event.detail.audioEnabled,
+    );
+    if (event.detail.videoEnabled) {
+      await conferenceStoreBase.startLocalPreview(roomId);
+    } else {
+      conferenceStoreBase.stopLocalPreview(roomId);
+    }
+  }
+
   function handlePreJoinComplete(
     event: CustomEvent<{ videoEnabled: boolean; audioEnabled: boolean }>,
   ) {
@@ -312,6 +330,7 @@
   }
 
   function handlePreJoinCancel() {
+    conferenceStoreBase.stopLocalPreview(roomId);
     conferenceStoreBase.setShowPreJoinScreen(roomId, false);
   }
 
@@ -385,7 +404,9 @@
   <PreJoinScreen
     callerName={$conferenceStore?.invitedBy ? getParticipantName($conferenceStore.invitedBy) : ""}
     participantCount={allParticipants.length}
+    localStream={$conferenceStore?.previewStream ?? null}
     on:join={handlePreJoinComplete}
+    on:media={handlePreJoinMedia}
     on:cancel={handlePreJoinCancel}
   />
 {:else}
@@ -411,6 +432,21 @@
           cellIdB64={$conferenceStore?.cellIdB64}
           connecting={isConnecting}
         />
+        {#if localParticipant}
+          <div
+            class="absolute right-3 top-3 z-20 h-40 w-28 overflow-hidden rounded-2xl border border-white/10 shadow-lg sm:right-4 sm:top-4"
+          >
+            <ParticipantTile
+              participant={localParticipant}
+              variant="pip"
+              localStream={$conferenceStore?.localStream}
+              isLocalVideoEnabled={isVideoEnabled}
+              isLocalMuted={isMuted}
+              getName={getParticipantName}
+              cellIdB64={$conferenceStore?.cellIdB64}
+            />
+          </div>
+        {/if}
       {:else if isGridView}
         <div class="mx-auto grid h-full w-full gap-2 sm:gap-3 {gridClass}">
           {#each allParticipants.slice(0, 6) as participant (participant.pubKey)}

@@ -81,6 +81,9 @@ export interface SimplePeerConferenceState {
   room: ConferenceRoom;
   participants: Map<AgentPubKeyB64, SimplePeerParticipant>;
   localStream?: MediaStream;
+  // Self-view stream acquired on the pre-join screen before accepting. initializeWebRTC adopts it
+  // as the call's localStream so the camera is only ever opened once.
+  previewStream?: MediaStream;
   isInitiator: boolean;
   ended: boolean;
   endedByMe?: boolean;
