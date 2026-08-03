@@ -32,10 +32,8 @@
     $: agentPubKeyB64Sliced = agentPubKeyB64.slice(4, 14);
 </script>
 
-<div>
 {#if isMe}
-    <span class="font-bold">{$t("common.you")}</span>
+  <span class="font-bold">{$t("common.you")}</span>
 {:else if nickname !== undefined}
   <span class="font-bold">{nickname}</span>
 {/if}
-</div>

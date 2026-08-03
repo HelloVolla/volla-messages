@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.1] - 2026-08-03
+
+
+- Feat: Added message delivery status indicators (single tick for sent, double tick for delivered).
+- Fix: Added automatic reconnection recovery after the app has been backgrounded for a long time, instead of the connection hanging indefinitely.
+- Fix: Updated the servers used for peer discovery and connectivity, improving connection reliability.
+- Fix: Fixed chat history pagination — eliminated redundant loads and improved scroll-position stability when loading older messages.
+- Feat: Rebuilt the message list for smoother, faster scrolling in large conversations.
+- Fix: Fixed laggy/janky scrolling in conversations.
+- Fix: Fixed a crash on launch for existing installs after a local message-cache database schema change.
+- Fix: Conversation list previews now correctly show a second line of message content instead of being cut short.
+- Feat: Added support for line breaks when composing a message.
+- Feat: Added a "[Name] joined the conversation" notice shown to other members when someone joins a public conversation.
+- Fix: Fixed long messages overflowing their message bubble instead of wrapping properly.
+- Fix: Fixed conversation list previews showing the wrong summary (incorrect image/file attachment counts).
+- Fix: Fixed incorrect or missing display name and avatar shown in private conversations.
+- Fix: Fixed links in messages not opening.
+- Feat: Added a built-in QR code scanner for joining conversations.
+- Fix: Fixed a broken settings page layout.
+- Feat: Changed the app icon to a dedicated Volla Messages icon.
+- Fix: Removed a spurious error message shown on app startup.
+- Fix: Fixed an image-loading bug in message attachments.
+- Feat: Added Linux ARM64 builds (Raspberry Pi, Snapdragon/MediaTek ARM laptops, Apple Silicon).
+- Feat: Added Hindi translation.
+- Feat: Improved and expanded German translation.
+- Fix: Updated Spanish and Italian translations
+
 ## [0.8.2] - 2025-05-31
 
 - Fix building for 'lite' and 'rich' variants with different android package names.
