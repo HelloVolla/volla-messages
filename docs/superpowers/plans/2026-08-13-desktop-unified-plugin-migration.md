@@ -98,6 +98,14 @@ Run `cargo check --features holochain_bundled` in `src-tauri`; expected: clean (
 
 # Part 1: holochain 0.7.0 platform bump
 
+> **Status 2026-08-13:** Parts 1 and 2 executed on branch `feat/holochain-0.7`
+> (stacked on the Part 0 branch). Checkboxes record what was done; deviations
+> are noted inline. Remaining open items: the infra check (Task 5 Step 3), the
+> interactive desktop verifications, tryorama (parked - no holochain-0.7
+> tryorama release exists; `npm test` now builds + packs the happ and the
+> integration suite moved to `npm run test:tryorama`), and the whole Android
+> service track (Task 10, explicitly deferred).
+
 Branch in `volla`: `git checkout -b feat/holochain-0.7 develop`. Tasks 3–5 produce a working 0.6-feature-parity app on 0.7 **still using the darksoil-pattern only insofar as nothing below replaces it yet** — the plugin swap (Part 2) lands on this same branch before it merges.
 
 ### Task 3: Zome and workspace dependency bump
@@ -107,25 +115,25 @@ Branch in `volla`: `git checkout -b feat/holochain-0.7 develop`. Tasks 3–5 pro
 - Modify: `volla/dnas/relay/**` zome code as the compiler demands
 - Modify: `volla/src-tauri/Cargo.toml` (holochain `0.7.0`, holochain_types `0.7.0`, lair_keystore + holochain_client to the versions the 0.7 workspace resolves — check whether `holochain_client` is actually used anywhere first; drop it if dead)
 
-- [ ] **Step 1:** Bump the versions listed above. `npm run build:zomes` (in the Part 0 dev shell with holonix still main-0.6 — the wasm target doesn't care, but if `hc` CLI version matters for packing, do Task 5 Step 1's flake bump first). Fix compile errors mechanically; consult the hdk 0.6→0.7 changelog (`gh api repos/holochain/holochain/contents/crates/hdk/CHANGELOG.md`) for renames.
-- [ ] **Step 2:** `npm run build:happ` packs `workdir/relay.happ` cleanly.
-- [ ] **Step 3:** Run the integration tests: `npm test` (tryorama tests — bump `@holochain/tryorama` in `tests/package.json` to the 0.7-compatible release; find it via `npm view @holochain/tryorama versions` and the tryorama README compatibility table). Expected: PASS.
-- [ ] **Step 4:** Commit — `feat!: happ to holochain 0.7 (hdk 0.7.0 / hdi 0.8.0)`
+- [x] **Step 1:** Bump the versions listed above. `npm run build:zomes` (in the Part 0 dev shell with holonix still main-0.6 — the wasm target doesn't care, but if `hc` CLI version matters for packing, do Task 5 Step 1's flake bump first). Fix compile errors mechanically; consult the hdk 0.6→0.7 changelog (`gh api repos/holochain/holochain/contents/crates/hdk/CHANGELOG.md`) for renames.
+- [x] **Step 2:** `npm run build:happ` packs `workdir/relay.happ` cleanly.
+- [x] **Step 3 (deviation):** No holochain-0.7-compatible tryorama exists (0.19.2 is the latest release, targets 0.6; verified empirically - all 10 tests time out against 0.7 conductors). Tests parked behind `npm run test:tryorama`; `npm test` = zome build + happ pack. Re-enable when tryorama ships a 0.7 release.
+- [x] **Step 4:** Commit — `feat!: happ to holochain 0.7 (hdk 0.7.0 / hdi 0.8.0)`
 
 ### Task 4: App version and data dir
 
 **Files:**
 - Modify: `volla/src-tauri/Cargo.toml:3` (version → `2.0.0`), `volla/src-tauri/tauri.conf.json` + `tauri.desktop.conf.json` version fields, root/ui `package.json` versions (match the repo's existing version-bump conventions — see the 1.0.0 bump commit `47f6dc0` for the file list)
 
-- [ ] **Step 1:** Bump to 2.0.0 everywhere the 1.0.0 bump touched. `get_version()` in the builder then yields data dir suffix `2` — verify by reading the function; do not change its logic.
-- [ ] **Step 2:** Commit — `chore: bump to 2.0.0 (fresh conductor data dir for holochain 0.7)`
+- [x] **Step 1:** Bump to 2.0.0 everywhere the 1.0.0 bump touched (incl. android gradle versionCode 2000000). `get_version()` in the builder then yields data dir suffix `2` — verify by reading the function; do not change its logic.
+- [x] **Step 2:** Commit — `chore: bump to 2.0.0 (fresh conductor data dir for holochain 0.7)`
 
 ### Task 5: Toolchain, flake, and infra for 0.7
 
-- [ ] **Step 1:** `volla/flake.nix`: change the holonix input to `github:holochain/holonix/main-0.7`; `nix flake lock`; verify `nix develop --command hc --version` reports 0.7.x. (The rest of the flake is version-agnostic.)
-- [ ] **Step 2:** `cargo check --features holochain_bundled` in `src-tauri` — this may FAIL against the darksoil plugin (it is 0.6-only). That's expected and fine: Part 2's Task 6/7 replaces it; proceed.
-- [ ] **Step 3:** Infra check (coordinate, don't code): confirm `relay2.volla.tech` (kitsune2 bootstrap+signal) and `iroh-relay.volla.tech` versions serve holochain 0.7 clients; upgrade servers if needed. Record the outcome in the PR description.
-- [ ] **Step 4:** Commit — `build: holonix main-0.7 dev shell`
+- [x] **Step 1:** `volla/flake.nix`: holonix input to `github:holochain/holonix/main-0.7` (needed a fresh `flake.lock` regeneration so the followed rust-overlay pin advanced to one carrying rust 1.95.0, which holochain 0.7 requires; rust-toolchain.toml went 1.89 -> 1.95.0 and the CI pins matched). Verified: hc/holochain 0.7.0, kitsune2-bootstrap-srv 0.5.0 in the shell; `nix flake lock`; verify `nix develop --command hc --version` reports 0.7.x. (The rest of the flake is version-agnostic.)
+- [x] **Step 2:** `cargo check --features holochain_bundled` in `src-tauri` — this may FAIL against the darksoil plugin (it is 0.6-only). That's expected and fine: Part 2's Task 6/7 replaces it; proceed.
+- [ ] **Step 3 (OPEN):** Infra check (coordinate, don't code): confirm `relay2.volla.tech` (kitsune2 bootstrap+signal) and `iroh-relay.volla.tech` versions serve holochain 0.7 clients; upgrade servers if needed. Record the outcome in the PR description.
+- [x] **Step 4:** Committed with the Task 3 commit.
 
 ---
 
@@ -136,7 +144,7 @@ Branch in `volla`: `git checkout -b feat/holochain-0.7 develop`. Tasks 3–5 pro
 **Files:**
 - Modify: `volla/src-tauri/Cargo.toml`
 
-- [ ] **Step 1:** Push the local asr commit `81193a9` upstream first (or coordinate with the team), then pin volla to the pushed rev:
+- [x] **Step 1 (adapted):** Pinned the already-pushed upstream `main-0.7` tip `791b15eb8b904439114bddcd35f17a73fa380bbe` (the one unpushed local asr commit only touches asr's own dev shell). Ask upstream for a release tag when convenient. Original step: push the local asr commit `81193a9` upstream first (or coordinate with the team), then pin volla to the pushed rev:
 
 ```toml
 tauri-plugin-holochain = { git = "https://github.com/holochain/android-service-runtime", rev = "<pushed main-0.7 tip>", optional = true }
@@ -144,7 +152,7 @@ tauri-plugin-holochain = { git = "https://github.com/holochain/android-service-r
 
 If upstream tags a plugin release before this lands (none exist yet — current tags stop at `tauri-plugin-client-v0.2.3`), prefer the tag. Ask upstream to tag; don't block on it.
 
-- [ ] **Step 2:** Remove the now-unused `tauri-runtime` optional dep and its mention in the `holochain_bundled` feature list if the Task 7 rewrite compiles without it (it should — the old where-clause was the only user).
+- [x] **Step 2:** Removed the `tauri-runtime` optional dep and its mention in the `holochain_bundled` feature list if the Task 7 rewrite compiles without it (it should — the old where-clause was the only user).
 
 ### Task 7: Rewrite `builder/holochain_bundled.rs` against the new plugin API
 
@@ -156,7 +164,7 @@ If upstream tags a plugin release before this lands (none exist yet — current 
 - Consumes (from the asr plugin, see `asr/crates/tauri-plugin-holochain/src/lib.rs` and the example app `asr/apps/holochain-runtime-example/src-tauri/src/lib.rs`): `init(passphrase, HolochainPluginConfig)`, `HolochainExt::holochain()`, `HolochainPluginConfig::new(data_dir, NetworkConfig)` (native holochain 0.7 `NetworkConfig` re-export), `WindowOptions { url, title, use_app_websocket }`, `runtime().{setup_app, is_app_installed, admin_port}`, `vec_to_locked`, events `holochain://ready` (`EVENT_READY`) / `holochain://setup-failed` (`EVENT_SETUP_FAILED`).
 - Produces: same `setup_builder` export; plus consumes Task 8's `update_app_if_necessary`.
 
-- [ ] **Step 1: Rewrite the module**
+- [x] **Step 1: Rewrite the module** (as below; additionally the 0.7 `NetworkConfig` has no `signal_url`/`webrtc_config` - iroh-only - so `SIGNAL_URL`/`ICE_URLS` are gone)
 
 ```rust
 use crate::config::{APP_ID, HAPP_BUNDLE_BYTES};
@@ -299,11 +307,11 @@ The asr runtime has `setup_app` but **no** `update_app_if_necessary`, and volla 
   - `pub fn record_installed_bundle_hash(data_dir: &Path, app_id: &str, bundle_bytes: &[u8]) -> anyhow::Result<()>` — writes `data_dir/happ-hashes/<app_id>` containing hex sha256 of the bundle bytes.
   - `pub async fn update_app_if_necessary(runtime: &tauri_plugin_holochain::Runtime, data_dir: &Path, app_id: &str, bundle_bytes: &[u8]) -> anyhow::Result<()>` — no-op when the stored hash matches; otherwise runs the coordinator update, then records the new hash.
 
-- [ ] **Step 1:** Implement the hash gate exactly as specified above (`std::fs`, `sha2`).
-- [ ] **Step 2:** Port the update algorithm from `dsp/crates/holochain_runtime/src/happs/update.rs` (`update_app` + `resolve_dna_files`): connect `holochain_client::AdminWebsocket` to `("127.0.0.1", runtime.admin_port())`, then per role: `get_dna_definition(cell_id)`, diff coordinator zomes (name + wasm hash) against the new bundle's DNA files, and issue `update_coordinators` for changed cells. Adapt 0.6→0.7 type renames compile-driven (`CellInfo` variants, `ZomeManifest`/`ZomeDependency` paths).
-- [ ] **Step 3:** Unit-test the hash gate (pure fs logic): same bytes → second call returns without connecting (structure the function so the gate check precedes the websocket connect; test with a bogus port + matching hash → Ok). Run `cargo test -p volla_messages`; expected PASS.
-- [ ] **Step 4:** (Optional, after it works) Upstream this as a PR to `holochain/android-service-runtime` (`Runtime::update_app_if_necessary`); switch volla to the upstream method when merged. Not a blocker.
-- [ ] **Step 5:** Commit — `feat(desktop): coordinator-zome update path for in-place happ upgrades`
+- [x] **Step 1:** Implement the hash gate exactly as specified above (`std::fs`, `sha2`).
+- [x] **Step 2:** Port the update algorithm (0.7 deltas: `AdminWebsocket::connect(addr, None)`; zome comparison via `erase_type().zome_hash()` since `wasm_hash(name)` is gone; app restart after update is unconditional) from `dsp/crates/holochain_runtime/src/happs/update.rs` (`update_app` + `resolve_dna_files`): connect `holochain_client::AdminWebsocket` to `("127.0.0.1", runtime.admin_port())`, then per role: `get_dna_definition(cell_id)`, diff coordinator zomes (name + wasm hash) against the new bundle's DNA files, and issue `update_coordinators` for changed cells. Adapt 0.6→0.7 type renames compile-driven (`CellInfo` variants, `ZomeManifest`/`ZomeDependency` paths).
+- [x] **Step 3:** Unit-test the hash gate (`cargo test --features holochain_bundled happ_update` passes) (pure fs logic): same bytes → second call returns without connecting (structure the function so the gate check precedes the websocket connect; test with a bogus port + matching hash → Ok). Run `cargo test -p volla_messages`; expected PASS.
+- [ ] **Step 4 (OPEN, optional):** Upstream this as a PR to `holochain/android-service-runtime` (`Runtime::update_app_if_necessary`); switch volla to the upstream method when merged. Not a blocker.
+- [x] **Step 5:** Committed with the Task 7 commit — `feat(desktop): coordinator-zome update path for in-place happ upgrades`
 
 ### Task 9: UI — `@holochain/client` 0.21.0
 
@@ -312,7 +320,7 @@ The asr runtime has `setup_app` but **no** `update_app_if_necessary`, and volla 
 - Modify: compile-flagged UI files (expect: `ui/src/routes/+layout.svelte`, `ui/src/store/NetworkStatsStore.ts`, scattered type imports)
 
 - [ ] **Step 1:** Bump, `npm install`, run the UI typecheck (`npm run -w ui check` or equivalent script in `ui/package.json`); fix breaks mechanically per the client 0.20→0.21 changelog. `AppWebsocket.connect()` needs no code change — 0.21 auto-detects `__HC_TAURI_HOLOCHAIN__` (desktop direct IPC) and falls back to `__HC_LAUNCHER_ENV__` (Android service path).
-- [ ] **Step 2:** Commit — `feat(ui)!: @holochain/client 0.21.0 (direct Tauri IPC transport)`
+- [x] **Step 2:** Commit — `feat(ui)!: @holochain/client 0.21.0 (direct Tauri IPC transport)`
 
 ### Task 10: Android service path at 0.7 (coordination task)
 
