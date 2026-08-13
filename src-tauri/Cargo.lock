@@ -3907,7 +3907,7 @@ dependencies = [
 [[package]]
 name = "holochain_runtime"
 version = "0.1.0"
-source = "git+https://github.com/darksoil-studio/tauri-plugin-holochain?branch=main-0.6.1#387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651"
+source = "git+https://github.com/darksoil-studio/tauri-plugin-holochain?rev=387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651#387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -5299,7 +5299,7 @@ dependencies = [
 [[package]]
 name = "kitsune_p2p_mdns"
 version = "0.4.4"
-source = "git+https://github.com/darksoil-studio/tauri-plugin-holochain?branch=main-0.6.1#387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651"
+source = "git+https://github.com/darksoil-studio/tauri-plugin-holochain?rev=387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651#387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651"
 dependencies = [
  "base64 0.22.1",
  "libmdns",
@@ -10062,7 +10062,7 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-holochain"
 version = "0.0.0"
-source = "git+https://github.com/darksoil-studio/tauri-plugin-holochain?branch=main-0.6.1#387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651"
+source = "git+https://github.com/darksoil-studio/tauri-plugin-holochain?rev=387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651#387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651"
 dependencies = [
  "anyhow",
  "bzip2 0.4.4",
@@ -11284,7 +11284,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "volla_messages"
-version = "0.12.2"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "app_dirs2",
