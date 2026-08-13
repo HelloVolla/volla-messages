@@ -17,31 +17,31 @@ pub struct ContactRecord {
 }
 
 pub fn validate_create_contact(
-    _action: EntryCreationAction,
+    _action: TypedAction<EntryCreationData>,
     _contact: Contact,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
 
 pub fn validate_update_contact(
-    _action: Update,
+    _action: TypedAction<UpdateData>,
     _contact: Contact,
-    _original_action: EntryCreationAction,
+    _original_action: TypedAction<EntryCreationData>,
     _original_contact: Contact,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
 
 pub fn validate_delete_contact(
-    _action: Delete,
-    _original_action: EntryCreationAction,
+    _action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
     _original_contact: Contact,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
 
 pub fn validate_create_link_contact_to_contacts(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     _base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -68,8 +68,8 @@ pub fn validate_create_link_contact_to_contacts(
 }
 
 pub fn validate_delete_link_contact_to_contacts(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
@@ -78,7 +78,7 @@ pub fn validate_delete_link_contact_to_contacts(
 }
 
 pub fn validate_create_link_contact_updates(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -123,8 +123,8 @@ pub fn validate_create_link_contact_updates(
 }
 
 pub fn validate_delete_link_contact_updates(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
@@ -137,7 +137,7 @@ pub fn validate_delete_link_contact_updates(
 }
 
 pub fn validate_create_link_all_contacts(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     _base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -165,8 +165,8 @@ pub fn validate_create_link_all_contacts(
 }
 
 pub fn validate_delete_link_all_contacts(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
