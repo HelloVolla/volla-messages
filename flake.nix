@@ -89,6 +89,12 @@
           # Environment for building and running the Tauri desktop app with the
           # nix-provided webkit. Shared verbatim by both shells.
           desktopHook = ''
+            # getrandom 0.3 (in the zome dependency tree) refuses to build for
+            # wasm32-unknown-unknown unless a backend is chosen; zome wasm never
+            # calls OS randomness, so select the "custom" backend (same as the
+            # previous darksoil dev shell did).
+            export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS='--cfg getrandom_backend="custom"'
+
             # TLS for the nix webkit (glib-networking's GIO module). Additive on
             # purpose: GIO_MODULE_DIR would override the module search path for
             # every GLib app launched from this shell.
