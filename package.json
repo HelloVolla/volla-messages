@@ -1,6 +1,6 @@
 {
   "name": "volla_messages",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "workspaces": [
     "ui",
@@ -11,7 +11,7 @@
     "spin": "npm run build:happ && AGENTS=2 npm run spin-network",
     "network": "BOOTSTRAP_PORT=$(port) INTERNAL_IP=$(internal-ip --ipv4) concurrently -k \"npm run local-services\" \"UI_PORT=1420 npm run -w ui start\" \"npm run launch\"",
     "spin-network": "hc s clean && npm run build:happ && UI_PORT=1420 concurrently \"npm start -w ui\" \"npm run spin:happ\"",
-    "test": "npm run build:zomes && hc app pack workdir --recursive && npm t -w tests",
+    "test": "npm run build:happ",
     "spin:happ": "hc-spin -n $AGENTS workdir/relay.happ --ui-port $UI_PORT",
     "package": "npm run build:happ && npm run package -w ui && hc web-app pack workdir --recursive",
     "build:happ": "npm run build:zomes && hc app pack workdir --recursive",
@@ -29,7 +29,8 @@
     "tauri:android:dev:holochain_service": "cp -Rf src-tauri/gen/android-holochain_service/* src-tauri/gen/android/ && cp -f src-tauri/tauri.mobile.holochain_service.conf.json src-tauri/tauri.conf.json && npm run tauri android dev -- --features holochain_service",
     "tauri:android:build:holochain_bundled": "cp -Rf src-tauri/gen/android-holochain_bundled/* src-tauri/gen/android/ && cp -f src-tauri/tauri.mobile.holochain_bundled.conf.json src-tauri/tauri.conf.json && npm run tauri android build -- --features holochain_bundled",
     "tauri:android:build:holochain_service": "cp -Rf src-tauri/gen/android-holochain_service/* src-tauri/gen/android/ && cp -f src-tauri/tauri.mobile.holochain_service.conf.json src-tauri/tauri.conf.json && npm run tauri android build -- --features holochain_service",
-    "setup:happ-release": "curl -L https://github.com/HelloVolla/volla-messages/releases/download/happ-v0.12.2/relay.happ -o workdir/relay.happ"
+    "setup:happ-release": "curl -L https://github.com/HelloVolla/volla-messages/releases/download/happ-v0.12.2/relay.happ -o workdir/relay.happ",
+    "test:tryorama": "npm run build:happ && npm t -w tests"
   },
   "devDependencies": {
     "@holochain/hc-spin": "^0.600.3-rc.0",
