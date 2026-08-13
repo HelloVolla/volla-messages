@@ -22,9 +22,9 @@
 
 **Residual risks accepted with mitigations (Part 0):** darksoil availability has flapped once already, and volla's flake.nix still pulls darksoil's dev shell (with the stale WebkitGTK 2.42 pin). Part 0 removes both exposures cheaply and is independent of the 0.7 schedule.
 
-**Open product decisions (flag before Part 1 starts, do not resolve in code):**
-- **Message history at 0.7:** volla's `holochain_dir()` is versioned by app major version; the 0.7 release must ship as app version 2.0.0 so the conductor gets a fresh data dir (0.7 cannot open 0.6 databases). Existing conversations/messages do NOT carry over unless an export/import or `restore_from_dht`-based migration is built. This needs a product call; this plan assumes fresh-start (no migration).
-- **Android service coordination:** on Volla phones the conductor lives in the system runtime app. The 0.7 client app requires a 0.7 service runtime on-device; that rollout (and syncing/retiring the `volla-cloud-services` 0.6.1 fork in favor of upstream `main-0.7` crates) is tracked as Task 10 but its device-rollout sequencing is a release-management decision.
+**Scoping decisions (2026-08-13, confirmed by the team):**
+- **Message history / data migration is a separate concern.** The 0.7 release starts fresh (app version 2.0.0, fresh conductor data dir). An export/import (or similar) migration is follow-up implementation work, not part of this plan's PRs.
+- **The 0.7 PR only needs the bundled (desktop) build working.** The light/service build (`holochain_service`, used with the Android system runtime) is expected to be broken at 0.7 until `volla-cloud-services` is updated to 0.7 — that is an explicitly separate second step (Task 10). The `holochain_service` feature code stays in the tree untouched.
 
 ## Global Constraints
 
