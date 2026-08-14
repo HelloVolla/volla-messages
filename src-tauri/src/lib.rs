@@ -2,6 +2,9 @@ mod builder;
 use builder::setup_builder;
 mod config;
 
+#[cfg(all(feature = "holochain_bundled", not(feature = "holochain_service")))]
+mod happ_update;
+
 #[cfg(all(mobile, target_os = "android"))]
 mod android_barcode_scanner;
 

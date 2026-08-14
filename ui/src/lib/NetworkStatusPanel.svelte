@@ -2,6 +2,16 @@
   import type { NetworkStatsStoreData, DiagnosticEvent } from "$store/NetworkStatsStore";
   import type { ConversationNetworkInfo } from "$store/NetworkStatsStore";
   import type { PeerMeta } from "@holochain/client";
+
+  // Optional diagnostic fields some conductor builds include in the gossip
+  // peer-meta dump but the client typings don't declare; the template guards
+  // each of these at runtime.
+  type PeerMetaX = PeerMeta & {
+    dht_op_count?: number;
+    storage_arc?: [number, number];
+    is_tombstone?: boolean;
+    new_ops_bookmark?: number;
+  };
   import {
     encodeHashToBase64,
     hashFrom32AndType,
@@ -98,8 +108,15 @@
   $: totalMsgRecv = connections.reduce((s, c) => s + c.recv_message_count, 0);
   $: hasRecvData = totalRecv > 0 || totalMsgRecv > 0;
 
+  $: gossipLocalOpCount = conversationInfo?.metrics?.gossip_state_summary
+    ? (conversationInfo.metrics.gossip_state_summary as { local_op_count?: number })
+        .local_op_count
+    : undefined;
+
   $: peerMetaEntries = conversationInfo?.metrics
-    ? Object.entries(conversationInfo.metrics.gossip_state_summary?.peer_meta || {})
+    ? (Object.entries(
+        conversationInfo.metrics.gossip_state_summary?.peer_meta || {},
+      ) as [string, PeerMetaX][])
     : [];
 
   $: allKnownPeerKeys = (() => {
@@ -234,7 +251,7 @@
       {#if conversationInfo.metrics?.gossip_state_summary}
         <div class="flex justify-between">
           <span class="text-neutral-400">Local Ops</span>
-          <span>{conversationInfo.metrics.gossip_state_summary["local_op_count"] ?? "?"}</span>
+          <span>{gossipLocalOpCount ?? "?"}</span>
         </div>
       {/if}
       {#if conversationInfo.peersBehindCount > 0}

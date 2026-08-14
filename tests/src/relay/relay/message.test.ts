@@ -1,6 +1,6 @@
 import { assert, test } from "vitest";
 
-import { runScenario, dhtSync, CallableCell } from '@holochain/tryorama';
+import { runScenario, dhtSync, CallableCell } from '@holochain-open-dev/tryorama';
 import {
   NewEntryAction,
   ActionHash,

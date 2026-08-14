@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
+  import type { ActionHashB64, AgentPubKeyB64 } from "@holochain/client";
   import { getContext, onDestroy, onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";

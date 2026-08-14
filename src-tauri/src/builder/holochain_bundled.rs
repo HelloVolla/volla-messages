@@ -1,151 +1,124 @@
 use crate::config::{APP_ID, HAPP_BUNDLE_BYTES};
 #[cfg(target_os = "android")]
 use crate::android_barcode_scanner;
-use holochain_types::prelude::AppBundle;
+use crate::happ_update;
+use holochain_types::prelude::{AppBundleSource, InstallAppPayload};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use tauri::{AppHandle, Builder, EventLoopMessage, Listener, Manager, Runtime};
-use tauri_plugin_holochain::{HolochainExt, HolochainPluginConfig, vec_to_locked};
-use tauri_plugin_holochain::NetworkConfig;
+use tauri::{AppHandle, Builder, Listener, Manager, Runtime};
+use tauri_plugin_holochain::{
+    vec_to_locked, HolochainExt, HolochainPluginConfig, NetworkConfig, WindowOptions, EVENT_READY,
+    EVENT_SETUP_FAILED,
+};
 use uuid::Uuid;
-use serde_json::json;
-
-pub const SIGNAL_URL: &'static str = "wss://relay2.volla.tech/";
 
 pub const BOOTSTRAP_URL: &'static str = "https://relay2.volla.tech/";
 
 pub const IROH_RELAY_URL: &'static str = "https://iroh-relay.volla.tech/";
 
-pub static ICE_URLS: &'static [&str] = &[
-    "stun://stun.nextcloud.com:443"
-];
-
-pub fn happ_bundle() -> anyhow::Result<AppBundle> {
-    let bundle = AppBundle::unpack(HAPP_BUNDLE_BYTES)?;
-    Ok(bundle)
-}
-
-pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R>
-where
-    <<R as tauri_runtime::Runtime<EventLoopMessage>>::WindowDispatcher as tauri_runtime::WindowDispatch<
-        EventLoopMessage,
-    >>::WindowBuilder: std::marker::Send,
-{
+pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
-        .plugin(tauri_plugin_holochain::async_init(
+        .plugin(tauri_plugin_holochain::init(
             vec_to_locked(vec![]),
-            HolochainPluginConfig::new(holochain_dir(), network_config())
+            HolochainPluginConfig::new(holochain_dir(), network_config()),
         ))
         .setup(|app| {
             let handle = app.handle().clone();
             let handle_fail = app.handle().clone();
-            app.handle()
-                .listen("holochain://setup-failed", move |_event| {
-                    handle_fail.exit(1);
-                });
-            app.handle()
-                .listen("holochain://setup-completed", move |_event| {
-                    let handle = handle.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let handle = handle.clone();
+            app.handle().listen(EVENT_SETUP_FAILED, move |event| {
+                log::error!("holochain setup failed: {}", event.payload());
+                handle_fail.exit(1);
+            });
+            app.handle().listen(EVENT_READY, move |_event| {
+                let handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    setup(handle.clone()).await.expect("Failed to setup");
 
-                        setup(handle.clone()).await.expect("Failed to setup");
+                    let mut window_options = WindowOptions::default();
+                    #[cfg(desktop)]
+                    {
+                        window_options.title = Some(String::from("Volla Messages"));
+                    }
 
-                        let mut window = handle
-                            .holochain()
-                            .expect("Failed to get holochain")
-                            .main_window_builder(
-                                String::from("main"),
-                                false,
-                                Some(APP_ID.into()),
-                                None,
-                            )
-                            .await
-                            .expect("Failed to build window");
+                    let main_window = handle
+                        .holochain()
+                        .expect("Failed to get holochain")
+                        .main_window_builder(String::from("main"), Some(APP_ID.into()), window_options)
+                        .await
+                        .expect("Failed to build window")
+                        .build()
+                        .expect("Failed to open main window");
 
-                        #[cfg(desktop)]
+                    // Open devtools for debugging
+                    main_window.open_devtools();
+
+                    #[cfg(desktop)]
+                    {
+                        // After it's done, close the splashscreen and display the main window
+                        if let Some(splashscreen_window) = handle.get_webview_window("splashscreen")
                         {
-                            window = window.title(String::from("Volla Messages"));
+                            let _ = splashscreen_window.close();
                         }
+                    }
 
-                        let main_window = window.build().expect("Failed to open main window");
+                    // Load barcode scanner plugin if on supported platform
+                    // It is necessary to load this after we have created the new 'main' webview
+                    //  which will be calling into it
+                    #[cfg(target_os = "android")]
+                    handle
+                        .plugin(android_barcode_scanner::init())
+                        .expect("Failed to initialize android_barcode_scanner");
 
-                        // Open devtools for debugging
-                        main_window.open_devtools();
-
-                        #[cfg(desktop)]
-                        {
-                            // After it's done, close the splashscreen and display the main window
-                            if let Some(splashscreen_window) = handle.get_webview_window("splashscreen") {
-                                let _ = splashscreen_window.close();
-                            }
-                        }
-
-                        // Load barcode scanner plugin if on supported platform
-                        // It is necessary to load this after we have created the new 'main' webview
-                        //  which will be calling into it
-                        #[cfg(target_os = "android")]
-                        handle
-                            .plugin(android_barcode_scanner::init())
-                            .expect("Failed to initialize android_barcode_scanner");
-
-                        #[cfg(all(mobile, not(target_os = "android")))]
-                        handle
-                            .plugin(tauri_plugin_barcode_scanner::init())
-                            .expect("Failed to initialize tauri_plugin_barcode_scanner");
-                    });
+                    #[cfg(all(mobile, not(target_os = "android")))]
+                    handle
+                        .plugin(tauri_plugin_barcode_scanner::init())
+                        .expect("Failed to initialize tauri_plugin_barcode_scanner");
                 });
+            });
 
             Ok(())
         })
 }
 
 // Very simple setup for now:
-// - On app start, list installed apps:
+// - On app start:
 //   - If our hApp is not installed, this is the first time the app is opened: install our hApp
-//   - If our hApp **is** installed:
-//     - Check if it's necessary to update the coordinators for our hApp
-//       - And do so if it is
+//   - If our hApp **is** installed, check whether the bundled hApp changed since the
+//     last run and update the coordinator zomes if it did
 async fn setup<R: Runtime>(handle: AppHandle<R>) -> anyhow::Result<()> {
-    let admin_ws = handle.holochain()?.admin_websocket().await?;
+    let runtime = handle.holochain()?.runtime();
 
-    let installed_apps = admin_ws
-        .list_apps(None)
-        .await
-        .map_err(|err| tauri_plugin_holochain::Error::ConductorApiError(err))?;
-
-    // DeepKey comes preinstalled as the first app
-    if installed_apps
-        .iter()
-        .find(|app| app.installed_app_id.as_str().eq(APP_ID))
-        .is_none()
-    {
-        handle
-            .holochain()?
-            .install_app(
-                String::from(APP_ID),
-                happ_bundle()?,
-                None,
-                None,
-                // Generate a random network seed so every user has their own private DHT for storing contacts
-                Some(Uuid::new_v4().to_string()),
+    if !runtime.is_app_installed(APP_ID.into()).await? {
+        runtime
+            .setup_app(
+                InstallAppPayload {
+                    source: AppBundleSource::Bytes(HAPP_BUNDLE_BYTES.to_vec().into()),
+                    agent_key: None,
+                    installed_app_id: Some(APP_ID.into()),
+                    // Generate a random network seed so every user has their own private DHT for storing contacts
+                    network_seed: Some(Uuid::new_v4().to_string()),
+                    roles_settings: Some(HashMap::new()),
+                    ignore_genesis_failure: false,
+                    restore_from_dht: false,
+                },
+                true,
             )
             .await?;
+        happ_update::record_installed_bundle_hash(&holochain_dir(), APP_ID, HAPP_BUNDLE_BYTES)?;
     } else {
-        handle
-            .holochain()?
-            .update_app_if_necessary(String::from(APP_ID), happ_bundle()?)
+        happ_update::update_app_if_necessary(&runtime, &holochain_dir(), APP_ID, HAPP_BUNDLE_BYTES)
             .await?;
     }
     Ok(())
 }
+
 fn network_config() -> NetworkConfig {
     let mut config = NetworkConfig::default();
-    config.signal_url = url2::url2!("{}", SIGNAL_URL);
     config.bootstrap_url = url2::url2!("{}", BOOTSTRAP_URL);
     config.relay_url = url2::url2!("{}", IROH_RELAY_URL);
-    config.webrtc_config = Some(json!({ "iceServers": [ { "urls": ICE_URLS }]}));
     config
 }
+
 fn holochain_dir() -> PathBuf {
     if tauri::is_dev() {
         #[cfg(target_os = "android")]

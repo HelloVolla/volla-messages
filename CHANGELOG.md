@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### 2.0.0 (holochain 0.7) — breaking
+
+- Breaking: Upgraded to holochain 0.7.0 (hdk 0.7 / hdi 0.8). 0.7 nodes cannot gossip with 0.6 nodes and cannot open 0.6 databases, so 2.0.0 is a coordinated network cutover: the conductor starts in a fresh versioned data dir, and conversations/messages from 1.x do **not** carry over. A data migration (e.g. export/import) is planned as separate follow-up work.
+- Changed: Desktop builds now use the in-process `tauri-plugin-holochain` from [holochain/android-service-runtime](https://github.com/holochain/android-service-runtime) instead of darksoil-studio's p2p-shipyard plugin. The UI's App API now runs over direct Tauri IPC (`@holochain/client` 0.21.0) — no loopback websocket.
+- Added: In-place coordinator-zome updates on release upgrades (`src-tauri/src/happ_update.rs`), so future 2.x releases can ship happ changes into existing installs.
+- Changed: Networking is iroh-only in holochain 0.7 (bootstrap + iroh relay); the sbd signal server and WebRTC/ICE configuration are gone.
+- Known issue: The `holochain_service` (Android system-runtime) build is broken until volla-cloud-services is updated to holochain 0.7 (tracked separately). Desktop and bundled-Android builds are unaffected.
+- Dev: Integration tests now use `@holochain-open-dev/tryorama` 0.20.0 (the holochain-0.7-compatible tryorama line) and run test files sequentially — each file boots multiple conductors and concurrent files starve each other into flaky timeouts.
+
 ## [1.0.1] - 2026-08-03
 
 
