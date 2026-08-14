@@ -101,10 +101,9 @@ Run `cargo check --features holochain_bundled` in `src-tauri`; expected: clean (
 > **Status 2026-08-13:** Parts 1 and 2 executed on branch `feat/holochain-0.7`
 > (stacked on the Part 0 branch). Checkboxes record what was done; deviations
 > are noted inline. Remaining open items: the infra check (Task 5 Step 3), the
-> interactive desktop verifications, tryorama (parked - no holochain-0.7
-> tryorama release exists; `npm test` now builds + packs the happ and the
-> integration suite moved to `npm run test:tryorama`), and the whole Android
-> service track (Task 10, explicitly deferred).
+> interactive desktop verifications, and the whole Android
+> service track (Task 10, explicitly deferred). (Tryorama was briefly parked,
+> then migrated to `@holochain-open-dev/tryorama` 0.20.0 - all 10 tests pass.)
 
 Branch in `volla`: `git checkout -b feat/holochain-0.7 develop`. Tasks 3–5 produce a working 0.6-feature-parity app on 0.7 **still using the darksoil-pattern only insofar as nothing below replaces it yet** — the plugin swap (Part 2) lands on this same branch before it merges.
 
@@ -117,7 +116,7 @@ Branch in `volla`: `git checkout -b feat/holochain-0.7 develop`. Tasks 3–5 pro
 
 - [x] **Step 1:** Bump the versions listed above. `npm run build:zomes` (in the Part 0 dev shell with holonix still main-0.6 — the wasm target doesn't care, but if `hc` CLI version matters for packing, do Task 5 Step 1's flake bump first). Fix compile errors mechanically; consult the hdk 0.6→0.7 changelog (`gh api repos/holochain/holochain/contents/crates/hdk/CHANGELOG.md`) for renames.
 - [x] **Step 2:** `npm run build:happ` packs `workdir/relay.happ` cleanly.
-- [x] **Step 3 (deviation):** No holochain-0.7-compatible tryorama exists (0.19.2 is the latest release, targets 0.6; verified empirically - all 10 tests time out against 0.7 conductors). Tests parked behind `npm run test:tryorama`; `npm test` = zome build + happ pack. Re-enable when tryorama ships a 0.7 release.
+- [x] **Step 3 (deviation, then resolved):** `@holochain/tryorama` stops at 0.19.2 (0.6-only; all 10 tests time out against 0.7 conductors), but the 0.7-compatible line continues as **`@holochain-open-dev/tryorama` 0.20.0** on npm. Tests migrated to it (import path + deps). Also set vitest `fileParallelism: false` - each test file boots multiple conductors and concurrent files starve each other into flaky timeouts. All 10 tests pass.
 - [x] **Step 4:** Commit — `feat!: happ to holochain 0.7 (hdk 0.7.0 / hdi 0.8.0)`
 
 ### Task 4: App version and data dir

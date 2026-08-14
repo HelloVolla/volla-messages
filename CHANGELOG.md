@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added: In-place coordinator-zome updates on release upgrades (`src-tauri/src/happ_update.rs`), so future 2.x releases can ship happ changes into existing installs.
 - Changed: Networking is iroh-only in holochain 0.7 (bootstrap + iroh relay); the sbd signal server and WebRTC/ICE configuration are gone.
 - Known issue: The `holochain_service` (Android system-runtime) build is broken until volla-cloud-services is updated to holochain 0.7 (tracked separately). Desktop and bundled-Android builds are unaffected.
-- Dev: Integration tests are parked (`npm run test:tryorama`) until a holochain-0.7-compatible tryorama is released; `npm test` builds and packs the happ.
+- Dev: Integration tests now use `@holochain-open-dev/tryorama` 0.20.0 (the holochain-0.7-compatible tryorama line) and run test files sequentially — each file boots multiple conductors and concurrent files starve each other into flaky timeouts.
 
 ## [1.0.1] - 2026-08-03
 
