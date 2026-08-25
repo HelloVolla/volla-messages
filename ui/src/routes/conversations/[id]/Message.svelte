@@ -11,6 +11,8 @@
   import MessageFilePreview from "./MessageFilePreview.svelte";
   import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import AgentNickname from "$lib/AgentNickname.svelte";
+  import SvgIcon from "$lib/SvgIcon.svelte";
+  import { starredMessages } from "$store/StarStore";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import DeliveryStatusIndicator from "./DeliveryStatusIndicator.svelte";
   import { computeDeliveryStatus } from "$lib/utils";
@@ -112,6 +114,12 @@
             recipientCount={recipientPubKeyB64s.length}
           />{/if}
       </div>
+
+      {#if $starredMessages[actionHashB64]}
+        <span class="text-secondary-400 mt-0.5 flex items-center {fromMe && 'justify-end'}">
+          <SvgIcon icon="starFilled" size="h-[10px] w-[10px]" />
+        </span>
+      {/if}
     </div>
   </div>
 

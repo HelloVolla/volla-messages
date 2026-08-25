@@ -11,6 +11,7 @@
   import { createEventDispatcher, getContext } from "svelte";
   import { page } from "$app/stores";
   import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
+  import { starredMessages, toggleStar } from "$store/StarStore";
   const fileStore = getContext<{
     getStore: () => FileStore;
   }>("fileStore").getStore();
@@ -107,6 +108,17 @@
       <span class="text-xs md:text-sm">{$t("common.download")}</span>
     </ButtonInline>
   {/if}
+
+  <ButtonInline
+    on:click={() => toggleStar(actionHashB64)}
+    icon={$starredMessages[actionHashB64] ? "starFilled" : "star"}
+    moreClassesButton="bg-tertiary-600 dark:bg-secondary-700 dark:text-tertiary-400"
+    moreClasses="w-[30px]"
+  >
+    <span class="text-xs md:text-sm"
+      >{$starredMessages[actionHashB64] ? $t("common.unstar") : $t("common.star")}</span
+    >
+  </ButtonInline>
 
   {#if hasText || message.message.images.length > 0}
     <ButtonInline
