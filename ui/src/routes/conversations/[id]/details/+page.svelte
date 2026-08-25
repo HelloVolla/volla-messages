@@ -10,6 +10,9 @@
   import ButtonsCopyShareInline from "$lib/ButtonsCopyShareInline.svelte";
   import TitleInput from "./TitleInput.svelte";
   import ButtonIconBare from "$lib/ButtonIconBare.svelte";
+  import Button from "$lib/Button.svelte";
+  import DialogConfirm from "$lib/DialogConfirm.svelte";
+  import toast from "svelte-french-toast";
   import InputImageAvatar from "$lib/InputImageAvatar.svelte";
   import { deriveCellConversationStore, type ConversationStore } from "$store/ConversationStore";
   import {
@@ -123,6 +126,38 @@
     });
     image = newImage;
   };
+
+  let isArchiving = false;
+  let showExitDialog = false;
+  let isExiting = false;
+
+  async function handleArchive() {
+    if (isArchiving) return;
+    isArchiving = true;
+    try {
+      await conversation.disable();
+      await goto("/conversations");
+    } catch (err) {
+      console.error("Error archiving conversation:", err);
+      toast.error($t("common.archive_error"));
+      isArchiving = false;
+    }
+  }
+
+  async function handleExit() {
+    if (isExiting) return;
+    isExiting = true;
+    try {
+      await conversation.leave();
+      toast.success($t("common.exit_group_success"));
+      await goto("/conversations");
+    } catch (err) {
+      console.error("Error exiting conversation:", err);
+      toast.error($t("common.exit_group_error"));
+      isExiting = false;
+      showExitDialog = false;
+    }
+  }
 </script>
 
 <Header backUrl={`/conversations/${$page.params.id}`}>
@@ -226,5 +261,37 @@
         <MemberListItem cellIdB64={$page.params.id} agentPubKeyB64={publicKeyB64} />
       {/each}
     </ul>
+
+    <div class="mb-4 mt-10 flex w-full flex-col items-center gap-3">
+      <Button
+        icon="archive"
+        moreClasses="w-full max-w-xs justify-center"
+        loading={isArchiving}
+        disabled={isArchiving || isExiting}
+        on:click={handleArchive}
+      >
+        {$t("common.archive")}
+      </Button>
+
+      <Button
+        icon="delete"
+        moreClasses="w-full max-w-xs justify-center !text-primary-500 dark:!text-primary-500"
+        disabled={isArchiving || isExiting}
+        on:click={() => (showExitDialog = true)}
+      >
+        {$t("common.exit_group")}
+      </Button>
+    </div>
   </div>
 </div>
+
+<DialogConfirm
+  bind:open={showExitDialog}
+  title={$t("common.exit_group")}
+  actionButtonLabel={$t("common.exit_group")}
+  actionButtonIcon="delete"
+  loading={isExiting}
+  on:confirm={handleExit}
+>
+  <p>{$t("common.exit_group_dialog_message")}</p>
+</DialogConfirm>
