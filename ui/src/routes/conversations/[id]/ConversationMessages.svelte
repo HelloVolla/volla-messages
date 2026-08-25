@@ -355,6 +355,7 @@ console.log("[ConversationMessages] scrollAtTop fired", {
                 on:clickoutside={handleClickOutside}
                 on:delete
                 on:forward
+                on:edit
               />
             </div>
           {/if}

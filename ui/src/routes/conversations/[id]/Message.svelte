@@ -12,6 +12,7 @@
   import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import AgentNickname from "$lib/AgentNickname.svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
+  import { t } from "$translations";
   import { starredMessages } from "$store/StarStore";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import DeliveryStatusIndicator from "./DeliveryStatusIndicator.svelte";
@@ -115,6 +116,12 @@
           />{/if}
       </div>
 
+      {#if message.edited}
+        <span class="text-secondary-400 text-xxs block {fromMe && 'text-end'}"
+          >{$t("common.edited")}</span
+        >
+      {/if}
+
       {#if $starredMessages[actionHashB64]}
         <span class="text-secondary-400 mt-0.5 flex items-center {fromMe && 'justify-end'}">
           <SvgIcon icon="starFilled" size="h-[10px] w-[10px]" />
@@ -124,7 +131,7 @@
   </div>
 
   {#if isSelected}
-    <MessageActions {message} {actionHashB64} on:unselect on:delete on:forward />
+    <MessageActions {message} {actionHashB64} on:unselect on:delete on:forward on:edit />
   {/if}
 </button>
 

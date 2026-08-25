@@ -65,6 +65,7 @@ export interface ConversationMessageStore
   sendMessage: (key1: CellIdB64, content: string, files: LocalFile[]) => Promise<void>;
   sendJoinNotice: (key1: CellIdB64) => Promise<void>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
+  updateMessage: (key1: CellIdB64, actionHashB64: ActionHashB64, content: string) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
   handleMessageDeletedSignalReceived: (
     key1: CellIdB64,
@@ -989,6 +990,39 @@ const paginationState = writable<Record<string, PaginationState>>({});
     _removeFromMemory(key1, actionHashB64);
   }
 
+  async function updateMessage(
+    key1: CellIdB64,
+    actionHashB64: ActionHashB64,
+    content: string,
+  ): Promise<void> {
+    const existing = get(messages).data[key1]?.[actionHashB64];
+    if (existing === undefined) throw new Error("Cannot edit a message that is not loaded");
+
+    // Holochain updates chain off the latest action, so edit from the head of
+    // the chain (a previous edit) rather than the original each time.
+    const previousActionHashB64 = existing.latestUpdateActionHashB64 ?? actionHashB64;
+    const updatedMessage = { ...existing.message, content };
+
+    const record = await client.updateMessage(decodeCellIdFromBase64(key1), {
+      original_message_hash: decodeHashFromBase64(actionHashB64),
+      previous_message_hash: decodeHashFromBase64(previousActionHashB64),
+      updated_message: updatedMessage,
+    });
+
+    const updated: MessageExtended = {
+      ...existing,
+      message: updatedMessage,
+      edited: true,
+      latestUpdateActionHashB64: encodeHashToBase64(record.signed_action.hashed.hash),
+    };
+
+    messages.update((m) => ({
+      ...m,
+      [key1]: { ...(m[key1] || {}), [actionHashB64]: updated },
+    }));
+    await messageDB.storeMessage(key1, actionHashB64, updated);
+  }
+
   function _removeFromMemory(cellIdB64: CellIdB64, actionHashB64: ActionHashB64): void {
     messages.update((m) => {
       const copy = { ...(m[cellIdB64] || {}) };
@@ -1069,6 +1103,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
     handleMessageSignalReceived,
     subscribe,
     deleteMessage,
+    updateMessage,
     handleMessageDeletedSignalReceived,
     debugGetAllMessages,
   };
@@ -1094,6 +1129,7 @@ export interface CellConversationMessageStore
   sendJoinNotice: () => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
+  updateMessage: (actionHashB64: ActionHashB64, content: string) => Promise<void>;
   debugGetAllMessages: () => Promise<MessageRecord[]>;
 }
 
@@ -1149,6 +1185,8 @@ export function deriveCellConversationMessageStore(
       conversationMessageStore.handleMessageSignalReceived(key, signal),
     deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>
       conversationMessageStore.deleteMessage(key1, actionHashB64),
+    updateMessage: (actionHashB64: ActionHashB64, content: string) =>
+      conversationMessageStore.updateMessage(key, actionHashB64, content),
     debugGetAllMessages: () => conversationMessageStore.debugGetAllMessages(key),
   };
 }

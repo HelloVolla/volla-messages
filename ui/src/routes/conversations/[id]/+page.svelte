@@ -114,6 +114,11 @@
   let deleteMessageActionHashB64: ActionHashB64 | undefined = undefined;
   let isDeletingMessage = false;
 
+  let showEditDialog = false;
+  let editActionHashB64: ActionHashB64 | undefined = undefined;
+  let editText = "";
+  let isEditingMessage = false;
+
   let isFirstConfigLoad = true;
   let isFirstProfilesLoad = true;
   let isFirstLoadMessages = true;
@@ -145,6 +150,29 @@
   function openForward(message: MessageExtended) {
     forwardMessage = message;
     showForwardDialog = true;
+  }
+
+  function openEdit(actionHashB64: ActionHashB64, content: string) {
+    editActionHashB64 = actionHashB64;
+    editText = content;
+    showEditDialog = true;
+  }
+
+  async function handleEditMessage() {
+    if (editActionHashB64 === undefined || isEditingMessage) return;
+    const content = editText.trim();
+    if (content.length === 0) return;
+
+    isEditingMessage = true;
+    try {
+      await messages.updateMessage(editActionHashB64, content);
+      showEditDialog = false;
+      editActionHashB64 = undefined;
+    } catch (err) {
+      console.error(err);
+      toast.error($t("common.edit_message_error"));
+    }
+    isEditingMessage = false;
   }
 
   async function handleForwardTo(targetCellIdB64: CellIdB64) {
@@ -390,6 +418,7 @@ async function loadMoreMessages() {
             showDeleteDialog = true;
           }}
           on:forward={(e) => openForward(e.detail)}
+          on:edit={(e) => openEdit(e.detail.actionHashB64, e.detail.content)}
           on:scrollAtTop={loadMoreMessages}
         />
       </div>
@@ -413,6 +442,20 @@ async function loadMoreMessages() {
   on:confirm={handleDeleteMessage}
 >
   <p>{$t("common.delete_message_dialog_message")}</p>
+</DialogConfirm>
+
+<DialogConfirm
+  bind:open={showEditDialog}
+  title={$t("common.edit_message")}
+  actionButtonLabel={$t("common.save")}
+  loading={isEditingMessage}
+  on:confirm={handleEditMessage}
+>
+  <textarea
+    bind:value={editText}
+    rows="3"
+    class="bg-tertiary-500 dark:bg-secondary-500 w-full resize-none rounded-lg border-0 p-2 focus:ring-0"
+  />
 </DialogConfirm>
 
 <ForwardDialog

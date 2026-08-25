@@ -1,5 +1,6 @@
 import type {
   ActionHash,
+  ActionHashB64,
   AgentPubKeyB64,
   CellId,
   EntryHash,
@@ -105,6 +106,11 @@ export interface MessageExtended {
   authorAgentPubKeyB64: AgentPubKeyB64;
   timestamp: number;
   deliveredTo: AgentPubKeyB64[];
+
+  // Set once the author has edited the message. latestUpdateActionHashB64 is the
+  // head of the update chain, needed as the previous hash for any further edit.
+  edited?: boolean;
+  latestUpdateActionHashB64?: ActionHashB64;
 }
 
 export enum DeliveryStatus {
@@ -133,6 +139,12 @@ export interface NotifyMessageDeliveryInput {
 export interface DeleteMessageInput {
   original_message_hash: ActionHash;
   agents: AgentPubKey[];
+}
+
+export interface UpdateMessageInput {
+  original_message_hash: ActionHash;
+  previous_message_hash: ActionHash;
+  updated_message: Message;
 }
 
 /**
