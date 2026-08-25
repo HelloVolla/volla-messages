@@ -1,11 +1,21 @@
 <script lang="ts">
   import type { ActionHashB64, AgentPubKeyB64 } from "@holochain/client";
+  import { encodeHashToBase64 } from "@holochain/client";
   import { getContext, onDestroy, onMount } from "svelte";
+  import { get } from "svelte/store";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import Header from "$lib/Header.svelte";
   import { t } from "$translations";
-  import { Privacy, type LocalFile } from "$lib/types";
+  import {
+    Privacy,
+    FileStatus,
+    type LocalFile,
+    type MessageExtended,
+    type CellIdB64,
+  } from "$lib/types";
+  import { deriveCellFileStore, type FileStore } from "$store/FileStore";
+  import ForwardDialog from "./ForwardDialog.svelte";
   import ConversationMessageInput from "./ConversationMessageInput.svelte";
   import ConversationEmpty from "./ConversationEmpty.svelte";
   import ConversationMessages from "./ConversationMessages.svelte";
@@ -61,6 +71,8 @@
     getStore: () => NetworkStatsStore;
   }>("networkStatsStore").getStore();
 
+  const fileStore = getContext<{ getStore: () => FileStore }>("fileStore").getStore();
+
   let conversation = deriveCellConversationStore(conversationStore, $page.params.id);
   let messages = deriveCellConversationMessageStore(conversationMessageStore, $page.params.id);
   let profiles = deriveCellProfileStore(profileStore, $page.params.id);
@@ -70,8 +82,22 @@
     $page.params.id,
   );
   let conversationNetwork = deriveConversationNetworkStore(networkStatsStore, $page.params.id);
+  let cellFileStore = deriveCellFileStore(fileStore, $page.params.id);
 
   let showConversationNetworkPanel = false;
+
+  // Message forwarding
+  let showForwardDialog = false;
+  let forwardMessage: MessageExtended | undefined = undefined;
+  let isForwarding = false;
+
+  // Enabled conversations other than the current one, as forwarding targets.
+  $: forwardTargets = $conversationStore.list
+    .filter(([cellIdB64, c]) => c.cellInfo.enabled && cellIdB64 !== $page.params.id)
+    .map(([cellIdB64, c]) => ({
+      cellIdB64,
+      title: $conversationTitleStore[cellIdB64] || c.config?.title || c.cellInfo.name,
+    }));
 
   let configTimeout: ReturnType<typeof setTimeout>;
   let agentTimeout: ReturnType<typeof setTimeout>;
@@ -114,6 +140,49 @@
     isDeletingMessage = false;
     showDeleteDialog = false;
     deleteMessageActionHashB64 = undefined;
+  }
+
+  function openForward(message: MessageExtended) {
+    forwardMessage = message;
+    showForwardDialog = true;
+  }
+
+  async function handleForwardTo(targetCellIdB64: CellIdB64) {
+    const message = forwardMessage;
+    if (message === undefined || isForwarding) return;
+
+    isForwarding = true;
+    try {
+      // Files are stored per-conversation, so reconstruct the bytes from the
+      // source cell (downloading if needed) to re-upload into the target cell.
+      const localFiles: LocalFile[] = [];
+      for (const mf of message.message.images) {
+        const hashB64 = encodeHashToBase64(mf.storage_entry_hash);
+        let entry = get(cellFileStore).data[hashB64];
+        if (entry?.status !== FileStatus.Loaded || entry.file === undefined) {
+          await cellFileStore.download(hashB64);
+          entry = get(cellFileStore).data[hashB64];
+        }
+        if (entry?.file !== undefined) {
+          localFiles.push({ file: entry.file, dataURL: "", key: hashB64 });
+        }
+      }
+
+      await conversationMessageStore.sendMessage(
+        targetCellIdB64,
+        message.message.content,
+        localFiles,
+      );
+
+      toast.success($t("common.forward_success"));
+      showForwardDialog = false;
+      forwardMessage = undefined;
+      await goto(`/conversations/${targetCellIdB64}`);
+    } catch (e) {
+      console.error("Failed to forward message", e);
+      toast.error($t("common.forward_error"));
+    }
+    isForwarding = false;
   }
 
   async function loadProfiles() {
@@ -320,6 +389,7 @@ async function loadMoreMessages() {
             deleteMessageActionHashB64 = e.detail;
             showDeleteDialog = true;
           }}
+          on:forward={(e) => openForward(e.detail)}
           on:scrollAtTop={loadMoreMessages}
         />
       </div>
@@ -344,3 +414,10 @@ async function loadMoreMessages() {
 >
   <p>{$t("common.delete_message_dialog_message")}</p>
 </DialogConfirm>
+
+<ForwardDialog
+  bind:open={showForwardDialog}
+  loading={isForwarding}
+  conversations={forwardTargets}
+  on:select={(e) => handleForwardTo(e.detail)}
+/>

@@ -116,7 +116,7 @@
   </div>
 
   {#if isSelected}
-    <MessageActions {message} {actionHashB64} on:unselect on:delete />
+    <MessageActions {message} {actionHashB64} on:unselect on:delete on:forward />
   {/if}
 </button>
 

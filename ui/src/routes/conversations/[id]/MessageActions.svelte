@@ -21,6 +21,7 @@
 
   const dispatch = createEventDispatcher<{
     delete: ActionHashB64;
+    forward: MessageExtended;
   }>();
 
   const myPubKeyB64 = getContext<{ getMyPubKeyB64: () => AgentPubKeyB64 }>(
@@ -104,6 +105,17 @@
       moreClasses="w-[30px]"
     >
       <span class="text-xs md:text-sm">{$t("common.download")}</span>
+    </ButtonInline>
+  {/if}
+
+  {#if hasText || message.message.images.length > 0}
+    <ButtonInline
+      on:click={() => dispatch("forward", message)}
+      icon="share"
+      moreClassesButton="bg-tertiary-600 dark:bg-secondary-700 dark:text-tertiary-400"
+      moreClasses="w-[30px]"
+    >
+      <span class="text-xs md:text-sm">{$t("common.forward")}</span>
     </ButtonInline>
   {/if}
 
