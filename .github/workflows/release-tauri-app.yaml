@@ -441,9 +441,9 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest' # for Arm based macs (M1 and above).
-            args: '--target aarch64-apple-darwin'
+            target: aarch64-apple-darwin
           - platform: 'macos-latest' # for Intel based macs.
-            args: '--target x86_64-apple-darwin'
+            target: x86_64-apple-darwin
     env:
       MACOSX_DEPLOYMENT_TARGET: 10.13
 
@@ -458,10 +458,10 @@ jobs:
           node-version: 20
 
       - name: install Rust stable
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          override: true
-          toolchain: 1.89
+          toolchain: "1.89"
+          targets: ${{ matrix.target }}
 
       - name: install Go stable
         uses: actions/setup-go@v4
@@ -492,7 +492,7 @@ jobs:
 
         with:
           releaseId: ${{ needs.create-release.outputs.releaseId }}
-          args: --verbose --features holochain_bundled
+          args: --verbose --features holochain_bundled --target ${{ matrix.target }}
 
   release-tauri-app-ubuntu-touch:
     name: Build Ubuntu Touch click
