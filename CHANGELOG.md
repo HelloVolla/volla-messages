@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.2] - 2026-08-25
+
+- Fix: The unread indicator now appears inline with the message preview in the conversation list, instead of on its own line above it.
+- Feat: macOS builds are now provided for Intel Macs in addition to Apple Silicon.
+
 ## [1.0.1] - 2026-08-03
 
 - Fix: Scroll functionality has been optimized.
