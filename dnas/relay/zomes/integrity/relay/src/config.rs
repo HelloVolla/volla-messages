@@ -4,6 +4,9 @@ use hdi::prelude::*;
 pub struct Config {
     pub title: String,
     pub image: String,
+    // Optional so configs written before this field existed still deserialize.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 pub fn validate_create_config(
     _action: TypedAction<EntryCreationData>,

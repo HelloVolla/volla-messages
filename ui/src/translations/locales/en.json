@@ -59,6 +59,7 @@
   "forward_error": "Failed to forward message",
   "forward_success": "Message forwarded",
   "forward_to": "Forward to",
+  "group_description_placeholder": "Add a group description",
   "group_name": "Group name",
   "no_conversations_to_forward": "No other conversations to forward to",
   "holochain_connect_error": "Error connecting to Holochain",

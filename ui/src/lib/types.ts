@@ -154,6 +154,7 @@ export interface UpdateMessageInput {
 export interface Config {
   title: string;
   image: string;
+  description?: string;
 }
 
 export enum Privacy {
