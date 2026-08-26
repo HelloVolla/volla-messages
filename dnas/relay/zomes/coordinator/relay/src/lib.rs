@@ -10,6 +10,7 @@ use relay_integrity::*;
 #[serde(tag = "signal_type")]
 pub enum RemoteSignalPayload {
     Message(MessageRecord),
+    MessageUpdated(MessageRecord),
     PeerPing { from_agent: AgentPubKey },
     PeerPong { from_agent: AgentPubKey },
 }
@@ -40,6 +41,21 @@ fn recv_remote_signal(payload: RemoteSignalPayload) -> ExternResult<()> {
                     from: info.provenance,
                 };
                 emit_signal(signal)
+            } else {
+                Err(wasm_error!(WasmErrorInner::Guest(
+                    "Invalid message record".to_string()
+                )))
+            }
+        }
+        RemoteSignalPayload::MessageUpdated(message_record) => {
+            let info: CallInfo = call_info()?;
+            if let Some(message) = message_record.message {
+                emit_signal(Signal::MessageUpdated {
+                    action: message_record.signed_action.clone(),
+                    original_action: message_record.original_action.clone(),
+                    message,
+                    from: info.provenance,
+                })
             } else {
                 Err(wasm_error!(WasmErrorInner::Guest(
                     "Invalid message record".to_string()
@@ -79,6 +95,12 @@ pub enum Signal {
     MessageDeleted {
         action: SignedActionHashed,
         original_action: ActionHash,
+        from: AgentPubKey,
+    },
+    MessageUpdated {
+        action: SignedActionHashed,
+        original_action: ActionHash,
+        message: Message,
         from: AgentPubKey,
     },
     PeerPing {

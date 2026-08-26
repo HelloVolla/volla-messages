@@ -67,6 +67,12 @@ export interface ConversationMessageStore
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
   updateMessage: (key1: CellIdB64, actionHashB64: ActionHashB64, content: string) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
+  handleMessageUpdatedSignalReceived: (
+    key1: CellIdB64,
+    originalActionHashB64: ActionHashB64,
+    message: Message,
+    latestUpdateActionHashB64: ActionHashB64,
+  ) => Promise<void>;
   handleMessageDeletedSignalReceived: (
     key1: CellIdB64,
     actionHashB64: ActionHashB64,
@@ -990,6 +996,29 @@ const paginationState = writable<Record<string, PaginationState>>({});
     _removeFromMemory(key1, actionHashB64);
   }
 
+  async function handleMessageUpdatedSignalReceived(
+    key1: CellIdB64,
+    originalActionHashB64: ActionHashB64,
+    message: Message,
+    latestUpdateActionHashB64: ActionHashB64,
+  ): Promise<void> {
+    const existing = get(messages).data[key1]?.[originalActionHashB64];
+    if (existing === undefined) return;
+
+    const updated: MessageExtended = {
+      ...existing,
+      message,
+      edited: true,
+      latestUpdateActionHashB64,
+    };
+
+    messages.update((m) => ({
+      ...m,
+      [key1]: { ...(m[key1] || {}), [originalActionHashB64]: updated },
+    }));
+    await messageDB.storeMessage(key1, originalActionHashB64, updated);
+  }
+
   async function updateMessage(
     key1: CellIdB64,
     actionHashB64: ActionHashB64,
@@ -1003,10 +1032,18 @@ const paginationState = writable<Record<string, PaginationState>>({});
     const previousActionHashB64 = existing.latestUpdateActionHashB64 ?? actionHashB64;
     const updatedMessage = { ...existing.message, content };
 
+    const mergedProfileContact = deriveCellMergedProfileContactInviteStore(
+      mergedProfileContactInviteStore,
+      key1,
+      encodeHashToBase64(client.client.myPubKey),
+    );
+    const agents = get(mergedProfileContact).list.map(([a]) => decodeHashFromBase64(a));
+
     const record = await client.updateMessage(decodeCellIdFromBase64(key1), {
       original_message_hash: decodeHashFromBase64(actionHashB64),
       previous_message_hash: decodeHashFromBase64(previousActionHashB64),
       updated_message: updatedMessage,
+      agents,
     });
 
     const updated: MessageExtended = {
@@ -1105,6 +1142,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
     deleteMessage,
     updateMessage,
     handleMessageDeletedSignalReceived,
+    handleMessageUpdatedSignalReceived,
     debugGetAllMessages,
   };
 }

@@ -30,6 +30,14 @@ export interface MessageDeleted {
   from: AgentPubKey;
 }
 
+export interface MessageUpdatedSignal {
+  type: "MessageUpdated";
+  action: SignedActionHashed<Update>;
+  original_action: ActionHash;
+  message: Message;
+  from: AgentPubKey;
+}
+
 export interface PeerPingSignal {
   type: "PeerPing";
   from_agent: AgentPubKey;
@@ -43,6 +51,7 @@ export interface PeerPongSignal {
 export type RelaySignal =
   | MessageSignal
   | MessageDeleted
+  | MessageUpdatedSignal
   | PeerPingSignal
   | PeerPongSignal
   | {
@@ -145,6 +154,7 @@ export interface UpdateMessageInput {
   original_message_hash: ActionHash;
   previous_message_hash: ActionHash;
   updated_message: Message;
+  agents: AgentPubKey[];
 }
 
 /**
