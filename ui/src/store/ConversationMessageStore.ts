@@ -62,7 +62,12 @@ export interface ConversationMessageStore
     maxBucketsToFetch?: number,
   ) => Promise<number>;
   loadMoreMessages: (key1: CellIdB64) => Promise<number>;
-  sendMessage: (key1: CellIdB64, content: string, files: LocalFile[]) => Promise<void>;
+  sendMessage: (
+    key1: CellIdB64,
+    content: string,
+    files: LocalFile[],
+    forwarded?: boolean,
+  ) => Promise<void>;
   sendJoinNotice: (key1: CellIdB64) => Promise<void>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
   updateMessage: (key1: CellIdB64, actionHashB64: ActionHashB64, content: string) => Promise<void>;
@@ -779,7 +784,12 @@ const paginationState = writable<Record<string, PaginationState>>({});
     return valid.length;
   }
 
-  async function sendMessage(key1: CellIdB64, content: string, files: LocalFile[]): Promise<void> {
+  async function sendMessage(
+    key1: CellIdB64,
+    content: string,
+    files: LocalFile[],
+    forwarded?: boolean,
+  ): Promise<void> {
     const cellId = decodeCellIdFromBase64(key1);
     const myPubKeyB64 = encodeHashToBase64(client.client.myPubKey);
 
@@ -810,6 +820,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
         bucket: conversationStore.getBucket(key1, Date.now()),
         images: messageFiles,
         message_type: MessageType.User,
+        forwarded: forwarded || undefined,
       },
       agents: agentPubKeys,
     });
@@ -1163,7 +1174,7 @@ export interface CellConversationMessageStore
     maxBucketsToFetch?: number,
   ) => Promise<number>;
   loadMoreMessages: () => Promise<number>;
-  sendMessage: (content: string, files: LocalFile[]) => Promise<void>;
+  sendMessage: (content: string, files: LocalFile[], forwarded?: boolean) => Promise<void>;
   sendJoinNotice: () => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
@@ -1216,8 +1227,8 @@ export function deriveCellConversationMessageStore(
         maxBucketsToFetch,
       ),
     loadMoreMessages: () => conversationMessageStore.loadMoreMessages(key),
-    sendMessage: (content: string, files: LocalFile[]) =>
-      conversationMessageStore.sendMessage(key, content, files),
+    sendMessage: (content: string, files: LocalFile[], forwarded?: boolean) =>
+      conversationMessageStore.sendMessage(key, content, files, forwarded),
     sendJoinNotice: () => conversationMessageStore.sendJoinNotice(key),
     handleMessageSignalReceived: (signal: MessageSignal) =>
       conversationMessageStore.handleMessageSignalReceived(key, signal),

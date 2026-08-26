@@ -79,6 +79,16 @@
         </span>
       {/if}
 
+      {#if message.message.forwarded}
+        <span
+          class="text-secondary-400 text-xxs mb-0.5 flex items-center gap-1 italic {fromMe &&
+            'justify-end'}"
+        >
+          <SvgIcon icon="arrowRight" size="h-[10px] w-[10px]" />
+          {$t("common.forwarded")}
+        </span>
+      {/if}
+
       {#each message.message.images as file}
         <div class="flex {fromMe ? 'justify-end' : 'justify-start'} w-full p-2">
           <MessageFilePreview

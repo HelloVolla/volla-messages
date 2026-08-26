@@ -22,6 +22,9 @@ pub struct Message {
     pub bucket: u32,
     pub images: Vec<File>,
     pub message_type: MessageType,
+    // Set when the message was forwarded from another conversation.
+    #[serde(default)]
+    pub forwarded: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

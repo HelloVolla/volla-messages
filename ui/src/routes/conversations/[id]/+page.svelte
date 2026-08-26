@@ -200,6 +200,7 @@
         targetCellIdB64,
         message.message.content,
         localFiles,
+        true,
       );
 
       toast.success($t("common.forward_success"));

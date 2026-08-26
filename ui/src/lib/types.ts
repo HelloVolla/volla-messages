@@ -108,6 +108,7 @@ export interface Message {
   bucket: number;
   images: MessageFile[];
   message_type: MessageType;
+  forwarded?: boolean;
 }
 
 export interface MessageExtended {
