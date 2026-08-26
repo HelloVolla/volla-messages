@@ -100,6 +100,8 @@
   "share_your_contact_code": "Share your contact code",
   "star": "Star",
   "unstar": "Unstar",
+  "starred_messages": "Starred Messages",
+  "no_starred_messages": "No starred messages yet",
   "stores_setup": "Loading initial data...",
   "stores_setup_error": "Error setting up data stores",
   "tagline": "Peer-to-peer. Encrypted. Secure.",
