@@ -859,7 +859,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
         try {
           const delivered = await client.notifyMessageDelivery(cellId, {
             agent,
-            message_record: messageRecord,
+            messageRecord,
           });
           return { agentB64: encodeHashToBase64(agent), delivered };
         } catch (err) {

@@ -69,7 +69,8 @@ where
 
                         let main_window = window.build().expect("Failed to open main window");
 
-                        // Open devtools for debugging
+                        // Open devtools for debugging (dev builds only; never in production/release builds)
+                        #[cfg(debug_assertions)]
                         main_window.open_devtools();
 
                         #[cfg(desktop)]

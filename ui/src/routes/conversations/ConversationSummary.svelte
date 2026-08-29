@@ -209,7 +209,7 @@
       {/if}
       <div class="ml-4 flex min-w-0 flex-1 flex-col overflow-hidden">
         <span class="text-base">{$conversationTitle}</span>
-        <span class="min-w-0 overflow-hidden text-xs">
+        <div class="flex min-w-0 items-center overflow-hidden text-xs">
           {#if $conversation.unread}
             <UnreadIndicator />
           {/if}
@@ -217,9 +217,11 @@
           {#if $conversation.dnaProperties.privacy === Privacy.Private && $mergedProfileContact.count === 1 && $invite.length > 0}
             <span class="text-secondary-400">{$t("common.unconfirmed")}</span>
           {:else if $conversationLatestMessage}
-            <MessagePreview {cellIdB64} messageExtended={$conversationLatestMessage} />
+            <div class="min-w-0 flex-1">
+              <MessagePreview {cellIdB64} messageExtended={$conversationLatestMessage} />
+            </div>
           {/if}
-        </span>
+        </div>
       </div>
       <div class="text-secondary-300 relative flex flex-row items-center text-xs">
         <SvgIcon icon="person" moreClasses="h-[8px] w-[8px]" />

@@ -235,7 +235,7 @@ export interface SendMessageInput {
 
 export interface NotifyMessageDeliveryInput {
   agent: AgentPubKey;
-  message_record: MessageRecord;
+  messageRecord: MessageRecord;
 }
 
 export interface DeleteMessageInput {

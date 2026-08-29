@@ -34,7 +34,7 @@
     <span>{$t("common.joined_the_conversation")}</span>
   </div>
 {:else}
-  <div class="line-clamp-2 break-words">
+  <div class="line-clamp-1 break-words">
     <span class="inline-flex items-center align-middle">
       <Avatar agentPubKeyB64={messageExtended.authorAgentPubKeyB64} {cellIdB64} size={14} />
       <span class="ml-1"

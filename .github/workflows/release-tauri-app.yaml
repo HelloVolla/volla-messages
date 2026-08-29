@@ -16,6 +16,26 @@ jobs:
     outputs:
       releaseId: ${{ steps.step1.outputs.id }}
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog section for this version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if ($0 ~ "\\[" ver "\\]") { found=1; next }
+              next
+            }
+            found { print }
+          ' CHANGELOG.md > changelog.txt
+
+          if [ ! -s changelog.txt ]; then
+            echo "No changelog entry found for version $VERSION." > changelog.txt
+          fi
+
+          cat changelog.txt
+
       - id: step1
         uses: ncipollo/release-action@v1
         with:
@@ -26,6 +46,7 @@ jobs:
             Android builds are distinguished as either 'rich' or 'lite':
             - The 'rich' build includes a bundled holochain conductor. It can be used on any Android device.
             - The 'lite' build relies on the holochain conductor provided by the [Android Service Runtime app](https://github.com/holochain/android-service-runtime),. The Android Service Runtime app can be installed on any Android device, and will be preinstalled with Volla OS.
+          artifacts: "changelog.txt"
           prerelease: true
           draft: true
 
@@ -127,7 +148,9 @@ jobs:
                 libssl-dev \
                 libayatana-appindicator3-dev \
                 librsvg2-dev \
-                pkg-config
+                pkg-config \
+                xdg-utils
+
           fi
 
           # We must pin webkitgtk to 2.44 for x86_64, as we get a blank screen on later versions.
@@ -418,9 +441,9 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest' # for Arm based macs (M1 and above).
-            args: '--target aarch64-apple-darwin'
+            target: aarch64-apple-darwin
           - platform: 'macos-latest' # for Intel based macs.
-            args: '--target x86_64-apple-darwin'
+            target: x86_64-apple-darwin
     env:
       MACOSX_DEPLOYMENT_TARGET: 10.13
 
@@ -435,10 +458,10 @@ jobs:
           node-version: 20
 
       - name: install Rust stable
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          override: true
-          toolchain: 1.89
+          toolchain: "1.89"
+          targets: ${{ matrix.target }}
 
       - name: install Go stable
         uses: actions/setup-go@v4
@@ -469,7 +492,7 @@ jobs:
 
         with:
           releaseId: ${{ needs.create-release.outputs.releaseId }}
-          args: --verbose --features holochain_bundled
+          args: --verbose --features holochain_bundled --target ${{ matrix.target }}
 
   release-tauri-app-ubuntu-touch:
     name: Build Ubuntu Touch click

@@ -92,6 +92,7 @@
   let messageTimeout: ReturnType<typeof setTimeout>;
 
   let conversationMessageInputRef: HTMLInputElement;
+  let conversationMessagesRef: ConversationMessages;
   let sending = false;
   let loadingMessagesNew = false;
   let loadingMessagesOld = false;
@@ -243,6 +244,10 @@
       // Clear reply context
       replyToMessage = undefined;
       replyToActionHash = undefined;
+
+      // Sent message should always scroll into view, regardless of
+      // whether you were previously scrolled up reading history.
+      conversationMessagesRef?.scrollToBottom("auto");
     } catch (e) {
       console.error(e);
       toast.error(`${$t("common.error_sending_message")}: ${(e as Error).message || e}`);
@@ -423,10 +428,12 @@
 
 <Header backUrl="/conversations" rail="min-w-[7.5rem]">
   <div slot="center" class="flex min-w-0 items-center justify-center gap-2 px-2">
-    <NetworkStatusDot
-      connectionCount={$conversationNetwork?.peerCount || 0}
-      onClick={() => (showConversationNetworkPanel = !showConversationNetworkPanel)}
-    />
+    {#if import.meta.env.DEV}
+      <NetworkStatusDot
+        connectionCount={$conversationNetwork?.peerCount || 0}
+        onClick={() => (showConversationNetworkPanel = !showConversationNetworkPanel)}
+      />
+    {/if}
     <h1 class="overflow-hidden text-ellipsis whitespace-nowrap text-center">
       {$conversationTitle}
     </h1>
@@ -468,7 +475,7 @@
 
 <InlineConferenceInvite onAccept={handleAcceptCall} onReject={handleRejectCall} />
 
-{#if showConversationNetworkPanel}
+{#if import.meta.env.DEV && showConversationNetworkPanel}
   <NetworkStatusPanel
     stats={$networkStatsStore}
     conversationInfo={$conversationNetwork}
@@ -493,6 +500,7 @@
     {:else}
       <div class="w-full flex-1 overflow-hidden">
         <ConversationMessages
+          bind:this={conversationMessagesRef}
           loadingTop={loadingMessagesOld}
           cellIdB64={$page.params.id}
           messages={displayMessages}

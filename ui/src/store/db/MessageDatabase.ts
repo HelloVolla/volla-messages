@@ -48,35 +48,46 @@ export class MessageDatabase extends Dexie {
       );
   }
 
+  private async buildRows(
+    cellIdB64: CellIdB64,
+    entries: Array<[ActionHashB64, MessageExtended]>,
+  ): Promise<DBMessage[]> {
+    const stored = await this.messages.bulkGet(entries.map(([hash]) => hash));
+
+    return entries.map(([actionHashB64, messageExtended], i) => ({
+      actionHashB64,
+      cellIdB64,
+      message: {
+        ...messageExtended,
+        deliveredTo: Array.from(
+          new Set([
+            ...(stored[i]?.message.deliveredTo ?? []),
+            ...messageExtended.deliveredTo,
+          ]),
+        ),
+      },
+      timestamp: messageExtended.timestamp,
+      bucket: messageExtended.message.bucket,
+      createdAt: Date.now(),
+      deleted: false,
+    }));
+  }
+
   async storeMessage(
     cellIdB64: CellIdB64,
     actionHashB64: ActionHashB64,
     messageExtended: MessageExtended,
   ): Promise<void> {
+    const [row] = await this.buildRows(cellIdB64, [[actionHashB64, messageExtended]]);
+
     try {
-      await this.messages.put({
-        actionHashB64,
-        cellIdB64,
-        message: messageExtended,
-        timestamp: messageExtended.timestamp,
-        bucket: messageExtended.message.bucket,
-        createdAt: Date.now(),
-        deleted: false,
-      });
+      await this.messages.put(row);
     } catch (error: any) {
       if (error.name === "QuotaExceededError") {
         console.error("IndexedDB quota exceeded, attempting cleanup...");
         await this.evictOldMessages(cellIdB64);
 
-        await this.messages.put({
-          actionHashB64,
-          cellIdB64,
-          message: messageExtended,
-          timestamp: messageExtended.timestamp,
-          bucket: messageExtended.message.bucket,
-          createdAt: Date.now(),
-          deleted: false,
-        });
+        await this.messages.put(row);
       } else {
         console.error("Failed to store message in IndexedDB:", error);
         throw error;
@@ -89,15 +100,7 @@ export class MessageDatabase extends Dexie {
     entries: Array<[ActionHashB64, MessageExtended]>,
   ): Promise<void> {
     try {
-      const dbRows = entries.map(([actionHashB64, messageExtended]) => ({
-        actionHashB64,
-        cellIdB64,
-        message: messageExtended,
-        timestamp: messageExtended.timestamp,
-        bucket: messageExtended.message.bucket,
-        createdAt: Date.now(),
-        deleted: false,
-      }));
+      const dbRows = await this.buildRows(cellIdB64, entries);
 
       console.group(`[MessageDB][storeMessages] ${cellIdB64.slice(0, 10)}`);
       console.log("incoming count:", entries.length);
@@ -121,17 +124,7 @@ export class MessageDatabase extends Dexie {
         console.error("IndexedDB quota exceeded during bulk insert, attempting cleanup...");
         await this.evictOldMessages(cellIdB64);
 
-        const dbRows = entries.map(([actionHashB64, messageExtended]) => ({
-          actionHashB64,
-          cellIdB64,
-          message: messageExtended,
-          timestamp: messageExtended.timestamp,
-          bucket: messageExtended.message.bucket,
-          createdAt: Date.now(),
-          deleted: false,
-        }));
-
-        await this.messages.bulkPut(dbRows);
+        await this.messages.bulkPut(await this.buildRows(cellIdB64, entries));
       } else {
         console.error("Failed to bulk store messages in IndexedDB:", error);
         throw error;
