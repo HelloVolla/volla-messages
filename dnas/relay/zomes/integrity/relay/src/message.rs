@@ -21,6 +21,7 @@ pub struct Message {
     pub content: String,
     pub bucket: u32,
     pub images: Vec<File>,
+    pub reply_to: Option<ActionHash>,
     pub message_type: MessageType,
 }
 
@@ -142,3 +143,49 @@ pub fn validate_delete_link_all_messages(
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
+
+pub fn validate_create_link_message_replies(
+    _action: CreateLink,
+    base_address: AnyLinkableHash,
+    target_address: AnyLinkableHash,
+    _tag: LinkTag,
+) -> ExternResult<ValidateCallbackResult> {
+    let base_hash = base_address
+        .into_action_hash()
+        .ok_or(wasm_error!(WasmErrorInner::Guest(
+            "No action hash associated with link".to_string()
+        )))?;
+    let base_record = must_get_valid_record(base_hash)?;
+    let _base_message: Message = base_record
+        .entry()
+        .to_app_option()
+        .map_err(|e| wasm_error!(e))?
+        .ok_or(wasm_error!(WasmErrorInner::Guest(
+            "Linked action must reference a Message".to_string()
+        )))?;
+    let target_hash = target_address
+        .into_action_hash()
+        .ok_or(wasm_error!(WasmErrorInner::Guest(
+            "No action hash associated with link".to_string()
+        )))?;
+    let target_record = must_get_valid_record(target_hash)?;
+    let _target_message: Message = target_record
+        .entry()
+        .to_app_option()
+        .map_err(|e| wasm_error!(e))?
+        .ok_or(wasm_error!(WasmErrorInner::Guest(
+            "Linked action must reference a Message".to_string()
+        )))?;
+    Ok(ValidateCallbackResult::Valid)
+}
+
+pub fn validate_delete_link_message_replies(
+    _action: DeleteLink,
+    _original_action: CreateLink,
+    _base: AnyLinkableHash,
+    _target: AnyLinkableHash,
+    _tag: LinkTag,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Valid)
+}
+

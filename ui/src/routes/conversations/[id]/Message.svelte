@@ -1,17 +1,27 @@
 <script lang="ts">
-  import { getContext, setContext } from "svelte";
-  import { Alignment, type CellIdB64, type MessageExtended } from "$lib/types";
+  import { getContext, setContext, createEventDispatcher } from "svelte";
+  import {
+    Alignment,
+    type CellIdB64,
+    type MessageExtended,
+    isConferenceLog,
+    parseConferenceLog,
+  } from "$lib/types";
   import Time from "svelte-time";
   import MessageActions from "./MessageActions.svelte";
   import Avatar from "$lib/Avatar.svelte";
+  import SwipeToReply from "./SwipeToReply.svelte";
   import { press } from "svelte-gestures";
   import DOMPurify from "dompurify";
   import linkifyStr from "linkify-string";
   import { clickoutside } from "@svelte-put/clickoutside";
   import MessageFilePreview from "./MessageFilePreview.svelte";
+  import ConferenceLogMessage from "./ConferenceLogMessage.svelte";
   import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import AgentNickname from "$lib/AgentNickname.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import ReplyPreview from "./ReplyPreview.svelte";
+  import ThreadIndicator from "./ThreadIndicator.svelte";
   import DeliveryStatusIndicator from "./DeliveryStatusIndicator.svelte";
   import { computeDeliveryStatus } from "$lib/utils";
 
@@ -24,11 +34,35 @@
   export let isSelected: boolean = false;
   export let showAuthor: boolean = false;
   export let actionHashB64: ActionHashB64;
+  export let participantCount: number = 0;
+  export let threadViewEnabled: boolean = false;
   export let recipientPubKeyB64s: AgentPubKeyB64[] = [];
 
+  const dispatch = createEventDispatcher<{
+    scrollToMessage: ActionHashB64;
+    openThread: ActionHashB64;
+    reply: ActionHashB64;
+  }>();
+
   $: fromMe = message.authorAgentPubKeyB64 === myPubKeyB64;
+  $: isSmallConversation = participantCount <= 2 || !threadViewEnabled;
+  $: isThreaded = !isSmallConversation && !!message.hasReplies;
+  $: conferenceLog = isConferenceLog(message.message.content)
+    ? parseConferenceLog(message.message.content)
+    : null;
   $: deliveryStatus = computeDeliveryStatus(message, recipientPubKeyB64s);
   $: deliveredCount = message.deliveredTo.length;
+
+  $: if (message.message.reply_to || message.replyToMessage) {
+    console.log("[Message] Message with reply data:", {
+      content: message.message.content.substring(0, 30),
+      hasReplyTo: !!message.message.reply_to,
+      hasReplyToMessage: !!message.replyToMessage,
+      replyToContent: message.replyToMessage?.message.content.substring(0, 30),
+      isSmallConversation,
+      participantCount,
+    });
+  }
 
   // Ensure that external links in message content are opened with the system default browser or mail client.
   function handleMessageContentClick(e: MouseEvent) {
@@ -39,86 +73,146 @@
     e.stopPropagation();
     openUrl(anchor.getAttribute("href") as string);
   }
+
+  function handleMessageContentKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      const anchor = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement;
+      if (anchor === null || anchor.href.startsWith(window.location.origin)) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      openUrl(anchor.getAttribute("href") as string);
+    }
+  }
 </script>
 
-<button
-  class="message-content block w-full border-0 text-left
-    {isSelected
-    ? 'bg-tertiary-500 dark:bg-secondary-500 rounded-xl px-2.5 py-1.5'
-    : 'bg-transparent'}"
-  on:click
-  use:press={{ timeframe: 300, triggerBeforeFinished: true }}
-  on:press
-  use:clickoutside
-  on:clickoutside
-  aria-pressed={isSelected}
-  aria-label="Message"
->
-  <div class="flex {fromMe ? 'justify-end' : 'justify-start'}">
-    {#if !fromMe && showAuthor}
-      <Avatar
-        {cellIdB64}
-        agentPubKeyB64={message.authorAgentPubKeyB64}
-        size={24}
-        moreClasses="items-start mt-1"
-      />
-    {:else if !fromMe}
-      <span class="inline-block min-w-6"></span>
-    {/if}
-
-    <div class="max-w-3/4 ml-3 w-auto {fromMe && 'items-end text-end'}">
-      {#if showAuthor}
-        <span class="flex items-baseline {fromMe && 'flex-row-reverse opacity-80'}">
-          <AgentNickname {cellIdB64} agentPubKeyB64={message.authorAgentPubKeyB64} />
-          <span class="text-xxs mx-2">
-            <Time timestamp={message.timestamp / 1000} format="h:mma" />
-          </span>
-        </span>
-      {/if}
-
-      {#each message.message.images as file}
-        <div class="flex {fromMe ? 'justify-end' : 'justify-start'} w-full p-2">
-          <MessageFilePreview
-            entryHashB64={encodeHashToBase64(file.storage_entry_hash)}
-            align={fromMe ? Alignment.Right : Alignment.Left}
+{#if conferenceLog}
+  <ConferenceLogMessage log={conferenceLog} {cellIdB64} />
+{:else}
+  <SwipeToReply
+    disabled={isSelected}
+    direction={fromMe ? "left" : "right"}
+    on:trigger={() => dispatch("reply", actionHashB64)}
+  >
+    <button
+      class="message-content block w-full border-0 text-left
+      {isSelected
+        ? 'rounded-xl bg-tertiary-500 px-2.5 py-1.5 dark:bg-secondary-500'
+        : 'bg-transparent'}"
+      on:click
+      use:press={{ timeframe: 300, triggerBeforeFinished: true }}
+      on:press
+      use:clickoutside
+      on:clickoutside
+      aria-pressed={isSelected}
+      aria-label="Message"
+    >
+      <div class="flex {fromMe ? 'justify-end' : 'justify-start'}">
+        {#if !fromMe && showAuthor}
+          <Avatar
+            {cellIdB64}
+            agentPubKeyB64={message.authorAgentPubKeyB64}
+            size={24}
+            moreClasses="items-start mt-1"
           />
-        </div>
-      {/each}
+        {:else if !fromMe}
+          <span class="inline-block min-w-6"></span>
+        {/if}
 
-      <!-- 
+        {#if !isSmallConversation && message.hasReplies && fromMe}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
+          <div on:click|stopPropagation on:press|stopPropagation>
+            <ThreadIndicator
+              replyCount={message.replyCount || 0}
+              on:click={() => dispatch("openThread", actionHashB64)}
+            />
+          </div>
+        {/if}
+
+        <div class="max-w-3/4 ml-3 w-auto {fromMe && 'items-end text-end'}">
+          {#if showAuthor}
+            <span class="flex items-baseline {fromMe && 'flex-row-reverse opacity-80'}">
+              <AgentNickname {cellIdB64} agentPubKeyB64={message.authorAgentPubKeyB64} />
+              <span class="mx-2 text-xxs">
+                <Time timestamp={message.timestamp / 1000} format="h:mma" />
+              </span>
+            </span>
+          {/if}
+
+          {#if isSmallConversation && message.replyToMessage}
+            <ReplyPreview
+              replyToMessage={message.replyToMessage}
+              {cellIdB64}
+              on:click={() =>
+                message.message.reply_to &&
+                dispatch("scrollToMessage", encodeHashToBase64(message.message.reply_to))}
+            />
+          {/if}
+
+          {#each message.message.images as file}
+            <div class="flex {fromMe ? 'justify-end' : 'justify-start'} w-full p-2">
+              <MessageFilePreview
+                entryHashB64={encodeHashToBase64(file.storage_entry_hash)}
+                align={fromMe ? Alignment.Right : Alignment.Left}
+              />
+            </div>
+          {/each}
+
+          <!--
         These ignored a11y lints are a workaround, because we cannot
         attach svelte click events to the links generated by linkifyStr.
       -->
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <!-- svelte-ignore a11y-no-static-element-interactions -->
-      <div
-        class="message overflow-wrap-anywhere w-full hyphens-auto whitespace-normal break-words font-light {fromMe &&
-          'text-end'}"
-        on:click={handleMessageContentClick}
-        on:keydown={(e) => e.key === "Enter" && handleMessageContentClick(e)}
-        role="button"
-        tabindex="0"
-      >
-        {@html DOMPurify.sanitize(
-          linkifyStr(message.message.content, {
-            defaultProtocol: "https",
-            rel: {
-              url: "noopener noreferrer",
-            },
-          }),
-        )}{#if fromMe && recipientPubKeyB64s.length > 0}<DeliveryStatusIndicator
-            status={deliveryStatus}
-            {deliveredCount}
-            recipientCount={recipientPubKeyB64s.length}
-          />{/if}
-      </div>
-    </div>
-  </div>
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
+          <div
+            class="message overflow-wrap-anywhere w-full hyphens-auto whitespace-normal break-words font-light {fromMe &&
+              'text-end'}"
+            on:click={handleMessageContentClick}
+            on:keydown={handleMessageContentKeydown}
+            role="button"
+            tabindex="0"
+          >
+            {@html DOMPurify.sanitize(
+              linkifyStr(message.message.content, {
+                defaultProtocol: "https",
+                rel: {
+                  url: "noopener noreferrer",
+                },
+              }),
+            )}
+          </div>
 
-  {#if isSelected}
-    <MessageActions {message} {actionHashB64} on:unselect on:delete />
-  {/if}
-</button>
+          {#if fromMe && recipientPubKeyB64s.length > 0}
+            <div class="mt-1 flex justify-end">
+              <DeliveryStatusIndicator
+                status={deliveryStatus}
+                {deliveredCount}
+                recipientCount={recipientPubKeyB64s.length}
+              />
+            </div>
+          {/if}
+        </div>
+
+
+        {#if !isSmallConversation && message.hasReplies && !fromMe}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
+          <div on:click|stopPropagation on:press|stopPropagation>
+            <ThreadIndicator
+              replyCount={message.replyCount || 0}
+              on:click={() => dispatch("openThread", actionHashB64)}
+            />
+          </div>
+        {/if}
+      </div>
+
+      {#if isSelected}
+        <MessageActions {message} {actionHashB64} on:unselect on:delete />
+      {/if}
+    </button>
+  </SwipeToReply>
+{/if}
 
 <style>
   :global(.message a) {

@@ -2,6 +2,7 @@
   import type { AgentPubKeyB64, AppClient, CellId } from "@holochain/client";
   import { AppWebsocket, CellType, encodeHashToBase64 } from "@holochain/client";
   import { writable, type Writable } from "svelte/store";
+  import { page } from "$app/stores";
   import { onMount, onDestroy, setContext } from "svelte";
   import { t } from "$translations";
   import { createSignalHandler } from "$store/SignalHandler";
@@ -11,6 +12,7 @@
   import AppLanding from "$lib/AppLanding.svelte";
   import { MIN_FIRST_NAME_LENGTH, ROLE_NAME, ZOME_NAME } from "$config";
   import Button from "$lib/Button.svelte";
+  import SvgIcon from "$lib/SvgIcon.svelte";
   import ProfileSetupName from "./ProfileSetupName.svelte";
   import ProfileSetupAvatar from "./ProfileSetupAvatar.svelte";
   import { createContactStore, type ContactStore } from "$store/ContactStore";
@@ -20,7 +22,8 @@
     createProfileStore,
     deriveCellProfileStore,
   } from "$store/ProfileStore";
-  import { encodeCellIdToBase64 } from "$lib/utils";
+  import { encodeCellIdToBase64, setupCallNotifications } from "$lib/utils";
+  import { goto } from "$app/navigation";
   import {
     createMergedProfileContactInviteStore,
     type MergedProfileContactInviteStore,
@@ -48,8 +51,28 @@
     type MergedProfileContactInviteUnjoinedStore,
   } from "$store/MergedProfileContactInviteJoinedStore";
   import { createFileStore, type FileStore } from "$store/FileStore";
+  import {
+    createSimplePeerConferenceStore,
+    type SimplePeerConferenceStore,
+  } from "$store/SimplePeerConferenceStore";
   import { createNetworkStatsStore, type NetworkStatsStore } from "$store/NetworkStatsStore";
   import Dialog from "$lib/Dialog.svelte";
+  // Use the refactored ConferenceView with extracted components
+  import { ConferenceView, ResizablePip } from "$lib/conference";
+  import IncomingCallBanner from "$lib/IncomingCallBanner.svelte";
+  import { sendConferenceEndedLog } from "$lib/conferenceLogging";
+
+  // Svelte action to set video srcObject
+  function setVideoStream(videoElement: HTMLVideoElement, stream: MediaStream) {
+    videoElement.srcObject = stream;
+    return {
+      update(newStream: MediaStream) {
+        if (videoElement.srcObject !== newStream) {
+          videoElement.srcObject = newStream;
+        }
+      },
+    };
+  }
 
   // Holochain client
   let client: AppClient;
@@ -70,6 +93,7 @@
   let provisionedRelayCellProfileStore: CellProfileStore;
   let mergedProfileContactInviteUnjoinedStore: MergedProfileContactInviteUnjoinedStore;
   let mergedProfileContactInviteJoinedStore: MergedProfileContactInviteJoinedStore;
+  let conferenceStore: SimplePeerConferenceStore;
   let networkStatsStore: NetworkStatsStore;
   let relayClient: RelayClient;
   let onlinePeers: Writable<Set<AgentPubKeyB64>> = writable(new Set());
@@ -96,6 +120,119 @@
       ? $provisionedRelayCellProfileStore.data[myPubKeyB64]
       : undefined;
   $: myProfileExists = myProfile !== undefined;
+
+  // Routes with a message composer need the banner lifted clear of it, so it never covers the
+  // input or sits next to the send button.
+  $: hasComposer = $page.route.id === "/conversations/[id]";
+
+  $: activeConference =
+    conferenceStore && $conferenceStore
+      ? Object.entries($conferenceStore.data).find(
+          ([_, conf]) =>
+            conf &&
+            !conf.ended &&
+            !conf.isMinimized &&
+            conf.invitationStatus !== "rejected" &&
+            (conf.invitationStatus === "accepted" || conf.showPreJoinScreen),
+        )?.[0]
+      : null;
+
+  // Find minimized conference (for PiP view)
+  $: minimizedConference =
+    conferenceStore && $conferenceStore
+      ? Object.entries($conferenceStore.data).find(
+          ([_, conf]) =>
+            conf &&
+            !conf.ended &&
+            conf.isMinimized &&
+            (conf.isInitiator || conf.invitationStatus === "accepted"),
+        )?.[0]
+      : null;
+
+  function minimizedPeerName(conf: (typeof $conferenceStore.data)[string]): string {
+    if (!conf?.participants) return "In call";
+    const all = profileStore ? $profileStore.data : {};
+    for (const [pk, p] of conf.participants) {
+      if (pk === myPubKeyB64 || !p.hasJoined) continue;
+      for (const cellProfiles of Object.values(all)) {
+        const fields = cellProfiles?.[pk]?.profile?.fields;
+        if (fields) return `${fields.firstName || ""} ${fields.lastName || ""}`.trim() || "In call";
+      }
+    }
+    return "In call";
+  }
+
+  // Track which conferences we've already logged to prevent duplicates
+  // This is necessary because the ConferenceView component may unmount before its reactive
+  // statement can fire (due to activeConference becoming null when ended: true)
+  const loggedConferenceEnds = new Set<string>();
+
+  $: if (conferenceStore && $conferenceStore) {
+    for (const [roomId, conf] of Object.entries($conferenceStore.data)) {
+      if (conf && conf.ended && conf.endedByMe) {
+        handleConferenceEnded(roomId);
+      }
+    }
+  }
+
+  function handleCloseConference() {
+    // Minimize the conference to PiP mode instead of closing
+    if (activeConference) {
+      console.log("[+layout] Minimizing conference:", activeConference);
+      conferenceStore.setMinimized(activeConference, true);
+    }
+  }
+
+  function handleMaximizeConference() {
+    // Restore the conference from PiP to full view
+    if (minimizedConference) {
+      console.log("[+layout] Maximizing conference:", minimizedConference);
+      conferenceStore.setMinimized(minimizedConference, false);
+    }
+  }
+
+  async function handleConferenceEnded(roomId: string) {
+    if (loggedConferenceEnds.has(roomId)) {
+      console.log("[ConferenceLog] Already logged conference end for:", roomId);
+      return;
+    }
+    loggedConferenceEnds.add(roomId);
+
+    let conference;
+    try {
+      conference = conferenceStore.getConference(roomId);
+    } catch (error) {
+      console.warn("[ConferenceLog] Conference not found in store:", roomId);
+      return;
+    }
+
+    if (
+      !conference ||
+      !conference.cellIdB64 ||
+      !conference.startTime ||
+      !conference.initiatorPubKeyB64
+    ) {
+      console.warn("[ConferenceLog] Cannot send ended log - missing metadata");
+      return;
+    }
+
+    const durationSeconds = Math.floor((Date.now() - conference.startTime) / 1000);
+    const allParticipants = Array.from(conference.participants.keys());
+
+    try {
+      await sendConferenceEndedLog(
+        conversationMessageStore,
+        conference.cellIdB64,
+        roomId,
+        conference.initiatorPubKeyB64,
+        allParticipants,
+        durationSeconds,
+      );
+      console.log("[ConferenceLog] Successfully sent conference ended log");
+    } catch (error) {
+      console.error("[ConferenceLog] Failed to send conference ended log:", error);
+    }
+  }
 
   async function initHolochainClient() {
     try {
@@ -186,6 +323,22 @@
         mergedProfileContactInviteStore,
         myPubKeyB64,
       );
+      conferenceStore = createSimplePeerConferenceStore(relayClient);
+
+      setupCallNotifications(
+        async (roomId, cellIdB64) => {
+          const active = conferenceStore.getMyActiveCall();
+          if (active && active.roomId !== roomId) return;
+          if (cellIdB64) await goto(`/conversations/${cellIdB64}`);
+          conferenceStore.setMinimized(roomId, false);
+          conferenceStore.setShowPreJoinScreen(roomId, true);
+        },
+        (roomId) => {
+          conferenceStore.rejectConferenceInvitation(roomId).catch((e) => {
+            console.error("[Layout] Failed to reject call from notification:", e);
+          });
+        },
+      );
 
       // Initialize network stats store
       networkStatsStore = createNetworkStatsStore(client, relayClient);
@@ -198,7 +351,13 @@
       await conversationMessageStore.initialize();
 
       // Initialize signal handler
-      createSignalHandler(relayClient, conversationStore, conversationMessageStore, onlinePeers);
+      createSignalHandler(
+        relayClient,
+        conversationStore,
+        conversationMessageStore,
+        conferenceStore,
+        onlinePeers,
+      );
 
       isStoresSetup = true;
     } catch (e) {
@@ -244,6 +403,11 @@
 
   onDestroy(() => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
+  });
+
+  onDestroy(() => {
+    conferenceStore?.cleanupAll();
+    networkStatsStore?.stop();
   });
 
   setContext("myPubKey", {
@@ -301,6 +465,10 @@
     getStore: () => inviteStore,
   });
 
+  setContext("conferenceStore", {
+    getStore: () => conferenceStore,
+  });
+
   setContext("networkStatsStore", {
     getStore: () => networkStatsStore,
   });
@@ -341,6 +509,78 @@
     </AppLanding>
   {/if}
 </div>
+
+{#if isStoresSetup && conferenceStore}
+  <div
+    class="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center px-2 sm:bottom-auto sm:top-0 sm:justify-end sm:px-4 sm:pb-0 sm:pt-[max(0.6rem,env(safe-area-inset-top))]
+      {hasComposer ? 'pb-[4.75rem]' : 'pb-[max(0.75rem,env(safe-area-inset-bottom))]'}"
+    style="z-index: 55;"
+  >
+    <IncomingCallBanner />
+  </div>
+{/if}
+
+{#if activeConference}
+  <ConferenceView
+    roomId={activeConference}
+    onClose={handleCloseConference}
+    onConferenceEnded={handleConferenceEnded}
+    showPreJoin={true}
+  />
+{/if}
+
+{#if minimizedConference}
+  {@const conf = $conferenceStore.data[minimizedConference]}
+  <div class="pointer-events-none fixed inset-0" style="z-index: 50;">
+    <ResizablePip
+      initialWidth={180}
+      initialHeight={135}
+      persistKey="conference-pip-position"
+      on:click={handleMaximizeConference}
+    >
+      <div
+        class="group relative flex h-full w-full items-center justify-center overflow-hidden rounded-2xl bg-secondary-800 shadow-2xl ring-1 ring-white/10"
+      >
+        {#if conf?.localStream}
+          <!-- svelte-ignore a11y-media-has-caption -->
+          <video
+            autoplay
+            playsinline
+            muted
+            class="h-full w-full object-cover"
+            use:setVideoStream={conf.localStream}
+          />
+        {:else}
+          <div class="text-xs text-tertiary-500">In call</div>
+        {/if}
+
+        {#if conf?.participants}
+          {@const participantCount = Array.from(conf.participants.values()).filter(
+            (p) => p.hasJoined,
+          ).length}
+          <div
+            class="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white"
+          >
+            <span class="h-1.5 w-1.5 rounded-full bg-success-500"></span>
+            {Math.max(participantCount, 1)} in call
+          </div>
+        {/if}
+
+        <div
+          class="absolute bottom-2 left-2 truncate rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white"
+        >
+          {conf ? minimizedPeerName(conf) : "In call"}
+        </div>
+
+        <div
+          class="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white"
+        >
+          <SvgIcon icon="expand" moreClasses="h-4 w-4" />
+        </div>
+      </div>
+    </ResizablePip>
+  </div>
+{/if}
 
 <Toaster position="bottom-end" />
 

@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
+  import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import { getContext, onDestroy, onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import Header from "$lib/Header.svelte";
   import { t } from "$translations";
-  import { Privacy, type LocalFile } from "$lib/types";
+  import { Privacy, type LocalFile, type MessageExtended } from "$lib/types";
   import ConversationMessageInput from "./ConversationMessageInput.svelte";
   import ConversationEmpty from "./ConversationEmpty.svelte";
   import ConversationMessages from "./ConversationMessages.svelte";
@@ -25,13 +25,18 @@
     deriveCellMergedProfileContactInviteJoinedStore,
     type MergedProfileContactInviteJoinedStore,
   } from "$store/MergedProfileContactInviteJoinedStore";
+  import {
+    deriveCellMergedProfileContactInviteStore,
+    type MergedProfileContactInviteStore,
+  } from "$store/MergedProfileContactInviteStore";
   import { POLLING_INTERVAL_FAST, POLLING_INTERVAL_SLOW } from "$config";
+  import { deriveThreadViewEnabled } from "$store/ThreadViewStore";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
-  import {
-    deriveConversationNetworkStore,
-    type NetworkStatsStore,
-  } from "$store/NetworkStatsStore";
+  import InlineConferenceInvite from "./InlineConferenceInvite.svelte";
+  import type { SimplePeerConferenceStore } from "$store/SimplePeerConferenceStore";
+  import { sendConferenceStartedLog, sendConferenceEndedLog } from "$lib/conferenceLogging";
+  import { deriveConversationNetworkStore, type NetworkStatsStore } from "$store/NetworkStatsStore";
   import NetworkStatusDot from "$lib/NetworkStatusDot.svelte";
   import NetworkStatusPanel from "$lib/NetworkStatusPanel.svelte";
 
@@ -44,7 +49,9 @@
   const mergedProfileContactInviteJoinedStore = getContext<{
     getStore: () => MergedProfileContactInviteJoinedStore;
   }>("mergedProfileContactInviteJoinedStore").getStore();
-
+  const mergedProfileContactInviteStore = getContext<{
+    getStore: () => MergedProfileContactInviteStore;
+  }>("mergedProfileContactInviteStore").getStore();
   const myPubKeyB64 = getContext<{ getMyPubKeyB64: () => AgentPubKeyB64 }>(
     "myPubKey",
   ).getMyPubKeyB64();
@@ -56,7 +63,9 @@
   const conversationMessageStore = getContext<{
     getStore: () => ConversationMessageStore;
   }>("conversationMessageStore").getStore();
-
+  const conferenceStore = getContext<{ getStore: () => SimplePeerConferenceStore }>(
+    "conferenceStore",
+  ).getStore();
   const networkStatsStore = getContext<{
     getStore: () => NetworkStatsStore;
   }>("networkStatsStore").getStore();
@@ -68,6 +77,11 @@
   let joined = deriveCellMergedProfileContactInviteJoinedStore(
     mergedProfileContactInviteJoinedStore,
     $page.params.id,
+  );
+  let mergedProfileContact = deriveCellMergedProfileContactInviteStore(
+    mergedProfileContactInviteStore,
+    $page.params.id,
+    myPubKeyB64,
   );
   let conversationNetwork = deriveConversationNetworkStore(networkStatsStore, $page.params.id);
 
@@ -88,17 +102,29 @@
   let deleteMessageActionHashB64: ActionHashB64 | undefined = undefined;
   let isDeletingMessage = false;
 
+  // Reply state
+  let replyToMessage: MessageExtended | undefined = undefined;
+  let replyToActionHash: ActionHashB64 | undefined = undefined;
+
+  let isStartingCall = false;
+
   let isFirstConfigLoad = true;
   let isFirstProfilesLoad = true;
   let isFirstLoadMessages = true;
 
+  const threadViewEnabled = deriveThreadViewEnabled($page.params.id);
   let noMoreOlderMessages = false;
 
   $: iAmProgenitor = $conversation.dnaProperties.progenitor === myPubKeyB64;
+  $: participantCount = $mergedProfileContact.list.length;
+  $: isSmallConversation = participantCount <= 2 || !$threadViewEnabled;
+  $: displayMessages = isSmallConversation
+    ? $messages.list
+    : $messages.list.filter(([, msg]) => !msg.message.reply_to);
 
   $: if ($page.params.id) {
-  noMoreOlderMessages = false;
-}
+    noMoreOlderMessages = false;
+  }
 
   async function handleDeleteMessage() {
     if (deleteMessageActionHashB64 === undefined) return;
@@ -149,17 +175,17 @@
   }
 
   async function loadMessages() {
-     clearTimeout(messageTimeout);
+    clearTimeout(messageTimeout);
 
-  if (!loadingMessagesOld && !userIsPagingHistory && !loadingMessagesNew) {
-    await loadMessagesInCurrentBucket(true);
-    isFirstLoadMessages = false;
-  }
+    if (!loadingMessagesOld && !userIsPagingHistory && !loadingMessagesNew) {
+      await loadMessagesInCurrentBucket(true);
+      isFirstLoadMessages = false;
+    }
 
-  messageTimeout = setTimeout(
-    loadMessages,
-    $messages.count === 0 ? POLLING_INTERVAL_FAST : POLLING_INTERVAL_SLOW,
-  );
+    messageTimeout = setTimeout(
+      loadMessages,
+      $messages.count === 0 ? POLLING_INTERVAL_FAST : POLLING_INTERVAL_SLOW,
+    );
   }
 
   const loadData = () => {
@@ -168,30 +194,30 @@
     loadMessages();
   };
 
-async function loadMoreMessages() {
-  if (loadingMessagesOld || noMoreOlderMessages) return;
+  async function loadMoreMessages() {
+    if (loadingMessagesOld || noMoreOlderMessages) return;
 
-  loadingMessagesOld = true;
-  userIsPagingHistory = true;
+    loadingMessagesOld = true;
+    userIsPagingHistory = true;
 
-  try {
-    const loadedCount = await messages.loadMoreMessages();
-    console.log("loadedCount:", loadedCount);
+    try {
+      const loadedCount = await messages.loadMoreMessages();
+      console.log("loadedCount:", loadedCount);
 
-    if (loadedCount === 0) {
-      noMoreOlderMessages = true;
-      console.log("History exhausted at UI level");
+      if (loadedCount === 0) {
+        noMoreOlderMessages = true;
+        console.log("History exhausted at UI level");
+      }
+    } catch (e) {
+      console.error("Error loading more messages:", e);
+    } finally {
+      loadingMessagesOld = false;
+
+      setTimeout(() => {
+        userIsPagingHistory = false;
+      }, 1200);
     }
-  } catch (e) {
-    console.error("Error loading more messages:", e);
-  } finally {
-    loadingMessagesOld = false;
-
-    setTimeout(() => {
-      userIsPagingHistory = false;
-    }, 1200);
   }
-}
 
   async function loadMessagesInCurrentBucket(local: boolean) {
     if (loadingMessagesNew) return;
@@ -206,14 +232,19 @@ async function loadMoreMessages() {
     loadingMessagesNew = false;
   }
 
-  async function sendMessage(text: string, files: LocalFile[]) {
+  async function sendMessage(text: string, files: LocalFile[], replyTo?: ActionHashB64) {
     if (sending) return;
 
     conversationMessageInputRef?.focus();
 
     sending = true;
     try {
-      await messages.sendMessage(text, files);
+      await messages.sendMessage(text, files, replyTo);
+
+      // Clear reply context
+      replyToMessage = undefined;
+      replyToActionHash = undefined;
+
       // Sent message should always scroll into view, regardless of
       // whether you were previously scrolled up reading history.
       conversationMessagesRef?.scrollToBottom("auto");
@@ -224,30 +255,179 @@ async function loadMoreMessages() {
     sending = false;
   }
 
+  function handleReply(event: CustomEvent<ActionHashB64>) {
+    const actionHashB64 = event.detail;
+    console.log("[+page] handleReply called:", {
+      actionHashB64,
+      participantCount,
+      isSmallConversation,
+    });
+
+    if (isSmallConversation) {
+      // Small conversation: show inline reply context
+      replyToActionHash = actionHashB64;
+      replyToMessage = $messages.data[actionHashB64];
+      conversationMessageInputRef.focus();
+    } else {
+      // for arge conversation open thread view
+      // don't set reply context
+      openThreadView(actionHashB64);
+    }
+  }
+
+  function openThreadView(rootMessageHash: ActionHashB64) {
+    goto(`/conversations/${$page.params.id}/thread/${rootMessageHash}`);
+  }
+
+  function scrollToMessage(actionHashB64: ActionHashB64) {
+    // TODO: Implement scroll-to-message functionality
+    console.log("Scroll to message:", actionHashB64);
+  }
+
+  async function startVideoCall() {
+    if (isStartingCall) return;
+
+    console.log("[AV Call] ========== Starting Video Call ==========");
+    console.log("[AV Call] Total members in chat ($joined.list):", $joined.list.length);
+    console.log("[AV Call] My public key:", myPubKeyB64);
+    console.log(
+      "[AV Call] All members:",
+      $joined.list.map(([pubKeyB64, profile]) => ({
+        pubKey: pubKeyB64,
+        name: profile.profile.nickname,
+      })),
+    );
+
+    const otherParticipants = $joined.list
+      .map(([pubKeyB64, _profile]) => pubKeyB64)
+      .filter((p) => p !== myPubKeyB64);
+
+    console.log("[AV Call] Other participants to invite:", otherParticipants);
+    console.log("[AV Call] Number of participants to invite:", otherParticipants.length);
+
+    if (otherParticipants.length === 0) {
+      console.error("[AV Call] ERROR: No other participants found to call");
+      toast.error("No participants to call");
+      return;
+    }
+
+    isStartingCall = true;
+    try {
+      console.log("[AV Call] Step 1: Creating conference room...");
+      const roomId = await conferenceStore.createConference(
+        otherParticipants,
+        $page.params.id,
+        myPubKeyB64,
+      );
+      console.log("[AV Call] Step 1 COMPLETE: Conference room created with ID:", roomId);
+
+      console.log("[AV Call] Step 2: Initializing WebRTC (requesting media permissions)...");
+      await conferenceStore.initializeWebRTC(roomId);
+      console.log("[AV Call] Step 2 COMPLETE: WebRTC initialized successfully");
+      console.log("[AV Call] Step 4: Sending conference started log to chat...");
+      const allParticipants = [myPubKeyB64, ...otherParticipants];
+      await sendConferenceStartedLog(
+        conversationMessageStore,
+        $page.params.id,
+        roomId,
+        myPubKeyB64,
+        allParticipants,
+      );
+      console.log("[AV Call] Step 4 COMPLETE: Conference log sent");
+
+      console.log("[AV Call] ========== Video Call Started Successfully ==========");
+    } catch (error) {
+      console.error("[AV Call] ERROR: Failed to start call:", error);
+      toast.error(
+        "Failed to start call: " + (error instanceof Error ? error.message : String(error)),
+      );
+    }
+    isStartingCall = false;
+  }
+
+  function handleAcceptCall(roomId: string) {
+    const conference = $conferenceStore.data[roomId];
+    if (!conference) {
+      toast.error("Conference not found");
+      return;
+    }
+
+    conferenceStore.setMinimized(roomId, false);
+    conferenceStore.setShowPreJoinScreen(roomId, true);
+  }
+
+  async function handleRejectCall(roomId: string) {
+    try {
+      const conference = $conferenceStore.data[roomId];
+      if (!conference) return;
+
+      await conferenceStore.rejectConferenceInvitation(roomId);
+    } catch (error) {
+      console.error("Failed to reject call:", error);
+      toast.error("Failed to reject call");
+    }
+  }
+
+  let dhtActiveRoomId: string | null = null;
+  let activeCallPollTimer: ReturnType<typeof setInterval> | undefined;
+
+  $: myCellCalls = Object.entries($conferenceStore?.data || {}).filter(
+    ([_, c]) => c && !c.ended && c.cellIdB64 === $page.params.id,
+  );
+  $: activeCallEntry = myCellCalls.find(
+    ([_, c]) => c.invitationStatus === "accepted" || c.isInitiator || c.showPreJoinScreen,
+  );
+  $: amInCall = !!activeCallEntry;
+  $: callOngoingElsewhere =
+    !amInCall &&
+    (!!dhtActiveRoomId ||
+      myCellCalls.some(
+        ([_, c]) =>
+          c.invitationStatus === "pending" ||
+          c.invitationStatus === "active" ||
+          c.invitationStatus === "left",
+      ));
+
+  async function refreshActiveCall() {
+    if (amInCall) {
+      dhtActiveRoomId = null;
+      return;
+    }
+    dhtActiveRoomId = await conferenceStore.getActiveConferenceRoom($page.params.id);
+  }
+
+  function handleCallButton() {
+    if (isStartingCall || callOngoingElsewhere) return;
+    if (activeCallEntry) {
+      conferenceStore.setMinimized(activeCallEntry[0], false);
+      return;
+    }
+    const active = conferenceStore.getMyActiveCall();
+    if (active && active.cellIdB64 !== $page.params.id) {
+      toast.error("You're already in a call in another conversation");
+      return;
+    }
+    startVideoCall();
+  }
+
   onMount(() => {
     conversationMessageInputRef?.focus();
     loadData();
     conversation.updateUnread(false);
+    refreshActiveCall();
+    activeCallPollTimer = setInterval(refreshActiveCall, 12000);
   });
 
   onDestroy(() => {
     clearTimeout(agentTimeout);
     clearTimeout(configTimeout);
     clearTimeout(messageTimeout);
+    if (activeCallPollTimer) clearInterval(activeCallPollTimer);
   });
-
-  async function dumpAll() {
-    console.log("Dumping all");
-
-    const { messageDB } = await import("$store/db/MessageDatabase");
-    await messageDB.debugDumpAll();
-
-    await messages.debugGetAllMessages();
-  }
 </script>
 
-<Header backUrl="/conversations">
-  <div slot="center" class="flex items-center justify-center gap-1 overflow-hidden px-4">
+<Header backUrl="/conversations" rail="min-w-[7.5rem]">
+  <div slot="center" class="flex min-w-0 items-center justify-center gap-2 px-2">
     {#if import.meta.env.DEV}
       <NetworkStatusDot
         connectionCount={$conversationNetwork?.peerCount || 0}
@@ -260,29 +440,40 @@ async function loadMoreMessages() {
   </div>
 
   <div class="flex items-center justify-center" slot="right">
-    <!-- <ButtonIconBare
-      moreClasses="!w-[18px] !h-auto"
-      moreClassesButton="p-4"
-      icon="archive"
-      on:click={dumpAll}
-    /> -->
     <ButtonIconBare
-      moreClasses="!w-[18px] !h-auto"
-      moreClassesButton="p-4"
-      icon="gear"
-      on:click={() => goto(`/conversations/${$page.params.id}/details`)}
+      moreClasses="h-[22px] w-[22px]"
+      moreClassesButton="p-2.5 {isStartingCall || callOngoingElsewhere
+        ? 'cursor-not-allowed opacity-40'
+        : ''}"
+      icon="videoCall"
+      disabled={isStartingCall || callOngoingElsewhere}
+      on:click={handleCallButton}
+      title={amInCall
+        ? "Return to call"
+        : callOngoingElsewhere
+          ? "Call in progress"
+          : "Start video call"}
     />
 
     {#if $conversation.dnaProperties.privacy === Privacy.Private && iAmProgenitor}
       <ButtonIconBare
-        moreClasses="h-[24px] w-[24px]"
-        moreClassesButton="p-4"
+        moreClasses="h-[22px] w-[22px]"
+        moreClassesButton="p-2.5"
         icon="addPerson"
         on:click={() => goto(`/conversations/${$page.params.id}/invite`)}
       />
     {/if}
+
+    <ButtonIconBare
+      moreClasses="!w-[18px] !h-auto"
+      moreClassesButton="p-2.5"
+      icon="gear"
+      on:click={() => goto(`/conversations/${$page.params.id}/details`)}
+    />
   </div>
 </Header>
+
+<InlineConferenceInvite onAccept={handleAcceptCall} onReject={handleRejectCall} />
 
 {#if import.meta.env.DEV && showConversationNetworkPanel}
   <NetworkStatusPanel
@@ -312,14 +503,17 @@ async function loadMoreMessages() {
           bind:this={conversationMessagesRef}
           loadingTop={loadingMessagesOld}
           cellIdB64={$page.params.id}
-          messages={$messages.list}
-          recipientPubKeyB64s={$joined.list
-            .map(([k]) => k)
-            .filter((k) => k !== myPubKeyB64)}
+          messages={displayMessages}
+          {participantCount}
+          threadViewEnabled={$threadViewEnabled}
+          recipientPubKeyB64s={$joined.list.map(([k]) => k).filter((k) => k !== myPubKeyB64)}
           on:delete={(e) => {
             deleteMessageActionHashB64 = e.detail;
             showDeleteDialog = true;
           }}
+          on:reply={handleReply}
+          on:openThread={(e) => openThreadView(e.detail)}
+          on:scrollToMessage={(e) => scrollToMessage(e.detail)}
           on:scrollAtTop={loadMoreMessages}
         />
       </div>
@@ -329,9 +523,21 @@ async function loadMoreMessages() {
 
 <ConversationMessageInput
   bind:ref={conversationMessageInputRef}
+  bind:replyToMessage
+  bind:replyToActionHash
+  cellIdB64={$page.params.id}
   disabled={sending}
   loading={sending}
-  on:send={(e) => sendMessage(e.detail.text, e.detail.files)}
+  on:send={(e) =>
+    sendMessage(
+      e.detail.text,
+      e.detail.files,
+      e.detail.replyTo ? encodeHashToBase64(e.detail.replyTo) : undefined,
+    )}
+  on:cancelReply={() => {
+    replyToMessage = undefined;
+    replyToActionHash = undefined;
+  }}
 />
 
 <DialogConfirm

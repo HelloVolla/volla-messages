@@ -8,6 +8,8 @@ import {
   type MessageSignal,
   type ProfileExtended,
   MessageType,
+  isConferenceLog,
+  parseConferenceLog,
 } from "$lib/types";
 import { encodeCellIdToBase64, decodeCellIdFromBase64, enqueueNotification } from "$lib/utils";
 import { EntryRecord } from "@holochain-open-dev/utils";
@@ -62,8 +64,14 @@ export interface ConversationMessageStore
     maxBucketsToFetch?: number,
   ) => Promise<number>;
   loadMoreMessages: (key1: CellIdB64) => Promise<number>;
-  sendMessage: (key1: CellIdB64, content: string, files: LocalFile[]) => Promise<void>;
+  sendMessage: (
+    key1: CellIdB64,
+    content: string,
+    files: LocalFile[],
+    replyTo?: ActionHashB64,
+  ) => Promise<void>;
   sendJoinNotice: (key1: CellIdB64) => Promise<void>;
+  getReplyCount: (key1: CellIdB64, messageHash: ActionHashB64) => Promise<number>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
   handleMessageDeletedSignalReceived: (
@@ -206,6 +214,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
       });
 
       _refreshOldestCursor(cellIdB64);
+      _recomputeThreadCounts(cellIdB64);
     } catch (err) {
       console.error("[_initLoadFromDB] failed:", err);
     }
@@ -445,6 +454,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
 
     _refreshOldestCursor(cellIdB64);
     _applyHardMemoryCap(cellIdB64);
+    _recomputeThreadCounts(cellIdB64);
 
     return addedCount;
   }
@@ -476,6 +486,8 @@ const paginationState = writable<Record<string, PaginationState>>({});
 
       return s;
     });
+
+    _recomputeThreadCounts(cellIdB64);
   }
 
   function _refreshOldestCursor(cellIdB64: CellIdB64): void {
@@ -651,6 +663,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
     });
 
     _refreshOldestCursor(cellIdB64);
+    _recomputeThreadCounts(cellIdB64);
 
     _log("db:hydrate-newest", {
       cell: _cid(cellIdB64),
@@ -772,7 +785,12 @@ const paginationState = writable<Record<string, PaginationState>>({});
     return valid.length;
   }
 
-  async function sendMessage(key1: CellIdB64, content: string, files: LocalFile[]): Promise<void> {
+  async function sendMessage(
+    key1: CellIdB64,
+    content: string,
+    files: LocalFile[],
+    replyTo?: ActionHashB64,
+  ): Promise<void> {
     const cellId = decodeCellIdFromBase64(key1);
     const myPubKeyB64 = encodeHashToBase64(client.client.myPubKey);
 
@@ -802,6 +820,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
         content,
         bucket: conversationStore.getBucket(key1, Date.now()),
         images: messageFiles,
+        reply_to: replyTo ? decodeHashFromBase64(replyTo) : undefined,
         message_type: MessageType.User,
       },
       agents: agentPubKeys,
@@ -997,6 +1016,68 @@ const paginationState = writable<Record<string, PaginationState>>({});
     });
 
     _refreshOldestCursor(cellIdB64);
+    _recomputeThreadCounts(cellIdB64);
+  }
+
+  /**
+   * Recompute replyCount / hasReplies by BFS-ing the in-memory reply graph and
+   * counting ALL transitive descendants of each parent. Because the store only
+   * holds a bounded window (HARD_MEMORY_LIMIT), the in-memory count can be lower
+   * than the true count when replies sit outside the window — so we never
+   * downgrade below the DHT-derived count already on the message; we only raise
+   * it. Only affected parents are patched, leaving the rest of the map untouched.
+   */
+  function _recomputeThreadCounts(cellIdB64: CellIdB64): void {
+    try {
+      const allMessages = get(messages).data[cellIdB64] || {};
+
+      // Build parent → children map from reply_to relationships
+      const childrenMap: Record<ActionHashB64, ActionHashB64[]> = {};
+      for (const [hash, msg] of Object.entries(allMessages)) {
+        if (msg.message?.reply_to) {
+          const parentHash = encodeHashToBase64(msg.message.reply_to);
+          if (!childrenMap[parentHash]) childrenMap[parentHash] = [];
+          childrenMap[parentHash].push(hash);
+        }
+      }
+
+      if (Object.keys(childrenMap).length === 0) return;
+
+      // BFS from each parent to count all transitive descendants in memory
+      const counts: Record<ActionHashB64, number> = {};
+      for (const parentHash of Object.keys(childrenMap)) {
+        const queue = [...childrenMap[parentHash]];
+        const seen = new Set<ActionHashB64>();
+        let count = 0;
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (seen.has(current)) continue;
+          seen.add(current);
+          count++;
+          (childrenMap[current] || []).forEach((c) => queue.push(c));
+        }
+        counts[parentHash] = count;
+      }
+
+      messages.update((m) => {
+        const current = m[cellIdB64];
+        if (!current) return m;
+        const patched = { ...current };
+        for (const [hash, count] of Object.entries(counts)) {
+          if (!patched[hash]) continue;
+          // Never downgrade a DHT-derived count just because replies are not in the window.
+          const nextCount = Math.max(patched[hash].replyCount ?? 0, count);
+          patched[hash] = {
+            ...patched[hash],
+            replyCount: nextCount,
+            hasReplies: nextCount > 0 || patched[hash].hasReplies === true,
+          };
+        }
+        return { ...m, [cellIdB64]: patched };
+      });
+    } catch (e) {
+      console.error("[ConversationMessageStore] _recomputeThreadCounts error:", e);
+    }
   }
 
   async function _makeMessageExtended(
@@ -1016,6 +1097,41 @@ const paginationState = writable<Record<string, PaginationState>>({});
       deliveredTo: [],
     };
 
+    // Hydrate the parent message if this is a reply (for inline reply context)
+    if (messageRecord.message.reply_to) {
+      try {
+        const replyToRecord = await client.getMessageEntries(
+          cellId,
+          [messageRecord.message.reply_to],
+          false,
+        );
+        if (replyToRecord.length > 0 && replyToRecord[0].message) {
+          base.replyToMessage = {
+            message: replyToRecord[0].message,
+            authorAgentPubKeyB64: encodeHashToBase64(
+              replyToRecord[0].signed_action.hashed.content.author,
+            ),
+            timestamp: replyToRecord[0].signed_action.hashed.content.timestamp,
+            deliveredTo: [],
+          };
+        } else {
+          console.warn("[ConversationMessageStore] Reply-to record not found or invalid");
+        }
+      } catch (error) {
+        console.error("[ConversationMessageStore] Error fetching reply-to message:", error);
+      }
+    }
+
+    // Fetch the DHT reply count so thread indicators are accurate independent of
+    // what is currently in memory (the in-memory recompute only ever raises this).
+    try {
+      const count = await client.getReplyCount(cellId, messageRecord.signed_action.hashed.hash);
+      base.replyCount = count;
+      base.hasReplies = count > 0;
+    } catch (error) {
+      console.error("[ConversationMessageStore] Error fetching reply count:", error);
+    }
+
     if (messageRecord.message.images.length > 0) {
       messageRecord.message.images.forEach((f) =>
         fileStore.download(
@@ -1034,15 +1150,25 @@ const paginationState = writable<Record<string, PaginationState>>({});
   ): Promise<void> {
     if (messageExtended.message.message_type === MessageType.System) return;
 
-    const content =
-      messageExtended.message.content.length > 125
-        ? messageExtended.message.content.slice(0, 50) + "…"
-        : messageExtended.message.content;
+    const rawContent = messageExtended.message.content;
+
+    let content;
+    if (isConferenceLog(rawContent)) {
+      const log = parseConferenceLog(rawContent);
+      content = log?.event === "started" ? "📞 Call started" : "📞 Call ended";
+    } else {
+      content = rawContent.length > 125 ? rawContent.slice(0, 50) + "…" : rawContent;
+    }
 
     await enqueueNotification(
       fromProfile ? `Message From ${fromProfile.profile.nickname}` : "New Message",
       content,
     );
+  }
+
+  async function getReplyCount(key1: CellIdB64, messageHash: ActionHashB64): Promise<number> {
+    const cellId = decodeCellIdFromBase64(key1);
+    return await client.getReplyCount(cellId, decodeHashFromBase64(messageHash));
   }
 
   async function debugGetAllMessages(key1: CellIdB64): Promise<MessageRecord[]> {
@@ -1066,6 +1192,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
     loadMoreMessages,
     sendMessage,
     sendJoinNotice,
+    getReplyCount,
     handleMessageSignalReceived,
     subscribe,
     deleteMessage,
@@ -1075,7 +1202,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
 }
 
 export interface CellConversationMessageStore
-  extends GenericKeyValueStoreReadable<Record<ActionHashB64, MessageExtended>> {
+  extends GenericKeyValueStoreReadable<MessageExtended> {
   initialize: () => Promise<void>;
   loadMessagesInCurrentBucketTargetCount: (
     local: boolean,
@@ -1090,10 +1217,11 @@ export interface CellConversationMessageStore
     maxBucketsToFetch?: number,
   ) => Promise<number>;
   loadMoreMessages: () => Promise<number>;
-  sendMessage: (content: string, files: LocalFile[]) => Promise<void>;
+  sendMessage: (content: string, files: LocalFile[], replyTo?: ActionHashB64) => Promise<void>;
   sendJoinNotice: () => Promise<void>;
+  getReplyCount: (messageHash: ActionHashB64) => Promise<number>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
-  deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
+  deleteMessage: (actionHashB64: ActionHashB64) => Promise<void>;
   debugGetAllMessages: () => Promise<MessageRecord[]>;
 }
 
@@ -1142,13 +1270,15 @@ export function deriveCellConversationMessageStore(
         maxBucketsToFetch,
       ),
     loadMoreMessages: () => conversationMessageStore.loadMoreMessages(key),
-    sendMessage: (content: string, files: LocalFile[]) =>
-      conversationMessageStore.sendMessage(key, content, files),
+    sendMessage: (content: string, files: LocalFile[], replyTo?: ActionHashB64) =>
+      conversationMessageStore.sendMessage(key, content, files, replyTo),
     sendJoinNotice: () => conversationMessageStore.sendJoinNotice(key),
+    getReplyCount: (messageHash: ActionHashB64) =>
+      conversationMessageStore.getReplyCount(key, messageHash),
     handleMessageSignalReceived: (signal: MessageSignal) =>
       conversationMessageStore.handleMessageSignalReceived(key, signal),
-    deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>
-      conversationMessageStore.deleteMessage(key1, actionHashB64),
+    deleteMessage: (actionHashB64: ActionHashB64) =>
+      conversationMessageStore.deleteMessage(key, actionHashB64),
     debugGetAllMessages: () => conversationMessageStore.debugGetAllMessages(key),
   };
 }

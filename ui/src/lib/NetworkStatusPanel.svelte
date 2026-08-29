@@ -98,9 +98,24 @@
   $: totalMsgRecv = connections.reduce((s, c) => s + c.recv_message_count, 0);
   $: hasRecvData = totalRecv > 0 || totalMsgRecv > 0;
 
+  // Runtime fields not yet exposed in @holochain/client typings
+  type PeerMetaExt = PeerMeta & {
+    dht_op_count?: number;
+    storage_arc?: [number, number];
+    is_tombstone?: boolean;
+  };
+
   $: peerMetaEntries = conversationInfo?.metrics
-    ? Object.entries(conversationInfo.metrics.gossip_state_summary?.peer_meta || {})
+    ? (Object.entries(
+        conversationInfo.metrics.gossip_state_summary?.peer_meta || {},
+      ) as [string, PeerMetaExt][])
     : [];
+
+  $: localOpCountDisplay =
+    (conversationInfo?.metrics?.gossip_state_summary as any)?.local_op_count ?? "?";
+
+  type LocalAgentExt = { agent: Uint8Array; storage_arc?: [number, number]; target_arc?: [number, number] };
+  $: localAgentsExt = (conversationInfo?.localAgents ?? []) as unknown as LocalAgentExt[];
 
   $: allKnownPeerKeys = (() => {
     if (!stats.metricsPerDna) return [];
@@ -234,7 +249,7 @@
       {#if conversationInfo.metrics?.gossip_state_summary}
         <div class="flex justify-between">
           <span class="text-neutral-400">Local Ops</span>
-          <span>{conversationInfo.metrics.gossip_state_summary["local_op_count"] ?? "?"}</span>
+          <span>{localOpCountDisplay}</span>
         </div>
       {/if}
       {#if conversationInfo.peersBehindCount > 0}
@@ -264,12 +279,12 @@
     </div>
 
     <!-- Local agent arcs -->
-    {#if detailed && conversationInfo.localAgents.length > 0}
+    {#if detailed && localAgentsExt.length > 0}
       <div class="mb-3 space-y-1 border-t border-neutral-700 pt-3">
         <div class="font-medium text-xs uppercase tracking-wide text-neutral-500">
           Local Agents
         </div>
-        {#each conversationInfo.localAgents as agent}
+        {#each localAgentsExt as agent}
           <div class="rounded bg-neutral-800 p-2 text-xs space-y-0.5">
             <div class="font-mono text-neutral-500" title={encodeHashToBase64(agent.agent)}>
               {displayAgent(encodeHashToBase64(agent.agent))}

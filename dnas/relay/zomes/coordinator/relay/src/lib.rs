@@ -1,3 +1,4 @@
+pub mod conference;
 pub mod config;
 pub mod contact;
 pub mod helper;
@@ -7,9 +8,10 @@ use hdk::prelude::*;
 use relay_integrity::*;
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "signal_type")]
+#[serde(tag = "payload_type")]
 pub enum RemoteSignalPayload {
     Message(MessageRecord),
+    Conference(ConferenceRecord),
     PeerPing { from_agent: AgentPubKey },
     PeerPong { from_agent: AgentPubKey },
 }
@@ -17,6 +19,155 @@ pub enum RemoteSignalPayload {
 #[hdk_extern]
 fn recv_remote_signal(payload: RemoteSignalPayload) -> ExternResult<()> {
     match payload {
+        RemoteSignalPayload::Conference(conference_record) => {
+            info!("[Rust] ========== Processing ConferenceRecord signal ==========");
+            info!("[Rust] Signal type: {:?}", conference_record.signal_type);
+            info!("[Rust] Full conference record: {:?}", conference_record);
+            
+            match conference_record.signal_type {
+                ConferenceSignalType::Invite => {
+                    info!("[Rust] ** INVITE signal detected **");
+                    let room = conference_record
+                        .room
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Room field required for Invite signal".into()
+                        )))?;
+                    let agent =
+                        conference_record
+                            .agent
+                            .ok_or(wasm_error!(WasmErrorInner::Guest(
+                                "Agent field required for Invite signal".into()
+                            )))?;
+                    info!("[Rust] Room: {:?}", room);
+                    info!("[Rust] Inviter agent: {:?}", agent);
+                    info!("[Rust] About to emit ConferenceInvite signal");
+                    let result = emit_signal(Signal::ConferenceInvite { room, agent });
+                    info!("[Rust] emit_signal result: {:?}", result);
+                    result
+                }
+                ConferenceSignalType::Join => {
+                    info!("[Rust] ** JOIN signal detected **");
+                    let room_id = conference_record
+                        .room_id
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Room ID required for Join signal".into()
+                        )))?;
+                    let agent = conference_record
+                        .agent
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Agent field required for Join signal".into()
+                        )))?;
+                    info!("[Rust] Room ID: {}", room_id);
+                    info!("[Rust] Joining agent: {:?}", agent);
+                    emit_signal(Signal::ConferenceJoined { room_id, agent })
+                }
+                ConferenceSignalType::Leave => {
+                    info!("[Rust] ** LEAVE signal detected **");
+                    let room_id = conference_record
+                        .room_id
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Room ID required for Leave signal".into()
+                        )))?;
+                    let agent = conference_record
+                        .agent
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Agent field required for Leave signal".into()
+                        )))?;
+                    emit_signal(Signal::ConferenceLeft { room_id, agent })
+                }
+                ConferenceSignalType::Reject => {
+                    info!("[Rust] ** REJECT signal detected **");
+                    let room_id = conference_record
+                        .room_id
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Room ID required for Reject signal".into()
+                        )))?;
+                    let agent = conference_record
+                        .agent
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Agent field required for Reject signal".into()
+                        )))?;
+                    emit_signal(Signal::ConferenceRejected { room_id, agent })
+                }
+                ConferenceSignalType::End => {
+                    info!("[Rust] ** END signal detected **");
+                    let room_id = conference_record
+                        .room_id
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Room ID required for End signal".into()
+                        )))?;
+                    let ended_by = conference_record
+                        .agent
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Agent field required for End signal".into()
+                        )))?;
+                    emit_signal(Signal::ConferenceEnded { room_id, ended_by })
+                }
+                ConferenceSignalType::WebRTC => {
+                    info!("[Rust] ** WebRTC signal detected **");
+                    let signal_payload = conference_record
+                        .signal_payload
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Signal payload required for WebRTC signal".into()
+                        )))?;
+                    info!("[Rust] WebRTC payload type: {:?}", signal_payload.payload_type);
+                    emit_signal(Signal::WebRTCSignal(signal_payload))
+                }
+                ConferenceSignalType::Ack => {
+                    info!("[Rust] ** ACK signal detected **");
+                    let signal_id = conference_record
+                        .ack_signal_id
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Signal ID required for Ack signal".into()
+                        )))?;
+                    let from = conference_record
+                        .agent
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Agent field required for Ack signal".into()
+                        )))?;
+                    info!("[Rust] Acknowledging signal ID: {}", signal_id);
+                    emit_signal(Signal::SignalAck { signal_id, from })
+                }
+                ConferenceSignalType::RoleChanged => {
+                    info!("[Rust] ** RoleChanged signal detected **");
+                    let room_id = conference_record
+                        .room_id
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Room ID required for RoleChanged signal".into()
+                        )))?;
+                    let new_role = conference_record
+                        .new_role
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "New role required for RoleChanged signal".into()
+                        )))?;
+                    let from = conference_record
+                        .agent
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Agent field required for RoleChanged signal".into()
+                        )))?;
+                    emit_signal(Signal::RoleChanged { room_id, new_role, from })
+                }
+                ConferenceSignalType::HostTransfer => {
+                    info!("[Rust] ** HostTransfer signal detected **");
+                    let room_id = conference_record
+                        .room_id
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Room ID required for HostTransfer signal".into()
+                        )))?;
+                    let new_host = conference_record
+                        .new_host
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "New host required for HostTransfer signal".into()
+                        )))?;
+                    let from = conference_record
+                        .agent
+                        .ok_or(wasm_error!(WasmErrorInner::Guest(
+                            "Agent field required for HostTransfer signal".into()
+                        )))?;
+                    emit_signal(Signal::HostTransfer { room_id, new_host, from })
+                }
+            }
+        }
         RemoteSignalPayload::Message(message_record) => {
             let info: CallInfo = call_info()?;
 
@@ -108,6 +259,41 @@ pub enum Signal {
     EntryDeleted {
         action: SignedActionHashed,
         original_app_entry: EntryTypes,
+    },
+    ConferenceInvite {
+        room: ConferenceRoom,
+        agent: AgentPubKey,
+    },
+    ConferenceJoined {
+        room_id: String,
+        agent: AgentPubKey,
+    },
+    ConferenceLeft {
+        room_id: String,
+        agent: AgentPubKey,
+    },
+    ConferenceRejected {
+        room_id: String,
+        agent: AgentPubKey,
+    },
+    ConferenceEnded {
+        room_id: String,
+        ended_by: AgentPubKey,
+    },
+    WebRTCSignal(SignalPayload),
+    SignalAck {
+        signal_id: String,
+        from: AgentPubKey,
+    },
+    RoleChanged {
+        room_id: String,
+        new_role: ConferenceRole,
+        from: AgentPubKey,
+    },
+    HostTransfer {
+        room_id: String,
+        new_host: AgentPubKey,
+        from: AgentPubKey,
     },
 }
 #[hdk_extern(infallible)]

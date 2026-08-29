@@ -1,9 +1,25 @@
-import { encodeHashToBase64, type Signal, SignalType, type AgentPubKeyB64 } from "@holochain/client";
+import {
+  encodeHashToBase64,
+  type Signal,
+  SignalType,
+  type AgentPubKeyB64,
+} from "@holochain/client";
+import toast from "svelte-french-toast";
 import { RelayClient } from "$store/RelayClient";
-import { type RelaySignal, type MessageSignal } from "$lib/types";
-import { encodeCellIdToBase64 } from "$lib/utils";
+import {
+  type RelaySignal,
+  type MessageSignal,
+  SimplePeerSignalType,
+  ConferenceRole,
+} from "$lib/types";
+import { encodeCellIdToBase64, enqueueNotification, sendCallNotification } from "$lib/utils";
 import { type ConversationStore } from "./ConversationStore";
 import type { ConversationMessageStore } from "./ConversationMessageStore";
+import {
+  type SimplePeerConferenceStore,
+  type SimplePeerConferenceState,
+  INVITATION_TIMEOUT_MS,
+} from "./SimplePeerConferenceStore";
 import { page } from "$app/stores";
 import { get, type Writable } from "svelte/store";
 
@@ -11,23 +27,31 @@ export function createSignalHandler(
   client: RelayClient,
   conversationStore: ConversationStore,
   conversationMessageStore: ConversationMessageStore,
+  conferenceStore: SimplePeerConferenceStore,
   onlinePeers: Writable<Set<AgentPubKeyB64>>,
 ) {
-  const _handleSignalReceived = async (signal: Signal) => {
+  client.client.on("signal", _handleSignalReceived);
+
+  const processedRejects = new Set<string>();
+  const myPubKeyB64 = encodeHashToBase64(client.client.myPubKey);
+
+  async function _handleSignalReceived(signal: Signal) {
     if (signal.type !== SignalType.App) return;
 
     const payload = signal.value.payload as RelaySignal;
     const cellIdB64 = encodeCellIdToBase64(signal.value.cell_id);
-    const fromB64 = "from" in payload ? encodeHashToBase64((payload as MessageSignal).from) : undefined;
+    const fromB64 =
+      "from" in payload ? encodeHashToBase64((payload as MessageSignal).from) : undefined;
 
     console.log(
       `[SIG] type=${payload.type} cell=${cellIdB64.slice(0, 8)}..` +
-      (fromB64 ? ` from=${fromB64.slice(0, 8)}..` : "")
+        (fromB64 ? ` from=${fromB64.slice(0, 8)}..` : ""),
     );
 
     if (payload.type === "PeerPing" || payload.type === "PeerPong") {
       const fromAgent = encodeHashToBase64(payload.from_agent);
       onlinePeers.update((set) => new Set([...set, fromAgent]));
+      conferenceStore.recordPeerActivity(fromAgent);
       return;
     }
 
@@ -44,8 +68,429 @@ export function createSignalHandler(
       const originalActionHash = payload.original_action;
       const originalActionHashB64 = encodeHashToBase64(originalActionHash);
       conversationMessageStore.handleMessageDeletedSignalReceived(cellIdB64, originalActionHashB64);
+    } else if (
+      payload.type === "ConferenceInvite" ||
+      payload.type === "ConferenceJoined" ||
+      payload.type === "ConferenceLeft" ||
+      payload.type === "ConferenceRejected" ||
+      payload.type === "ConferenceEnded" ||
+      payload.type === "RoleChanged" ||
+      payload.type === "HostTransfer"
+    ) {
+      _handleConferenceStateSignal(payload, cellIdB64);
+    } else if (payload.type === "WebRTCSignal") {
+      _handleSimplePeerSignal(payload);
     }
-  };
+    // Note: SignalAck handling removed - SimplePeer doesn't need acknowledgments
+  }
 
-  client.client.on("signal", _handleSignalReceived);
+  function _handleConferenceStateSignal(signal: RelaySignal, cellIdB64: string) {
+    switch (signal.type) {
+      case "ConferenceInvite": {
+        const roomId = signal.room.room_id;
+        const invitedBy = encodeHashToBase64(signal.agent);
+        const participants = signal.room.participants.map((p) => encodeHashToBase64(p));
+        const allParticipants = [invitedBy, ...participants];
+
+        let previousConference;
+        try {
+          previousConference = conferenceStore.getConference(roomId);
+        } catch {
+          previousConference = undefined;
+        }
+        if (previousConference && !previousConference.ended) {
+          const alreadyParticipating =
+            previousConference.isInitiator ||
+            previousConference.invitationStatus === "accepted" ||
+            previousConference.invitationStatus === "left" ||
+            previousConference.localStream !== undefined;
+          if (alreadyParticipating) {
+            return;
+          }
+        }
+        if (previousConference) {
+          if (previousConference.invitationTimeoutHandle) {
+            clearTimeout(previousConference.invitationTimeoutHandle);
+          }
+          if (previousConference.healthMonitorInterval) {
+            clearInterval(previousConference.healthMonitorInterval);
+          }
+        }
+
+        const invitationTimestamp = Date.now();
+        const invitationTimeoutHandle = setTimeout(() => {
+          try {
+            const currentConference = conferenceStore.getConference(roomId);
+            if (
+              currentConference &&
+              currentConference.invitationStatus === "pending" &&
+              currentConference.invitationTimestamp === invitationTimestamp
+            ) {
+              console.log(
+                `[SignalHandler] Invitation timeout for room ${roomId.slice(0, 20)}, dismissing locally`,
+              );
+              conferenceStore.removeConference(roomId);
+            }
+          } catch {
+            console.log(
+              `[SignalHandler] Invitation timeout fired but conference ${roomId.slice(0, 20)} already removed`,
+            );
+          }
+        }, INVITATION_TIMEOUT_MS);
+
+        const state: SimplePeerConferenceState = {
+          room: signal.room,
+          participants: new Map(
+            allParticipants.map((p) => [
+              p,
+              {
+                publicKey: p,
+                hasJoined: p === invitedBy,
+                connectionStatus: "idle" as const,
+              },
+            ]),
+          ),
+          isInitiator: false,
+          ended: false,
+          invitationStatus: "pending",
+          invitedBy: invitedBy,
+          invitationTimestamp: invitationTimestamp,
+          invitationTimeoutHandle: invitationTimeoutHandle,
+          cellIdB64: cellIdB64,
+          initiatorPubKeyB64: invitedBy,
+          startTime: Date.now(),
+        };
+
+        conferenceStore.setConference(roomId, state);
+
+        const $callPage = get(page);
+        const viewingThisConversation =
+          $callPage.params.id === cellIdB64 && $callPage.route.id === "/conversations/[id]";
+        if (!viewingThisConversation) {
+          sendCallNotification("Incoming call", "You have an incoming call", roomId, cellIdB64);
+        }
+
+        console.log("[SignalHandler] Incoming call invitation received:", {
+          roomId,
+          invitedBy: invitedBy.slice(0, 20),
+          totalParticipants: allParticipants.length,
+          allParticipants: allParticipants.map((p) => p.slice(0, 20)),
+          cellIdB64,
+          timeoutMs: INVITATION_TIMEOUT_MS,
+        });
+        break;
+      }
+
+      case "ConferenceJoined": {
+        const joinedAgent = encodeHashToBase64(signal.agent);
+        const roomId = signal.room_id;
+        const myPubKey = encodeHashToBase64(client.client.myPubKey);
+
+        console.log("[SignalHandler] ConferenceJoined signal received:", {
+          joinedAgent: joinedAgent.slice(0, 20),
+          roomId,
+          isMe: joinedAgent === myPubKey,
+        });
+
+        conferenceStore.updateConference(roomId, (conf) => {
+          if (!conf) return conf;
+
+          const participant = conf.participants.get(joinedAgent);
+          if (participant) {
+            participant.hasJoined = true;
+            conf.participants.set(joinedAgent, participant);
+          } else {
+            console.warn(
+              "[SignalHandler] Participant joined but not in participants map, adding:",
+              joinedAgent.slice(0, 20),
+            );
+            conf.participants.set(joinedAgent, {
+              publicKey: joinedAgent,
+              hasJoined: true,
+              connectionStatus: "idle",
+            });
+          }
+
+          return conf;
+        });
+
+        let conference;
+        try {
+          conference = conferenceStore.getConference(roomId);
+        } catch {
+          console.warn("[SignalHandler] Conference not found for room:", roomId);
+          return;
+        }
+
+        if (conference.invitationStatus === "pending") {
+          console.log("[SignalHandler] Skipping WebRTC - invitation still pending");
+          return;
+        }
+
+        if (joinedAgent === myPubKey) {
+          if (!conference.localStream) {
+            console.log("[SignalHandler] Initializing WebRTC for self");
+            conferenceStore.initializeWebRTC(roomId).catch((error) => {
+              console.error("[SignalHandler] Failed to initialize WebRTC:", error);
+              conferenceStore.updateConference(roomId, (conf) => ({
+                ...conf,
+                error: error instanceof Error ? error.message : "Failed to initialize WebRTC",
+              }));
+            });
+          } else {
+            console.log("[SignalHandler] WebRTC already initialized for self");
+          }
+        } else {
+          if (conference.localStream) {
+            console.log(
+              "[SignalHandler] Initiating connections to newly joined participant:",
+              joinedAgent.slice(0, 20),
+            );
+
+            conferenceStore.initiateConnections(roomId).catch((error) => {
+              console.error("[SignalHandler] Failed to initiate connections:", error);
+            });
+          } else {
+            console.warn(
+              "[SignalHandler] Other participant joined but we have no stream, initializing WebRTC",
+            );
+            conferenceStore.initializeWebRTC(roomId).catch((error) => {
+              console.error("[SignalHandler] Failed to initialize WebRTC:", error);
+              conferenceStore.updateConference(roomId, (conf) => ({
+                ...conf,
+                error: error instanceof Error ? error.message : "Failed to initialize WebRTC",
+              }));
+            });
+          }
+        }
+        break;
+      }
+
+      case "ConferenceLeft": {
+        const roomId = signal.room_id;
+        const leftAgent = encodeHashToBase64(signal.agent);
+        const myPubKey = encodeHashToBase64(client.client.myPubKey);
+
+        console.log("[SignalHandler] ConferenceLeft signal received:", {
+          roomId,
+          leftAgent: leftAgent.slice(0, 20),
+          isMe: leftAgent === myPubKey,
+        });
+
+        conferenceStore.reconcilePresence(roomId).catch((e) => {
+          console.error("[SignalHandler] reconcilePresence failed:", e);
+        });
+
+        if (leftAgent !== myPubKey) {
+          console.log(`[SignalHandler] Participant ${leftAgent.slice(0, 20)} left`);
+
+          conferenceStore.cleanupPeer(roomId, leftAgent);
+
+          conferenceStore.updateConference(roomId, (conf) => {
+            if (!conf) return conf;
+            if (!conf.participants.has(leftAgent)) return conf;
+            const next = new Map(conf.participants);
+            next.delete(leftAgent);
+            return { ...conf, participants: next };
+          });
+        }
+        break;
+      }
+
+      case "ConferenceEnded": {
+        const roomId = signal.room_id;
+        const endedBy = encodeHashToBase64(signal.ended_by);
+
+        for (const key of [...processedRejects]) {
+          if (key.startsWith(`${roomId}:`)) processedRejects.delete(key);
+        }
+
+        console.log("[SignalHandler] ConferenceEnded signal received:", {
+          roomId,
+          endedBy,
+        });
+
+        conferenceStore.cleanupWebRTC(roomId);
+
+        conferenceStore.updateConference(roomId, (conf) => ({
+          ...conf,
+          ended: true,
+          invitationStatus: "left" as const,
+        }));
+
+        setTimeout(() => {
+          conferenceStore.removeConference(roomId);
+          console.log("[SignalHandler] Conference removed from store after delay");
+        }, 1000);
+
+        console.log("[SignalHandler] Conference ended and cleaned up");
+        break;
+      }
+
+      case "ConferenceRejected": {
+        const rejectedAgent = encodeHashToBase64(signal.agent);
+        const roomId = signal.room_id;
+
+        // Nobody can tell us we declined our own call. Guards against a forged Reject naming us,
+        // and against any sender that fails to exclude us from its recipient list.
+        if (rejectedAgent === myPubKeyB64) break;
+
+        const rejectKey = `${roomId}:${rejectedAgent}`;
+        if (processedRejects.has(rejectKey)) break;
+        processedRejects.add(rejectKey);
+
+        conferenceStore.updateConference(roomId, (conf) => {
+          if (!conf) return conf;
+          const participant = conf.participants.get(rejectedAgent);
+          if (!participant || participant.declined) return conf;
+          const next = new Map(conf.participants);
+          next.set(rejectedAgent, {
+            ...participant,
+            connectionStatus: "idle",
+            declined: true,
+            hasJoined: false,
+          });
+          return { ...conf, participants: next };
+        });
+        toast("A participant declined the call");
+        break;
+      }
+
+      case "RoleChanged": {
+        const roomId = signal.room_id;
+        const newRole = signal.new_role;
+        const changedBy = encodeHashToBase64(signal.from);
+
+        console.log("[SignalHandler] RoleChanged signal received:", {
+          roomId,
+          newRole,
+          changedBy: changedBy.slice(0, 20),
+        });
+
+        conferenceStore.updateConference(roomId, (conf) => {
+          if (!conf) return conf;
+          return {
+            ...conf,
+            myRole: newRole,
+            rolesFetchedAt: undefined, // Invalidate cache to force refresh
+          };
+        });
+        break;
+      }
+
+      case "HostTransfer": {
+        const roomId = signal.room_id;
+        const newHost = encodeHashToBase64(signal.new_host);
+        const transferredBy = encodeHashToBase64(signal.from);
+        const myPubKey = encodeHashToBase64(client.client.myPubKey);
+
+        console.log("[SignalHandler] HostTransfer signal received:", {
+          roomId,
+          newHost: newHost.slice(0, 20),
+          transferredBy: transferredBy.slice(0, 20),
+          isMe: newHost === myPubKey,
+        });
+
+        conferenceStore.updateConference(roomId, (conf) => {
+          if (!conf) return conf;
+
+          const updatedParticipants = new Map(conf.participants);
+
+          const newHostParticipant = updatedParticipants.get(newHost);
+          if (newHostParticipant) {
+            updatedParticipants.set(newHost, {
+              ...newHostParticipant,
+              role: ConferenceRole.Host,
+            });
+          }
+
+          const oldHostParticipant = updatedParticipants.get(transferredBy);
+          if (oldHostParticipant) {
+            updatedParticipants.set(transferredBy, {
+              ...oldHostParticipant,
+              role: ConferenceRole.CoHost,
+            });
+          }
+
+          return {
+            ...conf,
+            currentHostPubKeyB64: newHost,
+            myRole: newHost === myPubKey ? ConferenceRole.Host : conf.myRole,
+            rolesFetchedAt: undefined, // Invalidate cache
+            participants: updatedParticipants,
+          };
+        });
+        break;
+      }
+    }
+  }
+
+  function _handleSimplePeerSignal(signal: RelaySignal) {
+    if (signal.type !== "WebRTCSignal") return;
+
+    console.log("[SignalHandler] Received SimplePeer signal:", signal);
+
+    if (!signal.from || !signal.to) {
+      console.error("[SignalHandler] Invalid WebRTC signal: missing from/to", signal);
+      return;
+    }
+
+    const fromB64 = typeof signal.from === "string" ? signal.from : encodeHashToBase64(signal.from);
+    const toB64 = typeof signal.to === "string" ? signal.to : encodeHashToBase64(signal.to);
+
+    const signalType = _mapToSimplePeerSignalType(signal.payload_type);
+
+    let connectionId = `legacy_${Date.now()}`; // Fallback for legacy signals
+    try {
+      const parsedData = JSON.parse(signal.data);
+      if (parsedData.connection_id) {
+        connectionId = parsedData.connection_id;
+      }
+    } catch {
+      console.warn(
+        "[SignalHandler] Could not parse data for connection_id:",
+        signal.data?.slice(0, 50),
+      );
+    }
+
+    const simplePeerSignal = {
+      room_id: signal.room_id,
+      signal_type: signalType,
+      data: signal.data,
+      from: fromB64,
+      to: toB64,
+      connection_id: connectionId,
+    };
+
+    console.log("[SignalHandler] Mapped to SimplePeer signal:", {
+      ...simplePeerSignal,
+      data: simplePeerSignal.data?.slice(0, 100) + "...",
+    });
+
+    try {
+      conferenceStore.handleSimplePeerSignal(simplePeerSignal.room_id, simplePeerSignal);
+    } catch (error) {
+      console.error("[SignalHandler] Error handling SimplePeer signal:", error, {
+        roomId: simplePeerSignal.room_id,
+        signalType: simplePeerSignal.signal_type,
+        from: simplePeerSignal.from?.slice(0, 20),
+      });
+    }
+  }
+
+  function _mapToSimplePeerSignalType(payloadType: string): SimplePeerSignalType {
+    switch (payloadType) {
+      case "InitRequest":
+        return SimplePeerSignalType.InitRequest;
+      case "InitAccept":
+        return SimplePeerSignalType.InitAccept;
+      case "SdpData":
+        return SimplePeerSignalType.SdpData;
+      case "MediaState":
+        return SimplePeerSignalType.MediaState;
+      default:
+        console.warn("[SignalHandler] Unknown signal type:", payloadType);
+        return SimplePeerSignalType.SdpData;
+    }
+  }
 }
