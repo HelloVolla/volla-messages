@@ -35,10 +35,12 @@
   </button>
 
   <div slot="center">
-    <NetworkStatusDot
-      connectionCount={$networkStatsStore?.transportStats?.connections?.length || 0}
-      onClick={() => (showNetworkPanel = !showNetworkPanel)}
-    />
+    {#if import.meta.env.DEV}
+      <NetworkStatusDot
+        connectionCount={$networkStatsStore?.transportStats?.connections?.length || 0}
+        onClick={() => (showNetworkPanel = !showNetworkPanel)}
+      />
+    {/if}
   </div>
 
   <ButtonIconBare
@@ -50,7 +52,7 @@
   />
 </Header>
 
-{#if showNetworkPanel}
+{#if import.meta.env.DEV && showNetworkPanel}
   <NetworkStatusPanel
     stats={$networkStatsStore}
     onClose={() => (showNetworkPanel = false)}

@@ -5,7 +5,7 @@
   import BaseMessage from "./Message.svelte";
   import NoticeMessage from "./NoticeMessage.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
-  import { afterUpdate, createEventDispatcher, onMount, tick } from "svelte";
+  import { afterUpdate, createEventDispatcher, onDestroy, onMount, tick } from "svelte";
 
   const dispatch = createEventDispatcher<{
     scrollAtTop: null;
@@ -19,12 +19,15 @@
 
   let selected: ActionHashB64 | undefined;
   let containerEl: HTMLDivElement | null = null;
+  let contentEl: HTMLDivElement | null = null;
+  let contentResizeObserver: ResizeObserver | undefined;
+  let containerResizeObserver: ResizeObserver | undefined;
   let initialScrollReady = false;
 
   $: chronologicalMessages = messages ?? [];
 
   const TOP_TRIGGER_PX = 160;
-  const BOTTOM_EPSILON_PX = 8;
+  const BOTTOM_EPSILON_PX = 32;
   const SCROLL_DEBOUNCE_MS = 120;
 
   let wasAtBottom = true;
@@ -145,6 +148,33 @@ function registerRow(node: HTMLElement, hash: ActionHashB64) {
     } else {
       initialScrollReady = true;
     }
+
+    if (contentEl) {
+      contentResizeObserver = new ResizeObserver(() => {
+        if (!containerEl || !initialScrollReady || loadingTop || pendingAnchorRestore) return;
+        if (!wasAtBottom) return;
+        containerEl.scrollTop = containerEl.scrollHeight;
+      });
+      contentResizeObserver.observe(contentEl);
+    }
+
+    if (containerEl) {
+      // Catches containerEl's own available height shrinking/growing, e.g. when the
+      // sibling message-input textarea resizes and takes space from this flex-1 area —
+      // contentResizeObserver alone can't see this since the message content itself hasn't changed.
+      containerResizeObserver = new ResizeObserver(() => {
+        if (!containerEl || !initialScrollReady || loadingTop || pendingAnchorRestore) return;
+        if (!wasAtBottom) return;
+        containerEl.scrollTop = containerEl.scrollHeight;
+      });
+      containerResizeObserver.observe(containerEl, { box: "border-box" });
+    }
+  });
+
+  onDestroy(() => {
+    contentResizeObserver?.disconnect();
+    containerResizeObserver?.disconnect();
+    clearScrollDebounce();
   });
 
   afterUpdate(async () => {
@@ -211,7 +241,7 @@ console.log("[ConversationMessages] scrollAtTop fired", {
     previousItemCount = currentItemCount;
   }
 
-  async function scrollToBottom(behavior: ScrollBehavior = "auto") {
+  export async function scrollToBottom(behavior: ScrollBehavior = "auto") {
     await tick();
     if (!containerEl) return;
 
@@ -220,9 +250,17 @@ console.log("[ConversationMessages] scrollAtTop fired", {
       behavior,
     });
 
+    // Trust our own explicit scroll command rather than waiting on a delayed
+    // remeasurement — a later layout shift (image load, input resize) landing
+    // mid-measurement could otherwise flip this to false with nothing left to
+    // recover it, silently killing all future auto-scrolling.
+    initialScrollReady = true;
+    wasAtBottom = true;
+
     requestAnimationFrame(() => {
-      initialScrollReady = true;
-      updateBottomState();
+      requestAnimationFrame(() => {
+        updateBottomState();
+      });
     });
   }
 
@@ -277,52 +315,54 @@ console.log("[ConversationMessages] scrollAtTop fired", {
   on:scroll={handleScroll}
   style={`overflow-anchor: none; ${initialScrollReady ? "opacity: 1" : "opacity: 0"}`}
 >
-  <div class="flex h-4 items-center justify-center"></div>
-  <ConversationHeader {cellIdB64} />
-  <div class="flex h-4 items-center justify-center"></div>
+  <div class="flex w-full flex-col" bind:this={contentEl}>
+    <div class="flex h-4 items-center justify-center"></div>
+    <ConversationHeader {cellIdB64} />
+    <div class="flex h-4 items-center justify-center"></div>
 
-  {#if loadingTop}
-    <div class="flex h-12 items-center justify-center">
-      <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"></div>
-    </div>
-  {/if}
-
-  {#each chronologicalMessages as [actionHashB64, messageExtended], currentIndex (actionHashB64)}
-    <div use:registerRow={actionHashB64} class="w-full">
-      <div class="flex flex-shrink-0 flex-col">
-        {#if shouldShowDaySeparator(currentIndex)}
-          <div class="text-secondary-400 dark:text-secondary-300 my-4 px-4 text-center text-xs">
-            {new Date(messageExtended.timestamp / 1000).toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
-          </div>
-        {/if}
-
-        {#if messageExtended.message.message_type === MessageType.System}
-          <NoticeMessage {cellIdB64} message={messageExtended} />
-        {:else}
-          <div class="mt-3 px-4">
-            <BaseMessage
-              {cellIdB64}
-              message={messageExtended}
-              isSelected={selected === actionHashB64}
-              showAuthor={shouldShowAuthor(currentIndex)}
-              {actionHashB64}
-              {recipientPubKeyB64s}
-              on:press={() => handlePress(actionHashB64)}
-              on:click={(e) => handleClick(e, actionHashB64)}
-              on:clickoutside={handleClickOutside}
-              on:delete
-            />
-          </div>
-        {/if}
-
-        {#if currentIndex === chronologicalMessages.length - 1}
-          <div class="flex h-4 items-center justify-center"></div>
-        {/if}
+    {#if loadingTop}
+      <div class="flex h-12 items-center justify-center">
+        <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"></div>
       </div>
-    </div>
-  {/each}
+    {/if}
+
+    {#each chronologicalMessages as [actionHashB64, messageExtended], currentIndex (actionHashB64)}
+      <div use:registerRow={actionHashB64} class="w-full">
+        <div class="flex flex-shrink-0 flex-col">
+          {#if shouldShowDaySeparator(currentIndex)}
+            <div class="text-secondary-400 dark:text-secondary-300 my-4 px-4 text-center text-xs">
+              {new Date(messageExtended.timestamp / 1000).toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })}
+            </div>
+          {/if}
+
+          {#if messageExtended.message.message_type === MessageType.System}
+            <NoticeMessage {cellIdB64} message={messageExtended} />
+          {:else}
+            <div class="mt-3 px-4">
+              <BaseMessage
+                {cellIdB64}
+                message={messageExtended}
+                isSelected={selected === actionHashB64}
+                showAuthor={shouldShowAuthor(currentIndex)}
+                {actionHashB64}
+                {recipientPubKeyB64s}
+                on:press={() => handlePress(actionHashB64)}
+                on:click={(e) => handleClick(e, actionHashB64)}
+                on:clickoutside={handleClickOutside}
+                on:delete
+              />
+            </div>
+          {/if}
+
+          {#if currentIndex === chronologicalMessages.length - 1}
+            <div class="flex h-4 items-center justify-center"></div>
+          {/if}
+        </div>
+      </div>
+    {/each}
+  </div>
 </div>
