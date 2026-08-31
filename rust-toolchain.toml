@@ -1,0 +1,16 @@
+[toolchain]
+# 1.89.0 matches the toolchain the release workflows install; the nix dev
+# shell derives its rust from this file (rust-overlay), so nix, rustup, and
+# CI users all build with the same compiler.
+channel = "1.89.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
+targets = [
+  # zome wasm (npm run build:zomes)
+  "wasm32-unknown-unknown",
+  # android (npm run tauri:android:build:*)
+  "aarch64-linux-android",
+  "armv7-linux-androideabi",
+  "i686-linux-android",
+  "x86_64-linux-android",
+]

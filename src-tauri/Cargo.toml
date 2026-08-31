@@ -20,7 +20,7 @@ tauri-build = { version = "2.2.0", default-features = false , features = [] }
 [dependencies]
 tauri = { version = "2.5.1", features = ["devtools"] }
 tauri-runtime = {version = "2.6.0", optional = true}
-tauri-plugin-holochain = { git = "https://github.com/darksoil-studio/tauri-plugin-holochain", branch = "main-0.6.1", optional = true }
+tauri-plugin-holochain = { git = "https://github.com/darksoil-studio/tauri-plugin-holochain", rev = "387bf70ca4b7b388fbbaa76b62d3ac7e23e7e651", optional = true }
 tauri-plugin-holochain-service-client = { git = "https://github.com/HelloVolla/volla-cloud-services", tag = "android-service-runtime-v0.3.2" , optional = true }
 
 # iroh
