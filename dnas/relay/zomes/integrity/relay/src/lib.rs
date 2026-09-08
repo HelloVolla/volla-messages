@@ -4,6 +4,8 @@ pub mod message;
 pub use message::*;
 pub mod config;
 pub use config::*;
+pub mod role;
+pub use role::*;
 use hdi::prelude::*;
 
 pub const MESSAGES_PATH_PREFIX: &str = "msg";
@@ -31,6 +33,7 @@ pub enum LinkTypes {
     ContactToContacts,
     ContactUpdates,
     AllContacts,
+    RoleGrant,
 }
 
 #[derive(Serialize, Deserialize, Debug, SerializedBytes, Clone)]
@@ -365,6 +368,14 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         tag,
                     )
                 }
+                LinkTypes::RoleGrant => {
+                    validate_create_link_role_grant(
+                        action,
+                        base_address,
+                        target_address,
+                        tag,
+                    )
+                }
             }
         }
         FlatOp::RegisterDeleteLink {
@@ -423,6 +434,15 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 }
                 LinkTypes::AllContacts => {
                     validate_delete_link_all_contacts(
+                        action,
+                        original_action,
+                        base_address,
+                        target_address,
+                        tag,
+                    )
+                }
+                LinkTypes::RoleGrant => {
+                    validate_delete_link_role_grant(
                         action,
                         original_action,
                         base_address,
@@ -693,6 +713,14 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                                 tag,
                             )
                         }
+                        LinkTypes::RoleGrant => {
+                            validate_create_link_role_grant(
+                                action,
+                                base_address,
+                                target_address,
+                                tag,
+                            )
+                        }
                     }
                 }
                 OpRecord::DeleteLink { original_action_hash, base_address, action } => {
@@ -765,6 +793,15 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         }
                         LinkTypes::AllContacts => {
                             validate_delete_link_all_contacts(
+                                action,
+                                create_link.clone(),
+                                base_address,
+                                create_link.target_address,
+                                create_link.tag,
+                            )
+                        }
+                        LinkTypes::RoleGrant => {
+                            validate_delete_link_role_grant(
                                 action,
                                 create_link.clone(),
                                 base_address,

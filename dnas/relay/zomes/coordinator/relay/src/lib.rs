@@ -3,6 +3,7 @@ pub mod contact;
 pub mod helper;
 pub mod message;
 pub mod ping;
+pub mod role;
 use hdk::prelude::*;
 use relay_integrity::*;
 
