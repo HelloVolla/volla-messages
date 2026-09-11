@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AgentPubKeyB64, AppClient, CellId } from "@holochain/client";
   import { AppWebsocket, CellType, encodeHashToBase64 } from "@holochain/client";
-  import { writable, type Writable } from "svelte/store";
+  import { writable, get, type Writable } from "svelte/store";
   import { onMount, onDestroy, setContext } from "svelte";
   import { t } from "$translations";
   import { createSignalHandler } from "$store/SignalHandler";
@@ -50,6 +50,7 @@
   import { createFileStore, type FileStore } from "$store/FileStore";
   import { createNetworkStatsStore, type NetworkStatsStore } from "$store/NetworkStatsStore";
   import Dialog from "$lib/Dialog.svelte";
+  import { exportMigrationData } from "$lib/migrationExport";
 
   // Holochain client
   let client: AppClient;
@@ -214,6 +215,16 @@
     if (document.visibilityState === "hidden") {
       lastBackgroundTime = Date.now();
       console.log(`[visibility] backgrounded at ${lastBackgroundTime}`);
+
+      // Flush a pending export rather than leaving it to a timer that may
+      // never fire — on Android the app is backgrounded rather than closed,
+      // and an upgrade from here would lose whatever changed since the last
+      // write.
+      if (migrationExportTimer !== undefined) {
+        clearTimeout(migrationExportTimer);
+        migrationExportTimer = undefined;
+        runMigrationExport();
+      }
       return;
     }
 
@@ -231,10 +242,55 @@
     }
   }
 
+  // Collapse bursts of store updates into a single export. These stores emit
+  // often — unread flags, config loads, incoming signals — and the export
+  // writes a file, so it should not run per emission.
+  const MIGRATION_EXPORT_COALESCE_MS = 5000;
+  let migrationExportTimer: ReturnType<typeof setTimeout> | undefined;
+  let migrationExportUnsubscribers: Array<() => void> = [];
+
+  function runMigrationExport() {
+    // Deliberately not awaited and never fatal: the app is fully usable
+    // whether or not the export succeeds.
+    void exportMigrationData(
+      relayClient,
+      conversationStore,
+      contactStore,
+      myPubKeyB64,
+      get(provisionedRelayCellProfileStore).data[myPubKeyB64],
+    );
+  }
+
+  function scheduleMigrationExport() {
+    // Absorb further changes into the already-pending run instead of
+    // restarting the timer. Restarting it on every change can starve
+    // indefinitely: these stores emit repeatedly while a conversation loads,
+    // and if they emit faster than the delay the export would never run at
+    // all — which is exactly what happened to a joining agent in testing.
+    if (migrationExportTimer !== undefined) return;
+
+    migrationExportTimer = setTimeout(() => {
+      migrationExportTimer = undefined;
+      runMigrationExport();
+    }, MIGRATION_EXPORT_COALESCE_MS);
+  }
+
   async function setupApp() {
     initLightDarkModeSwitcher();
     await initHolochainClient();
     await initStores();
+    if (!isStoresSetup) return;
+
+    // Snapshot this account for the next major release, which starts from an
+    // empty conductor and cannot read this one. Export once now, then again
+    // whenever conversations or contacts change — a conversation created or
+    // joined mid-session would otherwise not be recorded until the next
+    // launch, and could be lost if the user upgrades before relaunching.
+    runMigrationExport();
+    migrationExportUnsubscribers = [
+      conversationStore.subscribe(scheduleMigrationExport),
+      contactStore.subscribe(scheduleMigrationExport),
+    ];
   }
 
   onMount(async () => {
@@ -244,6 +300,8 @@
 
   onDestroy(() => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
+    if (migrationExportTimer !== undefined) clearTimeout(migrationExportTimer);
+    migrationExportUnsubscribers.forEach((unsubscribe) => unsubscribe());
   });
 
   setContext("myPubKey", {

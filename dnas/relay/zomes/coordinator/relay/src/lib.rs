@@ -266,8 +266,9 @@ pub fn generate_membrane_proof(input: MembraneProofData) -> ExternResult<Seriali
     Ok(proof)
 }
 
-#[hdk_extern]
-pub fn get_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<MembraneProofData>> {
+/// Read an agent's membrane proof out of their `AgentValidationPkg` action,
+/// still serialized and with the progenitor's signature intact.
+fn find_raw_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<SerializedBytes>> {
     match get_details(agent, GetOptions::local())? {
         None => Ok(None),
         Some(details) => match details {
@@ -280,11 +281,7 @@ pub fn get_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<MembranePro
                         Action::AgentValidationPkg(AgentValidationPkg {
                             membrane_proof, ..
                         }) => match membrane_proof {
-                            Some(proof) => {
-                                let envelope = MembraneProofEnvelope::try_from((**proof).clone())
-                                    .map_err(|e| wasm_error!(e))?;
-                                Ok(Some(envelope.data))
-                            }
+                            Some(proof) => Ok(Some((**proof).clone())),
                             None => Ok(None),
                         },
                         _ => Err(wasm_error!("expected AgentValidationPkg")),
@@ -294,4 +291,29 @@ pub fn get_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<MembranePro
             _ => Err(wasm_error!("unexpected entry type")),
         },
     }
+}
+
+#[hdk_extern]
+pub fn get_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<MembraneProofData>> {
+    match find_raw_membrane_proof(agent)? {
+        None => Ok(None),
+        Some(raw) => {
+            let envelope = MembraneProofEnvelope::try_from(raw).map_err(|e| wasm_error!(e))?;
+            Ok(Some(envelope.data))
+        }
+    }
+}
+
+/// Like `get_membrane_proof`, but returns the whole signed envelope rather than
+/// only its inner data.
+///
+/// The migration export needs the signature. `check_agent` in the integrity
+/// zome binds a proof to `conversation_id`, `for_agent`, and a progenitor
+/// signature over that data — never to the DNA hash. So an existing proof stays
+/// valid on a new DNA as long as the network seed, the progenitor, and the
+/// agent's own key are unchanged, and replaying it is what lets a
+/// non-progenitor re-join a private conversation after a DNA-breaking upgrade.
+#[hdk_extern]
+pub fn get_raw_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<SerializedBytes>> {
+    find_raw_membrane_proof(agent)
 }
