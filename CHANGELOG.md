@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.3] - 2026-09-12
+
+- Fix: The app could hang forever on the "Starting up..." screen, most often on faster machines. Holochain had actually started correctly; the app just never noticed and kept waiting.
+- Feat: Your conversations, contacts and profile are now saved in a form that can be carried into the next major update, so you will not have to start over. This happens automatically in the background.
+- Fix: Integration tests now run one file at a time, which stops them timing out spuriously in CI.
+
 ## [1.0.2] - 2026-08-25
 
 - Fix: The unread indicator now appears inline with the message preview in the conversation list, instead of on its own line above it.
