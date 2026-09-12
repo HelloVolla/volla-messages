@@ -88,6 +88,9 @@ jobs:
           toolchain: "1.89"
           targets: ${{ matrix.target }}
 
+      - name: Add Rust target to the pinned toolchain
+        run: rustup target add ${{ matrix.target }}
+
       - name: Install Go
         uses: actions/setup-go@v4
         with:
@@ -462,6 +465,9 @@ jobs:
         with:
           toolchain: "1.89"
           targets: ${{ matrix.target }}
+
+      - name: Add Rust target to the pinned toolchain
+        run: rustup target add ${{ matrix.target }}
 
       - name: install Go stable
         uses: actions/setup-go@v4
