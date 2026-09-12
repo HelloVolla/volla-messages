@@ -75,6 +75,43 @@ export interface MigrationExport {
    * need a fresh invitation.
    */
   conversationsMissingProof: string[];
+
+  /**
+   * Raw `localStorage` values, exactly as `GenericPersistedStore` wrote them
+   * (base64 of msgpack), keyed by their storage key.
+   *
+   * These hold per-conversation state Holochain never sees: titles, unread
+   * flags, invited-but-not-yet-joined agents, and the contact → 1:1
+   * conversation mapping. All of them are keyed by `cellIdB64`, which changes
+   * when the DNA hash changes at 0.7 — so although `localStorage` itself
+   * survives the upgrade, its keys stop matching any existing cell. Captured
+   * here alongside each conversation's `cellIdB64` so an importer can map them
+   * onto the recreated cells via the network seed.
+   *
+   * Kept verbatim rather than decoded: `CONTACTS.PRIVATE_CONVERSATION` holds
+   * `CellId`s (pairs of byte arrays) that do not survive a JSON round trip, and
+   * copying the string means the importer decodes with the same helper.
+   */
+  persistedState: Record<string, string>;
+}
+
+/** `localStorage` keys carried across the upgrade. */
+const PERSISTED_STATE_KEYS = [
+  "CONVERSATION.TITLE",
+  "CONVERSATION.UNREAD",
+  "CONVERSATION.INVITED",
+  "CONTACTS.PRIVATE_CONVERSATION",
+];
+
+function collectPersistedState(): Record<string, string> {
+  const state: Record<string, string> = {};
+
+  for (const key of PERSISTED_STATE_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value !== null) state[key] = value;
+  }
+
+  return state;
 }
 
 /**
@@ -289,6 +326,7 @@ async function collect(
     contacts,
     conversations,
     conversationsMissingProof,
+    persistedState: collectPersistedState(),
   };
 }
 
