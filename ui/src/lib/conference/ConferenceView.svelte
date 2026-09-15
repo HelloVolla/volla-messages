@@ -708,6 +708,15 @@
           ✕
         </button>
       </div>
+      {#if $conferenceStore?.room?.proposed_transport === CallTransport.Holochain}
+        {@const capture = conferenceStoreBase.getSignalsMediaCaptureStatus()}
+        <div class="mb-1">
+          capture: voice={capture.voice === null ? "?" : capture.voice} filmstrip={capture.filmstrip ===
+          null
+            ? "?"
+            : capture.filmstrip}
+        </div>
+      {/if}
       {#each remoteParticipants as participant (participant.pubKey)}
         {@const stats = devStats[participant.pubKey]}
         <div>

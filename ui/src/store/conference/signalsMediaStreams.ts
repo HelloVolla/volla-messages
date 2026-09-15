@@ -39,6 +39,11 @@ export interface SignalsMediaPeerStats {
   videoFpsActual: number | null;
 }
 
+export interface SignalsMediaCaptureStatus {
+  voice: boolean | null;
+  filmstrip: boolean | null;
+}
+
 export interface SignalsMediaStreams {
   initializeSignalsMedia: (roomId: string) => Promise<void>;
   cleanupSignalsMedia: (roomId: string) => Promise<void>;
@@ -48,6 +53,7 @@ export interface SignalsMediaStreams {
     callback: (frame: FilmstripFrame | null) => void,
   ) => () => void;
   getPeerStats: (peerB64: AgentPubKeyB64) => SignalsMediaPeerStats;
+  getCaptureStatus: () => SignalsMediaCaptureStatus;
 }
 
 export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaStreams {
@@ -62,6 +68,7 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
   let pingTimer: ReturnType<typeof setInterval> | null = null;
   let cadenceMode: SignalsMediaCadence["mode"] = "full";
   let lastPongAtMs = 0;
+  let captureStatus: SignalsMediaCaptureStatus = { voice: null, filmstrip: null };
 
   const rttEwmaMs = new Map<PeerId, number>();
   const pingsInFlight = new Map<string, number>();
@@ -264,9 +271,8 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
     }
 
     const voiceOk = await voice.startCapture();
-    console.log("[SignalsMedia] voice.startCapture() ->", voiceOk);
     const filmstripOk = await filmstrip.startCapture();
-    console.log("[SignalsMedia] filmstrip.startCapture() ->", filmstripOk);
+    captureStatus = { voice: voiceOk, filmstrip: filmstripOk };
 
     pingTimer = setInterval(pingTick, PING_INTERVAL_MS);
   }
@@ -291,6 +297,11 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
     audioContext = null;
     codec = null;
     activeRoomId = null;
+    captureStatus = { voice: null, filmstrip: null };
+  }
+
+  function getCaptureStatus(): SignalsMediaCaptureStatus {
+    return captureStatus;
   }
 
   function subscribeFilmstrip(
@@ -318,5 +329,6 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
     handleMediaFrameSignal,
     subscribeFilmstrip,
     getPeerStats,
+    getCaptureStatus,
   };
 }

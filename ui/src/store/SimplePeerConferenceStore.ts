@@ -59,6 +59,7 @@ export interface SimplePeerConferenceStore {
   getSignalsMediaPeerStats: (
     peerB64: AgentPubKeyB64,
   ) => import("./conference/signalsMediaStreams").SignalsMediaPeerStats;
+  getSignalsMediaCaptureStatus: () => import("./conference/signalsMediaStreams").SignalsMediaCaptureStatus;
   initializeWebRTC: (roomId: string) => Promise<void>;
   startLocalPreview: (roomId: string) => Promise<void>;
   stopLocalPreview: (roomId: string) => void;
@@ -273,6 +274,7 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
     handleMediaFrameSignal: signalsMedia.handleMediaFrameSignal,
     subscribeFilmstrip: signalsMedia.subscribeFilmstrip,
     getSignalsMediaPeerStats: signalsMedia.getPeerStats,
+    getSignalsMediaCaptureStatus: signalsMedia.getCaptureStatus,
     initiateConnections: streams.initiateConnections,
 
     cleanupPeer: streams.cleanupPeer,
