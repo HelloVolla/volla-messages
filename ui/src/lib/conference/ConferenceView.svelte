@@ -391,6 +391,7 @@
     ReturnType<typeof conferenceStoreBase.getSignalsMediaPeerStats>
   > = {};
   let devStatsInterval: ReturnType<typeof setInterval> | null = null;
+  let showDevStats = false;
 
   onMount(() => {
     if (import.meta.env.DEV) {
@@ -695,25 +696,37 @@
 </Dialog>
 
 {#if import.meta.env.DEV}
-  <div
-    class="fixed bottom-2 left-2 z-[60] max-w-xs rounded-lg bg-black/80 p-2 font-mono text-xxs text-white"
-  >
-    <div class="mb-1 font-bold">
-      transport: {$conferenceStore?.room?.proposed_transport ?? "?"}
-    </div>
-    {#each remoteParticipants as participant (participant.pubKey)}
-      {@const stats = devStats[participant.pubKey]}
-      <div>
-        {getParticipantName(participant.pubKey)}:
-        {#if stats && (stats.rttMs !== null || stats.voiceJitterMs !== null)}
-          rtt={stats.rttMs?.toFixed(0) ?? "-"}ms jitter={stats.voiceJitterMs?.toFixed(0) ??
-            "-"}ms loss={stats.voiceLossPercent?.toFixed(0) ?? "-"}% video={stats.videoKbps?.toFixed(
-            0,
-          ) ?? "-"}kbps@{stats.videoFpsActual?.toFixed(1) ?? "-"}fps
-        {:else}
-          quality={participant.connectionQuality ?? "unknown"}
-        {/if}
+  {#if showDevStats}
+    <div
+      class="fixed bottom-14 left-2 z-[60] max-w-xs rounded-lg bg-black/80 p-2 font-mono text-xxs text-white"
+    >
+      <div class="mb-1 flex items-center justify-between gap-2 font-bold">
+        <span>transport: {$conferenceStore?.room?.proposed_transport ?? "?"}</span>
+        <button class="opacity-70 hover:opacity-100" on:click={() => (showDevStats = false)}>
+          ✕
+        </button>
       </div>
-    {/each}
-  </div>
+      {#each remoteParticipants as participant (participant.pubKey)}
+        {@const stats = devStats[participant.pubKey]}
+        <div>
+          {getParticipantName(participant.pubKey)}:
+          {#if stats && (stats.rttMs !== null || stats.voiceJitterMs !== null)}
+            rtt={stats.rttMs?.toFixed(0) ?? "-"}ms jitter={stats.voiceJitterMs?.toFixed(0) ??
+              "-"}ms loss={stats.voiceLossPercent?.toFixed(0) ?? "-"}% video={stats.videoKbps?.toFixed(
+              0,
+            ) ?? "-"}kbps@{stats.videoFpsActual?.toFixed(1) ?? "-"}fps
+          {:else}
+            quality={participant.connectionQuality ?? "unknown"}
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {:else}
+    <button
+      class="fixed bottom-2 left-2 z-[60] rounded-full bg-black/80 px-2.5 py-1 font-mono text-xxs text-white opacity-70 hover:opacity-100"
+      on:click={() => (showDevStats = true)}
+    >
+      stats
+    </button>
+  {/if}
 {/if}
