@@ -251,8 +251,10 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
       ctx.conferences.updateKeyValue(roomId, (conf) => ({ ...conf, localStream }));
     }
 
-    await voice.startCapture();
-    await filmstrip.startCapture();
+    const voiceOk = await voice.startCapture();
+    console.log("[SignalsMedia] voice.startCapture() ->", voiceOk);
+    const filmstripOk = await filmstrip.startCapture();
+    console.log("[SignalsMedia] filmstrip.startCapture() ->", filmstripOk);
 
     pingTimer = setInterval(pingTick, PING_INTERVAL_MS);
   }
