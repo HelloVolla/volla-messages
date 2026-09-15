@@ -64,7 +64,7 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
   let audioContext: AudioContext | null = null;
   let codec: OpusCodec | null = null;
   let voiceWorkletModuleUrl: (() => string) | null = null;
-  let createInlineFilmstripWorker: (() => Worker) | null = null;
+  let createFilmstripWorker: (() => Worker) | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
   let cadenceMode: SignalsMediaCadence["mode"] = "full";
   let lastPongAtMs = 0;
@@ -159,8 +159,8 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
       return voiceWorkletModuleUrl();
     },
     createWorker: () => {
-      if (!createInlineFilmstripWorker) throw new Error("inline worker source not resolved yet");
-      return createInlineFilmstripWorker();
+      if (!createFilmstripWorker) throw new Error("filmstrip worker not resolved yet");
+      return createFilmstripWorker();
     },
   };
 
@@ -254,7 +254,16 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
 
     const inlineSources = await import("@lightningrodlabs/signals-media");
     voiceWorkletModuleUrl = inlineSources.voiceWorkletModuleUrl;
-    createInlineFilmstripWorker = inlineSources.createInlineFilmstripWorker;
+
+    // createInlineFilmstripWorker() from the package revokes its Blob URL
+    // synchronously after construction, but a `type: "module"` Worker fetches
+    // its script asynchronously — the URL is gone before the fetch completes,
+    // so the worker fires a bare error event. Vite's own `?worker` import
+    // sidesteps this: it builds a real worker asset instead of a Blob URL.
+    const { default: FilmstripWorkerCtor } = await import(
+      "@lightningrodlabs/signals-media/filmstrip-worker?worker"
+    );
+    createFilmstripWorker = () => new FilmstripWorkerCtor();
 
     voice.bind(host);
     filmstrip.bind(host);
