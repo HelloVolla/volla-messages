@@ -131,4 +131,5 @@ pub enum CallSignalType {
     InitAccept,
     SdpData,
     MediaState,
+    MediaFrame,
 }

@@ -104,6 +104,28 @@
   $: allRemote = fullList.filter((p) => !p.isLocal);
   $: allParticipants = fullList.filter((p) => !p.declined);
   $: remoteParticipants = allParticipants.filter((p) => !p.isLocal);
+
+  let filmstripUrls: Record<string, string | null> = {};
+  const filmstripUnsubs = new Map<string, () => void>();
+  $: {
+    const currentKeys = new Set(remoteParticipants.map((p) => p.pubKey));
+    for (const [pubKey, unsub] of filmstripUnsubs) {
+      if (currentKeys.has(pubKey)) continue;
+      unsub();
+      filmstripUnsubs.delete(pubKey);
+      const { [pubKey]: _removed, ...rest } = filmstripUrls;
+      filmstripUrls = rest;
+    }
+    for (const pubKey of currentKeys) {
+      if (filmstripUnsubs.has(pubKey)) continue;
+      filmstripUnsubs.set(
+        pubKey,
+        conferenceStoreBase.subscribeFilmstrip(pubKey, (frame) => {
+          filmstripUrls = { ...filmstripUrls, [pubKey]: frame?.url ?? null };
+        }),
+      );
+    }
+  }
   $: localParticipant = fullList.find((p) => p.isLocal);
   $: showWaitingRoster =
     allRemote.length > 0 && !remoteParticipants.some((p) => p._connected || p.hasJoined);
@@ -395,6 +417,8 @@
     if (durationInterval) clearInterval(durationInterval);
     activeSpeakerStore.destroy();
     localMeter?.destroy();
+    for (const unsub of filmstripUnsubs.values()) unsub();
+    filmstripUnsubs.clear();
   });
 </script>
 
@@ -460,6 +484,7 @@
                 isLocalMuted={isMuted}
                 getName={getParticipantName}
                 cellIdB64={$conferenceStore?.cellIdB64}
+                filmstripUrl={filmstripUrls[participant.pubKey] ?? null}
               />
             </div>
           {/each}
@@ -498,6 +523,7 @@
               isLocalMuted={isMuted}
               getName={getParticipantName}
               cellIdB64={$conferenceStore?.cellIdB64}
+              filmstripUrl={filmstripUrls[activeParticipant.pubKey] ?? null}
             />
           {:else}
             <ParticipantTile
@@ -539,6 +565,7 @@
                   isLocalMuted={isMuted}
                   getName={getParticipantName}
                   cellIdB64={$conferenceStore?.cellIdB64}
+                  filmstripUrl={filmstripUrls[activeParticipant.pubKey] ?? null}
                 />
               {:else}
                 <ParticipantTile

@@ -13,6 +13,7 @@
   export let getName: (pubKey: string) => string = () => "Unknown";
   export let cellIdB64: string | undefined = undefined;
   export let isActiveSpeaker: boolean = false;
+  export let filmstripUrl: string | null = null;
 
   function mediaStream(node: HTMLMediaElement, stream?: MediaStream | null) {
     let currentStream: MediaStream | null | undefined;
@@ -49,12 +50,14 @@
 
   $: showLocalVideo = participant.isLocal && localStream && isLocalVideoEnabled;
   $: showRemoteVideo = !participant.isLocal && participant._stream && hasVideoEnabled(participant);
+  $: showFilmstrip = !participant.isLocal && !showRemoteVideo && !!filmstripUrl;
 
   $: showAvatar =
     (participant.isLocal && !showLocalVideo) ||
-    (!participant.isLocal && participant.hasJoined && !showRemoteVideo);
+    (!participant.isLocal && participant.hasJoined && !showRemoteVideo && !showFilmstrip);
 
-  $: showWaiting = !participant.isLocal && !participant.hasJoined && !showRemoteVideo;
+  $: showWaiting =
+    !participant.isLocal && !participant.hasJoined && !showRemoteVideo && !showFilmstrip;
 
   $: isMuted = participant.isLocal
     ? isLocalMuted
@@ -108,6 +111,8 @@
     >
       <track kind="captions" />
     </video>
+  {:else if showFilmstrip}
+    <img src={filmstripUrl} alt="" class="absolute inset-0 h-full w-full object-cover" />
   {:else if showAvatar}
     <div
       class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary-500/10 via-secondary-400 to-secondary-500"

@@ -31,3 +31,5 @@ export {
   type ConferenceLifecycle,
   type CleanupWebRTCFn,
 } from "./conferenceLifecycle";
+
+export { createSignalsMediaStreams, type SignalsMediaStreams } from "./signalsMediaStreams";

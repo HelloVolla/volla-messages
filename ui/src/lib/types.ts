@@ -458,6 +458,7 @@ export enum SimplePeerSignalType {
   InitAccept = "InitAccept",
   SdpData = "SdpData",
   MediaState = "MediaState",
+  MediaFrame = "MediaFrame",
 }
 
 export interface SimplePeerSignalPayload {

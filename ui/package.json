@@ -22,6 +22,7 @@
     "@holochain-open-dev/file-storage": "^0.601.0",
     "@holochain-open-dev/utils": "^0.601.0",
     "@holochain/client": "0.20.4-rc.0",
+    "@lightningrodlabs/signals-media": "^0.1.0",
     "@msgpack/msgpack": "^3.1.2",
     "@svelte-put/clickoutside": "^3.0.2",
     "@tanstack/svelte-virtual": "^3.13.0",

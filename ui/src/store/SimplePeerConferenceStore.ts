@@ -7,7 +7,7 @@ import {
 } from "./generic/GenericKeyValueStore";
 import { RelayClient } from "./RelayClient";
 import { type AgentPubKeyB64, encodeHashToBase64 } from "@holochain/client";
-import { ConferenceRole, type CallTransport } from "$lib/types";
+import { ConferenceRole, CallTransport } from "$lib/types";
 
 import {
   type ConferenceContext,
@@ -16,10 +16,12 @@ import {
   type ConnectionQuality,
   MAX_CONFERENCE_PARTICIPANTS,
   INVITATION_TIMEOUT_MS,
+  safeGetConference,
   updateParticipant,
   createUIStateManager,
   createConferenceStreams,
   createConferenceLifecycle,
+  createSignalsMediaStreams,
 } from "./conference";
 
 export type { SimplePeerConferenceState, SimplePeerParticipant, ConnectionQuality };
@@ -49,6 +51,11 @@ export interface SimplePeerConferenceStore {
     roomId: string,
     signal: import("$lib/types").SimplePeerSignalPayload,
   ) => void;
+  handleMediaFrameSignal: (roomId: string, fromB64: AgentPubKeyB64, data: string) => void;
+  subscribeFilmstrip: (
+    peerB64: AgentPubKeyB64,
+    callback: (frame: import("@lightningrodlabs/signals-media").FilmstripFrame | null) => void,
+  ) => () => void;
   initializeWebRTC: (roomId: string) => Promise<void>;
   startLocalPreview: (roomId: string) => Promise<void>;
   stopLocalPreview: (roomId: string) => void;
@@ -109,8 +116,29 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
   }
 
   const streams = createConferenceStreams(ctx);
+  const signalsMedia = createSignalsMediaStreams(ctx);
 
-  const lifecycle = createConferenceLifecycle(ctx, streams.cleanupPeer, streams.cleanupWebRTC);
+  function transportFor(roomId: string): CallTransport {
+    return safeGetConference(ctx, roomId)?.room?.proposed_transport ?? CallTransport.Holochain;
+  }
+
+  async function initializeMedia(roomId: string): Promise<void> {
+    if (transportFor(roomId) === CallTransport.WebRtc) {
+      await streams.initializeWebRTC(roomId);
+    } else {
+      await signalsMedia.initializeSignalsMedia(roomId);
+    }
+  }
+
+  function cleanupMedia(roomId: string): void {
+    if (transportFor(roomId) === CallTransport.WebRtc) {
+      streams.cleanupWebRTC(roomId);
+    } else {
+      void signalsMedia.cleanupSignalsMedia(roomId);
+    }
+  }
+
+  const lifecycle = createConferenceLifecycle(ctx, streams.cleanupPeer, cleanupMedia);
 
   function confInitiator(roomId: string): boolean {
     try {
@@ -217,7 +245,7 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
     joinConference: lifecycle.joinConference,
     acceptConferenceInvitation: async (roomId: string) => {
       await lifecycle.acceptConferenceInvitation(roomId);
-      await streams.initializeWebRTC(roomId);
+      await initializeMedia(roomId);
     },
     rejectConferenceInvitation: lifecycle.rejectConferenceInvitation,
     leaveConference: lifecycle.leaveConference,
@@ -229,16 +257,18 @@ export function createSimplePeerConferenceStore(client: RelayClient): SimplePeer
     getIncomingInvitations: uiState.getIncomingInvitations,
 
     sendMediaStateToAll: streams.sendMediaStateToAll,
-    initializeWebRTC: streams.initializeWebRTC,
+    initializeWebRTC: initializeMedia,
     startLocalPreview: streams.startLocalPreview,
     stopLocalPreview: streams.stopLocalPreview,
     setLocalVideo: streams.setLocalVideo,
     startScreenShare: streams.startScreenShare,
     stopScreenShare: streams.stopScreenShare,
     switchDevice: streams.switchDevice,
-    cleanupWebRTC: streams.cleanupWebRTC,
+    cleanupWebRTC: cleanupMedia,
 
     handleSimplePeerSignal: streams.handleSimplePeerSignal,
+    handleMediaFrameSignal: signalsMedia.handleMediaFrameSignal,
+    subscribeFilmstrip: signalsMedia.subscribeFilmstrip,
     initiateConnections: streams.initiateConnections,
 
     cleanupPeer: streams.cleanupPeer,

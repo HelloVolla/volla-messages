@@ -79,7 +79,13 @@ export function createSignalHandler(
     ) {
       _handleConferenceStateSignal(payload, cellIdB64);
     } else if (payload.type === "WebRTCSignal") {
-      _handleSimplePeerSignal(payload);
+      if (payload.payload_type === "MediaFrame") {
+        const fromB64 =
+          typeof payload.from === "string" ? payload.from : encodeHashToBase64(payload.from);
+        conferenceStore.handleMediaFrameSignal(payload.room_id, fromB64, payload.data);
+      } else {
+        _handleSimplePeerSignal(payload);
+      }
     }
     // Note: SignalAck handling removed - SimplePeer doesn't need acknowledgments
   }
