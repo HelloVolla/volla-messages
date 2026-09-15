@@ -32,4 +32,10 @@ export default defineConfig({
   define: {
     "window.__APP_VERSION__": JSON.stringify(version), // Define a global constant
   },
+  optimizeDeps: {
+    exclude: [
+      "@lightningrodlabs/signals-media/filmstrip-worker",
+      "@lightningrodlabs/signals-media/voice-capture-worklet",
+    ],
+  },
 });

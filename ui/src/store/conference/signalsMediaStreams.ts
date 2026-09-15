@@ -2,7 +2,9 @@ import { decodeHashFromBase64, encodeHashToBase64, type AgentPubKeyB64 } from "@
 import {
   FilmstripCarrier,
   VoiceCarrier,
+  createInlineFilmstripWorker,
   decideSignalsMediaCadence,
+  voiceWorkletModuleUrl,
   webCodecsOpus,
   type FilmstripFrame,
   type FilmstripHost,
@@ -145,6 +147,8 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
     },
     acquireMic: () => acquireShared("mic", { audio: true }),
     acquireCamera: () => acquireShared("camera", { video: { width: 320, height: 240 } }),
+    workletModuleUrl: voiceWorkletModuleUrl,
+    createWorker: createInlineFilmstripWorker,
   };
 
   function pingTick(): void {
