@@ -11,7 +11,7 @@ import { type ConferenceRoom, type SimplePeerSignalPayload, ConferenceRole } fro
 import type { PeerConnection } from "./peerConnection";
 
 export {
-  ICE_CONFIG,
+  getIceServers,
   CONNECTION_TIMEOUT_MS,
   HEARTBEAT_INTERVAL_MS,
   INIT_RETRY_MS,

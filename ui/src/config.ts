@@ -31,21 +31,38 @@ export const POLLING_INTERVAL_FAST = 2 * 1000;
 // Memory management for chat messages
 export const MESSAGES_PER_PAGE = 20;
 
-// Conference WebRTC configuration
-export const ICE_CONFIG: RTCIceServer[] = [
+// Conference WebRTC configuration. No bundled TURN server: a caller behind a
+// symmetric NAT needs their own, supplied via TURN_SERVERS_STORAGE_KEY.
+const STUN_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  {
-    urls: "turn:openrelay.metered.ca:80",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
 ];
+
+export const TURN_SERVERS_STORAGE_KEY = "volla:turnServers";
+export const CALL_TRANSPORT_STORAGE_KEY = "volla:lastCallTransport";
+
+export function getUserTurnServers(): RTCIceServer[] {
+  try {
+    const raw = localStorage.getItem(TURN_SERVERS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setUserTurnServers(servers: RTCIceServer[]): void {
+  if (servers.length === 0) {
+    localStorage.removeItem(TURN_SERVERS_STORAGE_KEY);
+  } else {
+    localStorage.setItem(TURN_SERVERS_STORAGE_KEY, JSON.stringify(servers));
+  }
+}
+
+export function getIceServers(): RTCIceServer[] {
+  return [...STUN_SERVERS, ...getUserTurnServers()];
+}
 
 export const CONNECTION_TIMEOUT_MS = 30000;
 

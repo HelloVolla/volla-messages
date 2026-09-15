@@ -5,7 +5,7 @@ export {
   type ConnectionQuality,
   type CleanupReport,
   type PeerCleanupReport,
-  ICE_CONFIG,
+  getIceServers,
   CONNECTION_TIMEOUT_MS,
   MAX_CONFERENCE_PARTICIPANTS,
   INVITATION_TIMEOUT_MS,

@@ -5,7 +5,7 @@
   import { goto } from "$app/navigation";
   import Header from "$lib/Header.svelte";
   import { t } from "$translations";
-  import { Privacy, type LocalFile, type MessageExtended } from "$lib/types";
+  import { CallTransport, Privacy, type LocalFile, type MessageExtended } from "$lib/types";
   import ConversationMessageInput from "./ConversationMessageInput.svelte";
   import ConversationEmpty from "./ConversationEmpty.svelte";
   import ConversationMessages from "./ConversationMessages.svelte";
@@ -29,7 +29,12 @@
     deriveCellMergedProfileContactInviteStore,
     type MergedProfileContactInviteStore,
   } from "$store/MergedProfileContactInviteStore";
-  import { POLLING_INTERVAL_FAST, POLLING_INTERVAL_SLOW } from "$config";
+  import {
+    POLLING_INTERVAL_FAST,
+    POLLING_INTERVAL_SLOW,
+    CALL_TRANSPORT_STORAGE_KEY,
+    getUserTurnServers,
+  } from "$config";
   import { deriveThreadViewEnabled } from "$store/ThreadViewStore";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
@@ -107,6 +112,16 @@
   let replyToActionHash: ActionHashB64 | undefined = undefined;
 
   let isStartingCall = false;
+  let selectedTransport: CallTransport =
+    (localStorage.getItem(CALL_TRANSPORT_STORAGE_KEY) as CallTransport | null) ??
+    CallTransport.Holochain;
+  $: turnConfigured = getUserTurnServers().length > 0;
+
+  function toggleTransport() {
+    selectedTransport =
+      selectedTransport === CallTransport.Holochain ? CallTransport.WebRtc : CallTransport.Holochain;
+    localStorage.setItem(CALL_TRANSPORT_STORAGE_KEY, selectedTransport);
+  }
 
   let isFirstConfigLoad = true;
   let isFirstProfilesLoad = true;
@@ -318,6 +333,7 @@
         otherParticipants,
         $page.params.id,
         myPubKeyB64,
+        turnConfigured ? selectedTransport : CallTransport.Holochain,
       );
       console.log("[AV Call] Step 1 COMPLETE: Conference room created with ID:", roomId);
 
@@ -440,6 +456,18 @@
   </div>
 
   <div class="flex items-center justify-center" slot="right">
+    {#if turnConfigured && !amInCall && !callOngoingElsewhere}
+      <button
+        type="button"
+        class="mr-1 rounded-full px-2 py-1 text-xxs opacity-70 hover:opacity-100"
+        on:click={toggleTransport}
+        title="Call transport: {selectedTransport === CallTransport.WebRtc
+          ? 'WebRTC'
+          : 'Holochain-native'} (tap to switch)"
+      >
+        {selectedTransport === CallTransport.WebRtc ? "WebRTC" : "P2P"}
+      </button>
+    {/if}
     <ButtonIconBare
       moreClasses="h-[22px] w-[22px]"
       moreClassesButton="p-2.5 {isStartingCall || callOngoingElsewhere

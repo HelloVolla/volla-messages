@@ -2,7 +2,7 @@ import SimplePeer from "simple-peer";
 import { decodeHashFromBase64 } from "@holochain/client";
 import {
   type ConferenceContext,
-  ICE_CONFIG,
+  getIceServers,
   CONNECTION_TIMEOUT_MS,
   MEDIA_WAIT_MS,
   SDP_BUFFER_EXPIRY_MS,
@@ -41,7 +41,7 @@ export class PeerConnection {
 
     const opts: SimplePeer.Options = {
       initiator,
-      config: { iceServers: ICE_CONFIG },
+      config: { iceServers: getIceServers() },
       trickle: true,
       objectMode: true,
     };
