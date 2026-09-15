@@ -194,7 +194,19 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
         voice.receiveFrame(fromB64, envelope.payload);
         return;
       case "filmstrip":
+        console.log(
+          "[SignalsMedia] rx filmstrip from",
+          fromB64.slice(0, 10),
+          "payload:",
+          envelope.payload.slice(0, 120),
+        );
         filmstrip.receiveFrame(fromB64, envelope.payload);
+        console.log(
+          "[SignalsMedia] after receiveFrame, latest for",
+          fromB64.slice(0, 10),
+          "=",
+          filmstrip.getLatest(fromB64),
+        );
         return;
       case "ping": {
         const ping = JSON.parse(envelope.payload) as PingPayload;
