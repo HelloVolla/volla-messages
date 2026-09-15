@@ -6,7 +6,7 @@
   import { t } from "$translations/index";
   import type { SimplePeerConferenceStore } from "$store/SimplePeerConferenceStore";
   import type { AgentPubKeyB64 } from "@holochain/client";
-  import { type CellIdB64 } from "$lib/types";
+  import { CallTransport, type CellIdB64 } from "$lib/types";
   import Dialog from "$lib/Dialog.svelte";
   import Button from "$lib/Button.svelte";
   import SvgIcon from "$lib/SvgIcon.svelte";
@@ -191,6 +191,8 @@
   ): ParticipantData[] {
     if (!store?.participants) return [];
 
+    const isSignalsMediaCall = store.room?.proposed_transport === CallTransport.Holochain;
+
     const remote = [...store.participants.entries()].map(([pubKey, participant]) => ({
       pubKey,
       publicKey: pubKey,
@@ -203,7 +205,7 @@
       isHost: pubKey === hostKey,
       declined: participant.declined,
       _stream: getParticipantStream(participant),
-      _connected: isParticipantConnected(participant),
+      _connected: isSignalsMediaCall ? participant.hasJoined : isParticipantConnected(participant),
     }));
 
     const local: ParticipantData = {

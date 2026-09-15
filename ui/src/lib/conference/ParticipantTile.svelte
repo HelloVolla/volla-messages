@@ -61,7 +61,7 @@
 
   $: isMuted = participant.isLocal
     ? isLocalMuted
-    : participant.audioEnabled === false || !participant._stream || !participant._connected;
+    : participant.audioEnabled === false || !participant._connected;
 
   $: isConnecting =
     participant.connectionStatus === "connecting" ||
