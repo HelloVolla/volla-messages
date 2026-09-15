@@ -31,6 +31,14 @@ interface MediaEnvelope {
   payload: string;
 }
 
+export interface SignalsMediaPeerStats {
+  rttMs: number | null;
+  voiceJitterMs: number | null;
+  voiceLossPercent: number | null;
+  videoKbps: number | null;
+  videoFpsActual: number | null;
+}
+
 export interface SignalsMediaStreams {
   initializeSignalsMedia: (roomId: string) => Promise<void>;
   cleanupSignalsMedia: (roomId: string) => Promise<void>;
@@ -39,6 +47,7 @@ export interface SignalsMediaStreams {
     peerB64: AgentPubKeyB64,
     callback: (frame: FilmstripFrame | null) => void,
   ) => () => void;
+  getPeerStats: (peerB64: AgentPubKeyB64) => SignalsMediaPeerStats;
 }
 
 export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaStreams {
@@ -263,10 +272,23 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
     return filmstrip.subscribe(peerB64, callback);
   }
 
+  function getPeerStats(peerB64: AgentPubKeyB64): SignalsMediaPeerStats {
+    const voiceStats = voice.voiceRxStats.get(peerB64);
+    const videoStats = filmstrip.signalsVideoStats.get(peerB64);
+    return {
+      rttMs: rttEwmaMs.get(peerB64) ?? null,
+      voiceJitterMs: voiceStats?.jitterMs ?? null,
+      voiceLossPercent: voiceStats?.lossPercent ?? null,
+      videoKbps: videoStats?.kbps ?? null,
+      videoFpsActual: videoStats?.fpsActual ?? null,
+    };
+  }
+
   return {
     initializeSignalsMedia,
     cleanupSignalsMedia,
     handleMediaFrameSignal,
     subscribeFilmstrip,
+    getPeerStats,
   };
 }
