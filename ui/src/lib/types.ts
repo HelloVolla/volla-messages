@@ -432,9 +432,15 @@ export interface RoleChangeInput {
   new_role: ConferenceRole;
 }
 
+export enum CallTransport {
+  WebRtc = "WebRtc",
+  Holochain = "Holochain",
+}
+
 export interface ConferenceRoom {
   room_id: string;
   participants: AgentPubKey[];
+  proposed_transport: CallTransport;
 }
 
 export interface SignalPayload {
@@ -465,6 +471,7 @@ export interface SimplePeerSignalPayload {
 
 export interface CreateConferenceInput {
   participants: AgentPubKey[];
+  proposed_transport: CallTransport;
 }
 
 export interface JoinConferenceInput {

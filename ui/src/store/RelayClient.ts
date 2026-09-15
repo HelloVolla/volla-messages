@@ -16,6 +16,7 @@ import {
   type Link,
 } from "@holochain/client";
 import { EntryRecord } from "@holochain-open-dev/utils";
+import { CallTransport } from "$lib/types";
 import type {
   Config,
   Contact,
@@ -438,8 +439,9 @@ export class RelayClient {
   public async createConference(
     participants: AgentPubKey[],
     cellId: CellId,
+    proposedTransport: CallTransport = CallTransport.Holochain,
   ): Promise<{ room_id: string; joined_existing: boolean }> {
-    const input: CreateConferenceInput = { participants };
+    const input: CreateConferenceInput = { participants, proposed_transport: proposedTransport };
 
     const result = await this.client.callZome({
       cell_id: cellId,

@@ -7,7 +7,7 @@ import {
 } from "./generic/GenericKeyValueStore";
 import { RelayClient } from "./RelayClient";
 import { type AgentPubKeyB64, encodeHashToBase64 } from "@holochain/client";
-import { ConferenceRole } from "$lib/types";
+import { ConferenceRole, type CallTransport } from "$lib/types";
 
 import {
   type ConferenceContext,
@@ -30,6 +30,7 @@ export interface SimplePeerConferenceStore {
     participants: AgentPubKeyB64[],
     cellIdB64?: string,
     initiatorPubKeyB64?: AgentPubKeyB64,
+    proposedTransport?: CallTransport,
   ) => Promise<string>;
   joinConference: (roomId: string, participants: AgentPubKeyB64[]) => Promise<void>;
   acceptConferenceInvitation: (roomId: string) => Promise<void>;

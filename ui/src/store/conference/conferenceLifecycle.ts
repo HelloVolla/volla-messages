@@ -1,5 +1,5 @@
 import { decodeHashFromBase64, encodeHashToBase64, type AgentPubKeyB64 } from "@holochain/client";
-import { type ConferenceRoom, ConferenceRole } from "$lib/types";
+import { type ConferenceRoom, CallTransport, ConferenceRole } from "$lib/types";
 import {
   type ConferenceContext,
   type SimplePeerConferenceState,
@@ -13,6 +13,7 @@ export interface ConferenceLifecycle {
     participants: AgentPubKeyB64[],
     cellIdB64?: string,
     initiatorPubKeyB64?: AgentPubKeyB64,
+    proposedTransport?: CallTransport,
   ) => Promise<string>;
   joinConference: (roomId: string, participants: AgentPubKeyB64[]) => Promise<void>;
   acceptConferenceInvitation: (roomId: string) => Promise<void>;
@@ -33,6 +34,7 @@ export function createConferenceLifecycle(
     participants: AgentPubKeyB64[],
     cellIdB64?: string,
     initiatorPubKeyB64?: AgentPubKeyB64,
+    proposedTransport: CallTransport = CallTransport.Holochain,
   ): Promise<string> {
     if (!cellIdB64) {
       throw new Error("cellIdB64 is required for creating a conference");
@@ -47,7 +49,7 @@ export function createConferenceLifecycle(
 
     const participantsEncoded = participants.map((p) => decodeHashFromBase64(p));
     const cellId = ctx.client.decodeCellId(cellIdB64);
-    const outcome = await ctx.client.createConference(participantsEncoded, cellId);
+    const outcome = await ctx.client.createConference(participantsEncoded, cellId, proposedTransport);
 
     const roomId = outcome.room_id;
     if (!roomId) throw new Error("Failed to create conference room");
@@ -80,7 +82,7 @@ export function createConferenceLifecycle(
       }
 
       const joinerState: SimplePeerConferenceState = {
-        room: { participants: participantsEncoded, room_id: roomId },
+        room: { participants: participantsEncoded, room_id: roomId, proposed_transport: proposedTransport },
         participants: new Map(
           participants.map((p) => [
             p,
@@ -110,6 +112,7 @@ export function createConferenceLifecycle(
     const room: ConferenceRoom = {
       participants: participantsEncoded,
       room_id: roomId,
+      proposed_transport: proposedTransport,
     };
 
     const state: SimplePeerConferenceState = {
@@ -165,6 +168,7 @@ export function createConferenceLifecycle(
       room: {
         room_id: roomId,
         participants: participantsDecoded,
+        proposed_transport: CallTransport.Holochain,
       },
       participants: new Map(
         participants.map((p) => [

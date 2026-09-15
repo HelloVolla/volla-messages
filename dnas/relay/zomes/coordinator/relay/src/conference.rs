@@ -217,6 +217,8 @@ pub struct AckSignalInput {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CreateConferenceInput {
     pub participants: Vec<AgentPubKey>,
+    #[serde(default)]
+    pub proposed_transport: CallTransport,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -303,6 +305,7 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<CreateCon
             let conference_room = ConferenceRoom {
                 participants: input.participants.clone(),
                 room_id: room_id.clone(),
+                proposed_transport: input.proposed_transport,
             };
             send_conference_signal(
                 ConferenceRecord {
@@ -415,6 +418,7 @@ pub fn create_conference(input: CreateConferenceInput) -> ExternResult<CreateCon
     let conference_room = ConferenceRoom {
         participants: input.participants.clone(),
         room_id: room_id.clone(),
+        proposed_transport: input.proposed_transport,
     };
 
     send_conference_signal(

@@ -70,10 +70,24 @@ pub struct ConferenceParticipantRecord {
     pub is_active: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug, SerializedBytes)]
+pub enum CallTransport {
+    WebRtc,
+    Holochain,
+}
+
+impl Default for CallTransport {
+    fn default() -> Self {
+        CallTransport::Holochain
+    }
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, SerializedBytes)]
 pub struct ConferenceRoom {
     pub participants: Vec<AgentPubKey>,
     pub room_id: String,
+    #[serde(default)]
+    pub proposed_transport: CallTransport,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, SerializedBytes)]
