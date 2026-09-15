@@ -11,6 +11,7 @@ import {
   type MessageSignal,
   SimplePeerSignalType,
   ConferenceRole,
+  CallTransport,
 } from "$lib/types";
 import { encodeCellIdToBase64, enqueueNotification, sendCallNotification } from "$lib/utils";
 import { type ConversationStore } from "./ConversationStore";
@@ -246,6 +247,12 @@ export function createSignalHandler(
           } else {
             console.log("[SignalHandler] WebRTC already initialized for self");
           }
+        } else if (conference.room?.proposed_transport === CallTransport.Holochain) {
+          // Nothing to do: signalsMediaStreams re-derives its target set from
+          // participant.hasJoined on every send, so a peer joining takes effect
+          // on its own. initiateConnections() below is the WebRTC mesh-connection
+          // initiator and must not run here — it stamps connectionStatus values
+          // (e.g. "init-sent") that this transport never clears.
         } else {
           if (conference.localStream) {
             console.log(
