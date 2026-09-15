@@ -2,9 +2,7 @@ import { decodeHashFromBase64, encodeHashToBase64, type AgentPubKeyB64 } from "@
 import {
   FilmstripCarrier,
   VoiceCarrier,
-  createInlineFilmstripWorker,
   decideSignalsMediaCadence,
-  voiceWorkletModuleUrl,
   webCodecsOpus,
   type FilmstripFrame,
   type FilmstripHost,
@@ -59,6 +57,8 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
   let activeRoomId: string | null = null;
   let audioContext: AudioContext | null = null;
   let codec: OpusCodec | null = null;
+  let voiceWorkletModuleUrl: (() => string) | null = null;
+  let createInlineFilmstripWorker: (() => Worker) | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
   let cadenceMode: SignalsMediaCadence["mode"] = "full";
   let lastPongAtMs = 0;
@@ -147,8 +147,14 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
     },
     acquireMic: () => acquireShared("mic", { audio: true }),
     acquireCamera: () => acquireShared("camera", { video: { width: 320, height: 240 } }),
-    workletModuleUrl: voiceWorkletModuleUrl,
-    createWorker: createInlineFilmstripWorker,
+    workletModuleUrl: () => {
+      if (!voiceWorkletModuleUrl) throw new Error("inline worklet source not resolved yet");
+      return voiceWorkletModuleUrl();
+    },
+    createWorker: () => {
+      if (!createInlineFilmstripWorker) throw new Error("inline worker source not resolved yet");
+      return createInlineFilmstripWorker();
+    },
   };
 
   function pingTick(): void {
@@ -226,6 +232,10 @@ export function createSignalsMediaStreams(ctx: ConferenceContext): SignalsMediaS
     audioContext = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
     await audioContext.resume();
     codec = await resolveCodec();
+
+    const inlineSources = await import("@lightningrodlabs/signals-media");
+    voiceWorkletModuleUrl = inlineSources.voiceWorkletModuleUrl;
+    createInlineFilmstripWorker = inlineSources.createInlineFilmstripWorker;
 
     voice.bind(host);
     filmstrip.bind(host);
