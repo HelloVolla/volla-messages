@@ -30,6 +30,7 @@ export interface ConversationStore extends GenericKeyValueStore<ConversationExte
   updateConfig: (key: CellIdB64, val: Config) => Promise<void>;
   enable: (key: CellIdB64) => Promise<void>;
   disable: (key: CellIdB64) => Promise<void>;
+  leave: (key: CellIdB64) => Promise<void>;
   updateUnread: (key: CellIdB64, val: boolean) => Promise<void>;
   makePrivateInviteCode: (
     key: CellIdB64,
@@ -45,20 +46,29 @@ export function createConversationStore(client: RelayClient): ConversationStore 
   // Unread is persisted to localstorage as it is never stored via holochain
   const unread = persisted<{ [cellIdB64: CellIdB64]: boolean }>("CONVERSATION.UNREAD", {});
 
+  // Conversations the user has exited ("left") are persisted to localstorage.
+  // The underlying clone cell is disabled (the app websocket cannot delete a clone
+  // cell — that is an admin-only operation), so we track exited conversations here
+  // and filter them out everywhere to make an exited group disappear from the app.
+  const left = persisted<{ [cellIdB64: CellIdB64]: boolean }>("CONVERSATION.LEFT", {});
+
   async function initialize(): Promise<void> {
     const cellInfos = await client.getRelayClonedCellInfos();
+    const leftData = get(left);
 
-    // Initialize conversations
+    // Initialize conversations, excluding any the user has exited
     const conversationsData = Object.fromEntries(
       (
         await Promise.allSettled(
-          cellInfos.map(async (cellInfo) => {
-            // Return [cellIdB64, ConversationExtended]
-            return [
-              encodeCellIdToBase64(cellInfo.cell_id),
-              await _makeConversationExtended(cellInfo, true),
-            ];
-          }),
+          cellInfos
+            .filter((cellInfo) => !leftData[encodeCellIdToBase64(cellInfo.cell_id)])
+            .map(async (cellInfo) => {
+              // Return [cellIdB64, ConversationExtended]
+              return [
+                encodeCellIdToBase64(cellInfo.cell_id),
+                await _makeConversationExtended(cellInfo, true),
+              ];
+            }),
         )
       )
         .filter((p) => p.status === "fulfilled")
@@ -115,6 +125,26 @@ export function createConversationStore(client: RelayClient): ConversationStore 
         },
       },
     }));
+  }
+
+  // Exit a conversation. The clone cell is disabled to stop all participation and
+  // syncing, then flagged as "left" so it is hidden from every list (active and
+  // archived) and not re-added on the next initialize(). To the user the group is
+  // gone from the app; rejoining requires a fresh invite.
+  async function leave(key: CellIdB64): Promise<void> {
+    await client.disableConversationCell(decodeCellIdFromBase64(key));
+
+    left.update((l) => ({ ...l, [key]: true }));
+    unread.update((u) => {
+      const rest = { ...u };
+      delete rest[key];
+      return rest;
+    });
+    conversations.update((c) => {
+      const rest = { ...c };
+      delete rest[key];
+      return rest;
+    });
   }
 
   async function loadConfig(key: CellIdB64, local: boolean): Promise<void> {
@@ -227,6 +257,7 @@ export function createConversationStore(client: RelayClient): ConversationStore 
     join,
     enable,
     disable,
+    leave,
     loadConfig,
     updateConfig,
     updateUnread,
@@ -239,6 +270,7 @@ export interface CellConversationStore extends GenericValueStore<ConversationExt
   loadConfig: (local: boolean) => Promise<void>;
   enable: () => Promise<void>;
   disable: () => Promise<void>;
+  leave: () => Promise<void>;
   updateConfig: (val: Config) => Promise<void>;
   updateUnread: (val: boolean) => Promise<void>;
   makePrivateInviteCode: (a: AgentPubKeyB64, title: string) => Promise<string>;
@@ -255,6 +287,7 @@ export function deriveCellConversationStore(
     ...data,
     enable: () => conversationStore.enable(key),
     disable: () => conversationStore.disable(key),
+    leave: () => conversationStore.leave(key),
     loadConfig: (local: boolean) => conversationStore.loadConfig(key, local),
     updateConfig: (val: Config) => conversationStore.updateConfig(key, val),
     updateUnread: (val: boolean) => conversationStore.updateUnread(key, val),
