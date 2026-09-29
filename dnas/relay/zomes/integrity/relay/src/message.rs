@@ -22,6 +22,8 @@ pub struct Message {
     pub bucket: u32,
     pub images: Vec<File>,
     pub message_type: MessageType,
+    #[serde(default)]
+    pub role_evidence: Option<ActionHash>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -31,10 +33,18 @@ pub struct MessageRecord {
     pub message: Option<Message>,
 }
 pub fn validate_create_message(
-    _action: EntryCreationAction,
-    _message: Message,
+    action: EntryCreationAction,
+    message: Message,
 ) -> ExternResult<ValidateCallbackResult> {
-    Ok(ValidateCallbackResult::Valid)
+    let info = dna_info()?;
+    if info.modifiers.properties.bytes().len() == 1 {
+        return Ok(ValidateCallbackResult::Valid);
+    }
+    let props = crate::Properties::try_from(info.modifiers.properties).map_err(|e| wasm_error!(e))?;
+    if props.mode != crate::ConversationMode::ModeratedReadOnly {
+        return Ok(ValidateCallbackResult::Valid);
+    }
+    crate::require_owner_moderator_or_writer(action.author(), message.role_evidence)
 }
 pub fn validate_update_message(
     _action: Update,

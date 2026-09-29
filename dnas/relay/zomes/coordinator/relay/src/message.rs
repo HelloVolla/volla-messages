@@ -12,7 +12,8 @@ pub struct SendMessageInput {
 }
 
 #[hdk_extern]
-pub fn create_message(input: SendMessageInput) -> ExternResult<Record> {
+pub fn create_message(mut input: SendMessageInput) -> ExternResult<Record> {
+    input.message.role_evidence = crate::role::find_message_role_evidence()?;
     let message_hash = create_entry(&EntryTypes::Message(input.message.clone()))?;
     let record = get(message_hash.clone(), GetOptions::local())?.ok_or(wasm_error!(
         WasmErrorInner::Guest("Could not find the newly created Message".to_string())
@@ -321,7 +322,7 @@ pub fn delete_message(input: DeleteMessageInput) -> ExternResult<ActionHash> {
     // Must be the action immediately preceding delete_entry below, since
     // validate_delete_message reads it off Delete's own prev_action.
     if deleting_as_moderator {
-        if let Some(role_evidence) = crate::role::find_role_grant(&me)? {
+        if let Some(role_evidence) = crate::role::find_role_grant(&me, GrantedRole::Moderator)? {
             create_entry(&EntryTypes::RoleEvidenceEntry(RoleEvidenceEntry {
                 role_evidence,
             }))?;
