@@ -23,6 +23,7 @@ pub enum EntryTypes {
     Message(Message),
     Contact(Contact),
     RoleGrant(RoleGrant),
+    RoleEvidenceEntry(RoleEvidenceEntry),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -161,6 +162,12 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                                 role_grant,
                             )
                         }
+                        EntryTypes::RoleEvidenceEntry(role_evidence_entry) => {
+                            validate_create_role_evidence_entry(
+                                EntryCreationAction::Create(action),
+                                role_evidence_entry,
+                            )
+                        }
                     }
                 }
                 OpEntry::UpdateEntry { app_entry, action, .. } => {
@@ -187,6 +194,12 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             validate_create_role_grant(
                                 EntryCreationAction::Update(action),
                                 role_grant,
+                            )
+                        }
+                        EntryTypes::RoleEvidenceEntry(role_evidence_entry) => {
+                            validate_create_role_evidence_entry(
+                                EntryCreationAction::Update(action),
+                                role_evidence_entry,
                             )
                         }
                     }
@@ -267,6 +280,29 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                                 role_grant,
                                 original_create_action,
                                 original_role_grant,
+                            )
+                        }
+                        EntryTypes::RoleEvidenceEntry(role_evidence_entry) => {
+                            let original_app_entry = must_get_valid_record(
+                                action.clone().original_action_address,
+                            )?;
+                            let original_role_evidence_entry = match RoleEvidenceEntry::try_from(
+                                original_app_entry,
+                            ) {
+                                Ok(entry) => entry,
+                                Err(e) => {
+                                    return Ok(
+                                        ValidateCallbackResult::Invalid(
+                                            format!("Expected to get RoleEvidenceEntry from Record: {e:?}"),
+                                        ),
+                                    );
+                                }
+                            };
+                            validate_update_role_evidence_entry(
+                                action,
+                                role_evidence_entry,
+                                original_create_action,
+                                original_role_evidence_entry,
                             )
                         }
                     }
@@ -351,6 +387,13 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         delete_entry.clone().action,
                         original_action,
                         original_role_grant,
+                    )
+                }
+                EntryTypes::RoleEvidenceEntry(original_role_evidence_entry) => {
+                    validate_delete_role_evidence_entry(
+                        delete_entry.clone().action,
+                        original_action,
+                        original_role_evidence_entry,
                     )
                 }
             }
@@ -523,6 +566,12 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                                 role_grant,
                             )
                         }
+                        EntryTypes::RoleEvidenceEntry(role_evidence_entry) => {
+                            validate_create_role_evidence_entry(
+                                EntryCreationAction::Create(action),
+                                role_evidence_entry,
+                            )
+                        }
                     }
                 }
                 OpRecord::UpdateEntry {
@@ -660,6 +709,37 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                                 Ok(result)
                             }
                         }
+                        EntryTypes::RoleEvidenceEntry(role_evidence_entry) => {
+                            let result = validate_create_role_evidence_entry(
+                                EntryCreationAction::Update(action.clone()),
+                                role_evidence_entry.clone(),
+                            )?;
+                            if let ValidateCallbackResult::Valid = result {
+                                let original_role_evidence_entry: Option<RoleEvidenceEntry> = original_record
+                                    .entry()
+                                    .to_app_option()
+                                    .map_err(|e| wasm_error!(e))?;
+                                let original_role_evidence_entry = match original_role_evidence_entry {
+                                    Some(role_evidence_entry) => role_evidence_entry,
+                                    None => {
+                                        return Ok(
+                                            ValidateCallbackResult::Invalid(
+                                                "The updated entry type must be the same as the original entry type"
+                                                    .to_string(),
+                                            ),
+                                        );
+                                    }
+                                };
+                                validate_update_role_evidence_entry(
+                                    action,
+                                    role_evidence_entry,
+                                    original_action,
+                                    original_role_evidence_entry,
+                                )
+                            } else {
+                                Ok(result)
+                            }
+                        }
                     }
                 }
                 OpRecord::DeleteEntry { original_action_hash, action, .. } => {
@@ -740,6 +820,13 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                                 action,
                                 original_action,
                                 original_role_grant,
+                            )
+                        }
+                        EntryTypes::RoleEvidenceEntry(original_role_evidence_entry) => {
+                            validate_delete_role_evidence_entry(
+                                action,
+                                original_action,
+                                original_role_evidence_entry,
                             )
                         }
                     }
