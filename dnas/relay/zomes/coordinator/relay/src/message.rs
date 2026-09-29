@@ -292,6 +292,12 @@ pub fn delete_message(input: DeleteMessageInput) -> ExternResult<ActionHash> {
         )))
     }?;
 
+    let original_record = get(input.original_message_hash.clone(), GetOptions::local())?.ok_or(
+        wasm_error!(WasmErrorInner::Guest("Entry not found".to_string())),
+    )?;
+    let me = agent_info()?.agent_initial_pubkey;
+    let deleting_as_moderator = original_record.action().author() != &me;
+
     let path = messages_path(message.bucket);
     let links = get_links(
         LinkQuery {
@@ -309,6 +315,16 @@ pub fn delete_message(input: DeleteMessageInput) -> ExternResult<ActionHash> {
             if hash.eq(&input.original_message_hash) {
                 delete_link(link.create_link_hash, GetOptions::local())?;
             }
+        }
+    }
+
+    // Must be the action immediately preceding delete_entry below, since
+    // validate_delete_message reads it off Delete's own prev_action.
+    if deleting_as_moderator {
+        if let Some(role_evidence) = crate::role::find_role_grant(&me)? {
+            create_entry(&EntryTypes::RoleEvidenceEntry(RoleEvidenceEntry {
+                role_evidence,
+            }))?;
         }
     }
     let delete_hash = delete_entry(input.original_message_hash.clone())?;

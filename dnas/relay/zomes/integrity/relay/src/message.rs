@@ -43,11 +43,14 @@ pub fn validate_update_message(
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_delete_message(
-    _action: Delete,
-    _original_action: EntryCreationAction,
+    action: Delete,
+    original_action: EntryCreationAction,
     _original_message: Message,
 ) -> ExternResult<ValidateCallbackResult> {
-    Ok(ValidateCallbackResult::Valid)
+    if &action.author == original_action.author() {
+        return Ok(ValidateCallbackResult::Valid);
+    }
+    crate::require_owner_or_moderator_for_delete(&action)
 }
 pub fn validate_create_link_message_updates(
     _action: CreateLink,
