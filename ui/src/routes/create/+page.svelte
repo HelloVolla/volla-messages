@@ -3,7 +3,7 @@
   import { goto } from "$app/navigation";
   import Header from "$lib/Header.svelte";
   import { t } from "$translations";
-  import { Privacy } from "$lib/types";
+  import { ConversationMode, Privacy } from "$lib/types";
   import { type AgentPubKeyB64 } from "@holochain/client";
   import toast from "svelte-french-toast";
   import ButtonSquare from "$lib/ButtonSquare.svelte";
@@ -46,6 +46,7 @@
           image: "",
         },
         privacy: Privacy.Private,
+        mode: ConversationMode.Unmoderated,
       });
       await inviteStore.invite(cellIdB64, selectedAgentPubKeyB64s);
       await goto(`/conversations/${cellIdB64}/details`);

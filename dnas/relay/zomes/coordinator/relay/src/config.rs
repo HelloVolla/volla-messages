@@ -16,7 +16,7 @@ pub fn set_config(input: SetConfigInput) -> ExternResult<()> {
     let config = Config {
         title: input.title,
         image: input.image,
-        role_evidence: find_role_grant(&me)?,
+        role_evidence: find_role_grant(&me, GrantedRole::Moderator)?,
     };
     let config_hash = create_entry(&EntryTypes::Config(config))?;
     let path = Path::from("config");

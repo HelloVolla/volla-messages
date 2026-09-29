@@ -154,6 +154,12 @@ export enum Privacy {
   Public,
 }
 
+export enum ConversationMode {
+  Unmoderated,
+  Moderated,
+  ModeratedReadOnly,
+}
+
 export interface ConversationExtended {
   cellInfo: ClonedCell;
   dnaProperties: RelayDnaProperties;
@@ -174,6 +180,7 @@ export type BucketInput = {
 export interface CreateConversationInput {
   config: Config;
   privacy: Privacy;
+  mode: ConversationMode;
 }
 
 /**
@@ -184,6 +191,7 @@ export interface CreateConversationInput {
 export interface RelayDnaProperties {
   created: number;
   privacy: Privacy;
+  mode: ConversationMode;
 
   // This is *NOT* the type specified in the rust struct DnaProperties (there it is an AgentPubKey)
   //
@@ -198,6 +206,7 @@ export interface Invitation {
   created: number;
   networkSeed: string;
   privacy: Privacy;
+  mode: ConversationMode;
   progenitor: AgentPubKey;
   title: string;
   proof?: MembraneProof;
