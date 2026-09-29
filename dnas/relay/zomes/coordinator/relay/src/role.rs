@@ -7,52 +7,21 @@ fn roles_path() -> Path {
     Path::from("roles")
 }
 
-#[hdk_extern]
-pub fn get_role(input: ZomeFnInput<AgentPubKey>) -> ExternResult<ConversationRole> {
+fn progenitor() -> ExternResult<Option<AgentPubKey>> {
     let info = dna_info()?;
-    if info.modifiers.properties.bytes().len() > 1 {
-        let props = Properties::try_from(info.modifiers.properties).map_err(|e| wasm_error!(e))?;
-        if input.input == props.progenitor {
-            return Ok(ConversationRole::Owner);
-        }
+    if info.modifiers.properties.bytes().len() == 1 {
+        return Ok(None);
     }
+    let props = Properties::try_from(info.modifiers.properties).map_err(|e| wasm_error!(e))?;
+    Ok(Some(props.progenitor))
+}
 
+pub fn find_role_grant(agent: &AgentPubKey) -> ExternResult<Option<ActionHash>> {
     let links = get_links(
         LinkQuery {
             base: roles_path().path_entry_hash()?.into(),
-            link_type: LinkTypes::RoleGrant.try_into_filter()?,
-            tag_prefix: Some(LinkTag::new(MODERATOR_ROLE_TAG)),
-            after: None,
-            before: None,
-            author: None,
-        },
-        input.get_strategy(),
-    )?;
-    let is_moderator = links
-        .into_iter()
-        .any(|link| link.target.into_agent_pub_key().map(|a| a == input.input).unwrap_or(false));
-
-    Ok(if is_moderator { ConversationRole::Moderator } else { ConversationRole::Member })
-}
-
-#[hdk_extern]
-pub fn grant_moderator_role(agent: AgentPubKey) -> ExternResult<()> {
-    create_link(
-        roles_path().path_entry_hash()?,
-        agent,
-        LinkTypes::RoleGrant,
-        LinkTag::new(MODERATOR_ROLE_TAG),
-    )?;
-    Ok(())
-}
-
-#[hdk_extern]
-pub fn revoke_moderator_role(agent: AgentPubKey) -> ExternResult<()> {
-    let links = get_links(
-        LinkQuery {
-            base: roles_path().path_entry_hash()?.into(),
-            link_type: LinkTypes::RoleGrant.try_into_filter()?,
-            tag_prefix: Some(LinkTag::new(MODERATOR_ROLE_TAG)),
+            link_type: LinkTypes::AllRoleGrants.try_into_filter()?,
+            tag_prefix: None,
             after: None,
             before: None,
             author: None,
@@ -60,9 +29,61 @@ pub fn revoke_moderator_role(agent: AgentPubKey) -> ExternResult<()> {
         GetStrategy::Local,
     )?;
     for link in links {
-        if link.target.into_agent_pub_key().map(|a| a == agent).unwrap_or(false) {
-            delete_link(link.create_link_hash, GetOptions::local())?;
+        let Some(action_hash) = link.target.into_action_hash() else {
+            continue;
+        };
+        let Some(Details::Record(details)) =
+            get_details(action_hash.clone(), GetOptions::local())?
+        else {
+            continue;
+        };
+        if !details.deletes.is_empty() {
+            continue;
+        }
+        let Some(role_grant): Option<RoleGrant> = details
+            .record
+            .entry()
+            .to_app_option()
+            .map_err(|e| wasm_error!(e))?
+        else {
+            continue;
+        };
+        if &role_grant.for_agent == agent {
+            return Ok(Some(action_hash));
         }
     }
+    Ok(None)
+}
+
+#[hdk_extern]
+pub fn get_role(input: ZomeFnInput<AgentPubKey>) -> ExternResult<ConversationRole> {
+    if progenitor()?.is_some_and(|owner| owner == input.input) {
+        return Ok(ConversationRole::Owner);
+    }
+    Ok(if find_role_grant(&input.input)?.is_some() {
+        ConversationRole::Moderator
+    } else {
+        ConversationRole::Member
+    })
+}
+
+#[hdk_extern]
+pub fn grant_moderator_role(agent: AgentPubKey) -> ExternResult<()> {
+    let role_grant_hash = create_entry(&EntryTypes::RoleGrant(RoleGrant { for_agent: agent }))?;
+    create_link(
+        roles_path().path_entry_hash()?,
+        role_grant_hash,
+        LinkTypes::AllRoleGrants,
+        (),
+    )?;
+    Ok(())
+}
+
+#[hdk_extern]
+pub fn revoke_moderator_role(agent: AgentPubKey) -> ExternResult<()> {
+    let Some(role_grant_hash) = find_role_grant(&agent)? else {
+        return Ok(());
+    };
+    delete_entry(role_grant_hash)?;
     Ok(())
 }

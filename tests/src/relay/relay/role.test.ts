@@ -145,3 +145,46 @@ test('a non-owner cannot revoke a Moderator grant', async () => {
     ).rejects.toThrow();
   });
 });
+
+test('a plain member cannot set_config', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+
+    await expect(
+      bobConversation.callZome({
+        zome_name: "relay",
+        fn_name: "set_config",
+        payload: { title: "Renamed by a member", image: "" },
+      }),
+    ).rejects.toThrow();
+  });
+});
+
+test('a Moderator can set_config', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    const aliceConversation = await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+
+    await aliceConversation.callZome({
+      zome_name: "relay",
+      fn_name: "grant_moderator_role",
+      payload: bob.agentPubKey,
+    });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+
+    await bobConversation.callZome({
+      zome_name: "relay",
+      fn_name: "set_config",
+      payload: { title: "Renamed by a moderator", image: "" },
+    });
+  });
+});
