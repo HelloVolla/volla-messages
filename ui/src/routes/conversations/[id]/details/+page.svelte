@@ -29,6 +29,10 @@
     type MergedProfileContactInviteJoinedStore,
     type MergedProfileContactInviteUnjoinedStore,
   } from "$store/MergedProfileContactInviteJoinedStore";
+  import {
+    deriveCellConversationMessageStore,
+    type ConversationMessageStore,
+  } from "$store/ConversationMessageStore";
   import type { RelayClient } from "$store/RelayClient";
   import type { Writable } from "svelte/store";
 
@@ -57,8 +61,12 @@
   const mergedProfileContactInviteUnjoinedStore = getContext<{
     getStore: () => MergedProfileContactInviteUnjoinedStore;
   }>("mergedProfileContactInviteUnjoinedStore").getStore();
+  const conversationMessageStore = getContext<{
+    getStore: () => ConversationMessageStore;
+  }>("conversationMessageStore").getStore();
 
   let conversation = deriveCellConversationStore(conversationStore, $page.params.id);
+  let messages = deriveCellConversationMessageStore(conversationMessageStore, $page.params.id);
   let conversationTitle = deriveCellConversationTitleStore(conversationTitleStore, $page.params.id);
   let mergedProfileContact = deriveCellMergedProfileContactInviteStore(
     mergedProfileContactInviteStore,
@@ -122,6 +130,16 @@
       image: newImage,
     });
     image = newImage;
+  };
+
+  const toggleModerator = async (agentPubKeyB64: AgentPubKeyB64) => {
+    if ($conversation.moderators.includes(agentPubKeyB64)) {
+      await conversation.revokeModerator(agentPubKeyB64);
+      await messages.sendModeratorNotice("moderator_revoked", agentPubKeyB64);
+    } else {
+      await conversation.grantModerator(agentPubKeyB64);
+      await messages.sendModeratorNotice("moderator_granted", agentPubKeyB64);
+    }
   };
 </script>
 
@@ -223,7 +241,18 @@
       {/if}
 
       {#each $joined.list as [publicKeyB64] (publicKeyB64)}
-        <MemberListItem cellIdB64={$page.params.id} agentPubKeyB64={publicKeyB64} />
+        <MemberListItem cellIdB64={$page.params.id} agentPubKeyB64={publicKeyB64}>
+          {#if iAmProgenitor && publicKeyB64 !== $conversation.dnaProperties.progenitor}
+            <button
+              class="text-secondary-300 ml-2 shrink-0 text-xs underline"
+              on:click={() => toggleModerator(publicKeyB64)}
+            >
+              {$conversation.moderators.includes(publicKeyB64)
+                ? $t("common.remove_moderator")
+                : $t("common.make_moderator")}
+            </button>
+          {/if}
+        </MemberListItem>
       {/each}
     </ul>
   </div>
