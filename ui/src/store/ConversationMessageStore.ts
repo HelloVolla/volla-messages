@@ -64,6 +64,11 @@ export interface ConversationMessageStore
   loadMoreMessages: (key1: CellIdB64) => Promise<number>;
   sendMessage: (key1: CellIdB64, content: string, files: LocalFile[]) => Promise<void>;
   sendJoinNotice: (key1: CellIdB64) => Promise<void>;
+  sendModeratorNotice: (
+    key1: CellIdB64,
+    kind: "moderator_granted" | "moderator_revoked",
+    targetAgentPubKeyB64: AgentPubKeyB64,
+  ) => Promise<void>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
   handleMessageDeletedSignalReceived: (
@@ -891,7 +896,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
     });
   }
 
-  async function sendJoinNotice(key1: CellIdB64): Promise<void> {
+  async function _sendNotice(key1: CellIdB64, content: string): Promise<void> {
     const cellId = decodeCellIdFromBase64(key1);
 
     let agentPubKeys;
@@ -903,7 +908,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
 
     const record = await client.createMessage(cellId, {
       message: {
-        content: "",
+        content,
         bucket: conversationStore.getBucket(key1, Date.now()),
         images: [],
         message_type: MessageType.System,
@@ -924,6 +929,18 @@ const paginationState = writable<Record<string, PaginationState>>({});
 
     await messageDB.storeMessage(key1, actionHashB64, messageExtended);
     _insertNewestIntoMemory(key1, actionHashB64, messageExtended);
+  }
+
+  async function sendJoinNotice(key1: CellIdB64): Promise<void> {
+    return _sendNotice(key1, "");
+  }
+
+  async function sendModeratorNotice(
+    key1: CellIdB64,
+    kind: "moderator_granted" | "moderator_revoked",
+    targetAgentPubKeyB64: AgentPubKeyB64,
+  ): Promise<void> {
+    return _sendNotice(key1, `${kind}:${targetAgentPubKeyB64}`);
   }
 
   async function handleMessageSignalReceived(
@@ -1066,6 +1083,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
     loadMoreMessages,
     sendMessage,
     sendJoinNotice,
+    sendModeratorNotice,
     handleMessageSignalReceived,
     subscribe,
     deleteMessage,
@@ -1092,6 +1110,10 @@ export interface CellConversationMessageStore
   loadMoreMessages: () => Promise<number>;
   sendMessage: (content: string, files: LocalFile[]) => Promise<void>;
   sendJoinNotice: () => Promise<void>;
+  sendModeratorNotice: (
+    kind: "moderator_granted" | "moderator_revoked",
+    targetAgentPubKeyB64: AgentPubKeyB64,
+  ) => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
   debugGetAllMessages: () => Promise<MessageRecord[]>;
@@ -1145,6 +1167,10 @@ export function deriveCellConversationMessageStore(
     sendMessage: (content: string, files: LocalFile[]) =>
       conversationMessageStore.sendMessage(key, content, files),
     sendJoinNotice: () => conversationMessageStore.sendJoinNotice(key),
+    sendModeratorNotice: (
+      kind: "moderator_granted" | "moderator_revoked",
+      targetAgentPubKeyB64: AgentPubKeyB64,
+    ) => conversationMessageStore.sendModeratorNotice(key, kind, targetAgentPubKeyB64),
     handleMessageSignalReceived: (signal: MessageSignal) =>
       conversationMessageStore.handleMessageSignalReceived(key, signal),
     deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>
