@@ -8,6 +8,7 @@
   import { downloadDir } from "@tauri-apps/api/path";
   import toast from "svelte-french-toast";
   import { deriveCellFileStore, type FileStore } from "$store/FileStore";
+  import { deriveCellConversationStore, type ConversationStore } from "$store/ConversationStore";
   import { createEventDispatcher, getContext } from "svelte";
   import { page } from "$app/stores";
   import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
@@ -28,6 +29,14 @@
   ).getMyPubKeyB64();
 
   $: iAmAuthor = message.authorAgentPubKeyB64 === myPubKeyB64;
+  const conversationStore = getContext<{ getStore: () => ConversationStore }>(
+    "conversationStore",
+  ).getStore();
+  const conversation = deriveCellConversationStore(conversationStore, $page.params.id);
+  $: canDelete =
+    iAmAuthor ||
+    $conversation.dnaProperties.progenitor === myPubKeyB64 ||
+    $conversation.moderators.includes(myPubKeyB64);
 
   $: hasText = message.message.content.trim().length > 0;
   $: hasLoadedFiles = message.message.images.some(
@@ -107,7 +116,7 @@
     </ButtonInline>
   {/if}
 
-  {#if iAmAuthor}
+  {#if canDelete}
     <ButtonInline
       on:click={() => dispatch("delete", actionHashB64)}
       icon="delete"

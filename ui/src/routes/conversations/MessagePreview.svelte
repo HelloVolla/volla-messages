@@ -29,6 +29,8 @@
       <span>{$t("common.granted_moderator")}</span>
     {:else if noticeKind === "moderator_revoked"}
       <span>{$t("common.revoked_moderator")}</span>
+    {:else if noticeKind === "message_deleted"}
+      <span>{$t("common.deleted_a_message")}</span>
     {:else if noticeKind === "member_removed"}
       <span>{$t("common.removed_a_member")}</span>
     {:else}

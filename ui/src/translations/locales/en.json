@@ -28,6 +28,8 @@
   "create_new_contact": "Create New Contact",
   "created": "Created: {{date:date;}}",
   "delete": "Delete",
+  "deleted_a_message": "deleted a message",
+  "deleted_message_by": "deleted a message by",
   "delete_contact": "Delete Contact",
   "delete_contact_error": "Error deleting contact",
   "delete_contact_success": "Contact deleted successfully",
