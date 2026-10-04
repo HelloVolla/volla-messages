@@ -97,3 +97,18 @@ implementation: `Config.role_evidence: Option<ActionHash>`,
 `role.rs` (coordinator) looked up automatically inside `set_config` so the
 UI never has to know evidence exists. Reuse both for #210/#212/#214/#215/#217
 rather than re-deriving the pattern per issue.
+
+## #216 Transfer ownership (proposal, not implemented)
+
+Problem. Owner is the progenitor stored in DNA properties, which is fixed at creation. Every owner check reads it directly, so there is no way to change owner today.
+
+Proposal. Add an OwnershipTransfer entry: { new_owner, previous_owner_evidence }. The current owner creates it. Validation requires previous_owner_evidence to show that the author is the current owner: either the progenitor (genesis) or the latest prior transfer naming the author. The progenitor shortcut in is_owner becomes "genesis only, until a transfer exists". Every owner check then takes evidence, the same way Moderator checks do.
+
+Hard limit. The new owner's power is provable, but the old owner's power cannot be revoked deterministically. A superseded owner can keep citing their older transfer evidence, and validators will accept it until they see the newer transfer. Unlike a moderator, the old owner can delete the group and remove members, so this lag matters more.
+
+Options.
+1. Accept the soft limit, as with moderators, and document it as a known gap for owner actions.
+2. Require the old owner's signature on a fresh ownership-chain entry for each owner action. This closes the gap but adds a write to every owner action.
+3. Drop transfer for now and ship #216 later once the owner-action model is settled.
+
+Recommendation: option 1, with the gap documented, since transfer is rare and the risk is limited to an old owner who acts maliciously during the propagation window.
