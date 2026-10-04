@@ -166,6 +166,7 @@ export interface ConversationExtended {
   publicInviteCode?: string; // undefined if the conversation is private
   config?: Config; // undefined if we have not fetched the Config entry
   moderators: AgentPubKeyB64[];
+  members: AgentPubKeyB64[];
 
   // Locally persisted data
   unread: boolean;
