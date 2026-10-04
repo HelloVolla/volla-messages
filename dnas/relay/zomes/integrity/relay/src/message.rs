@@ -41,10 +41,8 @@ pub fn validate_create_message(
         return Ok(ValidateCallbackResult::Valid);
     }
     let props = crate::Properties::try_from(info.modifiers.properties).map_err(|e| wasm_error!(e))?;
-    if props.mode != crate::ConversationMode::ModeratedReadOnly {
-        return Ok(ValidateCallbackResult::Valid);
-    }
-    crate::require_owner_moderator_or_writer(action.author(), message.role_evidence)
+    let read_only = props.mode == crate::ConversationMode::ModeratedReadOnly;
+    crate::require_membership(action.author(), message.role_evidence, read_only)
 }
 pub fn validate_update_message(
     _action: Update,

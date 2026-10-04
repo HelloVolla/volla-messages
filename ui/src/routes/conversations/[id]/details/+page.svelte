@@ -94,6 +94,7 @@
   let editingTitle = false;
 
   $: iAmProgenitor = myPubKeyB64 === $conversation.dnaProperties.progenitor;
+  $: iAmModerator = $conversation.moderators.includes(myPubKeyB64);
 
   let pingInterval: ReturnType<typeof setInterval>;
 
@@ -130,6 +131,11 @@
       image: newImage,
     });
     image = newImage;
+  };
+
+  const removeMember = async (agentPubKeyB64: AgentPubKeyB64) => {
+    await conversation.removeMember(agentPubKeyB64);
+    await messages.sendModeratorNotice("member_removed", agentPubKeyB64);
   };
 
   const toggleModerator = async (agentPubKeyB64: AgentPubKeyB64) => {
@@ -240,7 +246,7 @@
         </h3>
       {/if}
 
-      {#each $joined.list as [publicKeyB64] (publicKeyB64)}
+      {#each $joined.list.filter(([key]) => key === $conversation.dnaProperties.progenitor || $conversation.members.includes(key)) as [publicKeyB64] (publicKeyB64)}
         <MemberListItem cellIdB64={$page.params.id} agentPubKeyB64={publicKeyB64}>
           {#if iAmProgenitor && publicKeyB64 !== $conversation.dnaProperties.progenitor}
             <button
@@ -250,6 +256,14 @@
               {$conversation.moderators.includes(publicKeyB64)
                 ? $t("common.remove_moderator")
                 : $t("common.make_moderator")}
+            </button>
+          {/if}
+          {#if (iAmProgenitor || (iAmModerator && !$conversation.moderators.includes(publicKeyB64))) && publicKeyB64 !== $conversation.dnaProperties.progenitor}
+            <button
+              class="text-secondary-300 ml-2 shrink-0 text-xs underline"
+              on:click={() => removeMember(publicKeyB64)}
+            >
+              {$t("common.remove_member")}
             </button>
           {/if}
         </MemberListItem>
