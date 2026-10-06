@@ -120,3 +120,18 @@ network-isolated malicious author's own node could still create and gossip
 a message or membership after close; honest validators would propagate it
 since they can't reject it deterministically. History stays visible to
 current members either way, since Close only gates new writes.
+
+## Security review round 3
+
+- `authorization-revocation-bypass` and `missing-integrity-check` in
+  `role.rs`: both are the stale-evidence gap already named above (role
+  grants and membership proofs are validated by resolving their original
+  `ActionHash`, which stays resolvable after the entry is later deleted) —
+  no new code, same accepted limitation as #217/#218/#219.
+- `spoofable-system-notice` in `NoticeMessage.svelte`/`MessagePreview.svelte`:
+  real gap, fixed. `Message.content` for a system notice was an
+  unauthenticated string (`"<kind>:<targetAgentPubKeyB64>"`); any member
+  could post one claiming a grant/revoke/removal that never happened. Both
+  components now cross-check the claimed kind against the conversation's
+  live `moderators`/`members` lists before rendering the privileged text,
+  falling back to the generic notice otherwise.
