@@ -1,6 +1,6 @@
 import { assert, test } from "vitest";
 
-import { runScenario } from "@holochain/tryorama";
+import { runScenario } from "@holochain-open-dev/tryorama";
 import { encodeHashToBase64, type ClonedCell, type DnaModifiersOpt } from "@holochain/client";
 import { decode } from "@msgpack/msgpack";
 
