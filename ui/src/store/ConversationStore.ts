@@ -36,6 +36,7 @@ export interface ConversationStore extends GenericKeyValueStore<ConversationExte
   grantModerator: (key: CellIdB64, agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
   revokeModerator: (key: CellIdB64, agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
   removeMember: (key: CellIdB64, agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
+  closeConversation: (key: CellIdB64) => Promise<void>;
   enable: (key: CellIdB64) => Promise<void>;
   disable: (key: CellIdB64) => Promise<void>;
   updateUnread: (key: CellIdB64, val: boolean) => Promise<void>;
@@ -183,6 +184,17 @@ export function createConversationStore(client: RelayClient): ConversationStore 
     }));
   }
 
+  async function closeConversation(key: CellIdB64): Promise<void> {
+    await client.closeConversation(decodeCellIdFromBase64(key));
+    conversations.update((c) => ({
+      ...c,
+      [key]: {
+        ...c[key],
+        closed: true,
+      },
+    }));
+  }
+
   async function updateUnread(key: CellIdB64, val: boolean): Promise<void> {
     unread.update((c) => ({
       ...c,
@@ -244,6 +256,7 @@ export function createConversationStore(client: RelayClient): ConversationStore 
     const members = cellInfo.enabled
       ? (await client.getMembers(cellInfo.cell_id)).map(encodeHashToBase64)
       : [];
+    const closed = cellInfo.enabled ? await client.isClosed(cellInfo.cell_id) : false;
 
     // Generate a public invite code
     // If the conversation is Private, this is undefined
@@ -267,6 +280,7 @@ export function createConversationStore(client: RelayClient): ConversationStore 
       publicInviteCode,
       moderators,
       members,
+      closed,
 
       // persisted fields
       unread: get(unread)[key] || false,
@@ -285,6 +299,7 @@ export function createConversationStore(client: RelayClient): ConversationStore 
     grantModerator,
     revokeModerator,
     removeMember,
+    closeConversation,
     updateUnread,
     makePrivateInviteCode,
     getBucket,
@@ -299,6 +314,7 @@ export interface CellConversationStore extends GenericValueStore<ConversationExt
   grantModerator: (agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
   revokeModerator: (agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
   removeMember: (agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
+  closeConversation: () => Promise<void>;
   updateUnread: (val: boolean) => Promise<void>;
   makePrivateInviteCode: (a: AgentPubKeyB64, title: string) => Promise<string>;
   getBucket: (timestamp: number) => number;
@@ -320,6 +336,7 @@ export function deriveCellConversationStore(
       conversationStore.grantModerator(key, agentPubKeyB64),
     removeMember: (agentPubKeyB64: AgentPubKeyB64) =>
       conversationStore.removeMember(key, agentPubKeyB64),
+    closeConversation: () => conversationStore.closeConversation(key),
     revokeModerator: (agentPubKeyB64: AgentPubKeyB64) =>
       conversationStore.revokeModerator(key, agentPubKeyB64),
     updateUnread: (val: boolean) => conversationStore.updateUnread(key, val),
