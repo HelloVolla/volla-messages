@@ -285,7 +285,7 @@ export function createNetworkStatsStore(client: AppClient, relayClient?: RelayCl
       const pollCount = prev.pollCount + 1;
 
       if (stats.status === "fulfilled") {
-        const t = stats.value;
+        const t = stats.value.transport_stats;
         console.log(`${TAG} RAW dumpNetworkStats:`, JSON.parse(JSON.stringify(t)));
         const sent = t.connections.reduce((s, c) => s + c.send_bytes, 0);
         const recv = t.connections.reduce((s, c) => s + c.recv_bytes, 0);
@@ -356,7 +356,7 @@ export function createNetworkStatsStore(client: AppClient, relayClient?: RelayCl
 
       store.update((s) => ({
         ...s,
-        transportStats: stats.status === "fulfilled" ? stats.value : s.transportStats,
+        transportStats: stats.status === "fulfilled" ? stats.value.transport_stats : s.transportStats,
         metricsPerDna: metrics.status === "fulfilled" ? metrics.value : s.metricsPerDna,
         agentInfo: agents.status === "fulfilled" ? agents.value : s.agentInfo,
         lastUpdated: Date.now(),

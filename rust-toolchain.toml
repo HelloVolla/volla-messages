@@ -1,8 +1,10 @@
 [toolchain]
-# 1.89.0 matches the toolchain the release workflows install; the nix dev
-# shell derives its rust from this file (rust-overlay), so nix, rustup, and
-# CI users all build with the same compiler.
-channel = "1.89.0"
+# holochain 0.7.0 needs a recent compiler (holochain_zome_types 0.7 uses
+# str::floor_char_boundary); 1.95.0 matches android-service-runtime. The
+# release workflows and the nix dev shell (rust-overlay) both derive their
+# rust from this file, so nix, rustup, and CI users all build with the same
+# compiler.
+channel = "1.95.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
 targets = [

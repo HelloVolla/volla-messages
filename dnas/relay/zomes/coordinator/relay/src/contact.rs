@@ -68,8 +68,8 @@ pub fn get_latest_contact(
 pub fn get_original_contact(
     original_contact_hash: ZomeFnInput<ActionHash>,
 ) -> ExternResult<Option<Record>> {
-    let strategy = original_contact_hash.get_strategy();
-    let Some(details) = get_details(original_contact_hash.input, GetOptions { strategy })? else {
+    let options = original_contact_hash.get_options();
+    let Some(details) = get_details(original_contact_hash.input, options)? else {
         return Ok(None);
     };
     match details {

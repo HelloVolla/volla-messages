@@ -85,7 +85,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.89"
+          toolchain: "1.95"
           targets: ${{ matrix.target }}
 
       - name: Add Rust target to the pinned toolchain
@@ -248,7 +248,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           override: true
-          toolchain: 1.89
+          toolchain: 1.95
 
       - name: Install nix
         uses: cachix/install-nix-action@v27
@@ -364,7 +364,7 @@ jobs:
         uses: lionel-faber/toolchain@038230242ab440f3b34fc2fbd7ae4111add9e690
         with:
           override: true
-          toolchain: 1.89
+          toolchain: 1.95
 
       - name: install Go stable
         uses: actions/setup-go@v4
@@ -462,7 +462,8 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.89"
+          override: true
+          toolchain: 1.95
           targets: ${{ matrix.target }}
 
       - name: Add Rust target to the pinned toolchain
