@@ -207,11 +207,10 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.releaseId }}
           args: --verbose --features holochain_bundled --target ${{ matrix.target }}
 
-      - name: Upload aarch64 AppImage for Ubuntu Touch job
-        if: matrix.arch == 'aarch64'
+      - name: Upload ${{ matrix.arch }} AppImage for Ubuntu Touch job
         uses: actions/upload-artifact@v4
         with:
-          name: volla-messages-appimage-aarch64
+          name: volla-messages-appimage-${{ matrix.arch }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/appimage/Volla Messages_*.AppImage
           retention-days: 1
 
@@ -402,7 +401,7 @@ jobs:
             Set-StrictMode -Version Latest
             $PSNativeCommandUseErrorActionPreference = $true
           }
-          
+
           # read name and version from tauri.conf.json
           $TAURI_CONF = (Get-Content src-tauri\tauri.conf.json | Out-String | ConvertFrom-Json)
           $APP_PRODUCT_NAME_VERSION = "$($TAURI_CONF.productName)_$($TAURI_CONF.version)"
@@ -501,61 +500,55 @@ jobs:
           args: --verbose --features holochain_bundled --target ${{ matrix.target }}
 
   release-tauri-app-ubuntu-touch:
-    name: Build Ubuntu Touch click
     needs: [create-release, release-tauri-app-linux]
     permissions: write-all
     environment: Relay Release
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: [self-hosted, yolo]
+            target: x86_64-unknown-linux-gnu
+            container: ubuntu:24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            container: null
 
     steps:
       - uses: actions/checkout@v3
 
-      - name: Resolve version
-        id: version
+      - name: Install sudo (container only)
+        if: matrix.container != null
         run: |
-          VERSION="${{ github.ref_name }}"
-          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+          apt-get update
+          apt-get install -y sudo
 
-      - name: Install build dependencies
+      - name: Install packages
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            qemu-user-static \
-            wget \
-            dpkg-dev \
-            gtk-doc-tools \
-            libtool \
-            pipx
-          pipx install clickable-ut
+          sudo apt-get install -y dpkg-dev apt-file binutils click gcc pkg-config libglib2.0-dev
 
-      - name: Stamp version into source files
-        working-directory: ut
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" build.sh
-
-      - name: Download aarch64 AppImage
+      - name: Download ${{ matrix.arch }} AppImage
         uses: actions/download-artifact@v4
         with:
-          name: volla-messages-appimage-aarch64
+          name: volla-messages-appimage-${{ matrix.arch }}
           path: ut/
-
-      - name: Make build dir and move the AppImage there
-        working-directory: ut
-        run: |
-          mkdir -p build/aarch64-linux-gnu/app
-          mv Volla\ Messages_*.AppImage \
-            build/aarch64-linux-gnu/app/Volla.Messages_${{ steps.version.outputs.version }}_aarch64.AppImage
 
       - name: Build click package
         working-directory: ut
         run: |
-          clickable build --arch arm64 --skip-review
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" manifest.json
+          # bundle-deps.sh refreshes the apt and apt-file indexes
+          sudo ./build.sh "Volla Messages_"*.AppImage
 
       - name: Upload click to release
         uses: AButler/upload-release-assets@v3.0
         with:
-          files: "ut/build/aarch64-linux-gnu/app/*.click"
+          files: "ut/*.click"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-id: ${{ needs.create-release.outputs.releaseId }}
