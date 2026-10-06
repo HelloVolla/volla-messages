@@ -22,6 +22,9 @@
   {:else if kind === "moderator_revoked" && targetAgentPubKeyB64}
     <span>{$t("common.revoked_moderator_from")}</span>
     <AgentNickname {cellIdB64} agentPubKeyB64={targetAgentPubKeyB64} />
+  {:else if kind === "member_removed" && targetAgentPubKeyB64}
+    <span>{$t("common.removed")}</span>
+    <AgentNickname {cellIdB64} agentPubKeyB64={targetAgentPubKeyB64} />
   {:else}
     <span>{$t("common.joined_the_conversation")}</span>
   {/if}

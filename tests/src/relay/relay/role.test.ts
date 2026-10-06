@@ -380,3 +380,71 @@ test('a Moderator can grant Writer, and revoking it blocks further posts', async
     await expect(createMessage(carolConversation)).rejects.toThrow();
   });
 });
+
+test('a non-member cannot post, and a member who joined can', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+
+    await expect(createMessage(bobConversation)).rejects.toThrow();
+
+    await bobConversation.callZome({ zome_name: "relay", fn_name: "create_membership", payload: null });
+    await createMessage(bobConversation);
+  });
+});
+
+test('removing a member blocks their further posts', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    const aliceConversation = await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+    await bobConversation.callZome({ zome_name: "relay", fn_name: "create_membership", payload: null });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+    await createMessage(bobConversation);
+
+    await aliceConversation.callZome({
+      zome_name: "relay",
+      fn_name: "remove_member",
+      payload: bob.agentPubKey,
+    });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+
+    await expect(createMessage(bobConversation)).rejects.toThrow();
+  });
+});
+
+test('a Moderator can remove a member, which also revokes their Writer grant', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob, carol] = await scenario.addPlayersWithApps([appSource, appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    const aliceConversation = await createConversationCell(
+      alice, networkSeed, alice.agentPubKey, created, "ModeratedReadOnly",
+    );
+    const bobConversation = await createConversationCell(
+      bob, networkSeed, alice.agentPubKey, created, "ModeratedReadOnly",
+    );
+    const carolConversation = await createConversationCell(
+      carol, networkSeed, alice.agentPubKey, created, "ModeratedReadOnly",
+    );
+
+    await aliceConversation.callZome({ zome_name: "relay", fn_name: "grant_moderator_role", payload: bob.agentPubKey });
+    await dhtSync([alice, bob, carol], aliceConversation.cell_id[0]);
+    await aliceConversation.callZome({ zome_name: "relay", fn_name: "grant_writer_role", payload: carol.agentPubKey });
+    await dhtSync([alice, bob, carol], aliceConversation.cell_id[0]);
+    await createMessage(carolConversation);
+
+    await bobConversation.callZome({ zome_name: "relay", fn_name: "remove_member", payload: carol.agentPubKey });
+    await dhtSync([alice, bob, carol], aliceConversation.cell_id[0]);
+
+    await expect(createMessage(carolConversation)).rejects.toThrow();
+  });
+});

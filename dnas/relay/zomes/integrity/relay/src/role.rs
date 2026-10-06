@@ -98,6 +98,87 @@ pub fn validate_delete_link_all_role_grants(
 
 #[derive(Clone, PartialEq)]
 #[hdk_entry_helper]
+pub struct Membership {
+    pub for_agent: AgentPubKey,
+}
+
+pub fn validate_create_membership(
+    action: EntryCreationAction,
+    membership: Membership,
+) -> ExternResult<ValidateCallbackResult> {
+    if action.author() != &membership.for_agent {
+        return Ok(ValidateCallbackResult::Invalid(
+            "Membership can only be created by the agent it is for".to_string(),
+        ));
+    }
+    Ok(ValidateCallbackResult::Valid)
+}
+
+pub fn validate_update_membership(
+    _action: Update,
+    _membership: Membership,
+    _original_action: EntryCreationAction,
+    _original_membership: Membership,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Invalid(
+        "Membership entries cannot be updated".to_string(),
+    ))
+}
+
+pub fn validate_delete_membership(
+    action: Delete,
+    _original_action: EntryCreationAction,
+    original_membership: Membership,
+) -> ExternResult<ValidateCallbackResult> {
+    if action.author == original_membership.for_agent {
+        return Ok(ValidateCallbackResult::Valid);
+    }
+    require_owner_or_moderator_for_delete(&action)
+}
+
+pub fn validate_create_link_all_memberships(
+    _action: CreateLink,
+    base_address: AnyLinkableHash,
+    target_address: AnyLinkableHash,
+    _tag: LinkTag,
+) -> ExternResult<ValidateCallbackResult> {
+    let path_entry_hash = Path::from("members").path_entry_hash()?;
+    let base_hash = base_address.into_entry_hash().ok_or(wasm_error!(
+        WasmErrorInner::Guest("No entry hash associated with link".to_string())
+    ))?;
+    if base_hash != path_entry_hash {
+        return Ok(ValidateCallbackResult::Invalid(
+            "Memberships must be linked from the members anchor".to_string(),
+        ));
+    }
+    let action_hash = target_address.into_action_hash().ok_or(wasm_error!(
+        WasmErrorInner::Guest("No action hash associated with link".to_string())
+    ))?;
+    let record = must_get_valid_record(action_hash)?;
+    let _membership: Membership = record
+        .entry()
+        .to_app_option()
+        .map_err(|e| wasm_error!(e))?
+        .ok_or(wasm_error!(WasmErrorInner::Guest(
+            "Linked action must reference a Membership entry".to_string()
+        )))?;
+    Ok(ValidateCallbackResult::Valid)
+}
+
+pub fn validate_delete_link_all_memberships(
+    _action: DeleteLink,
+    _original_action: CreateLink,
+    _base: AnyLinkableHash,
+    _target: AnyLinkableHash,
+    _tag: LinkTag,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Invalid(
+        "AllMemberships links cannot be deleted".to_string(),
+    ))
+}
+
+#[derive(Clone, PartialEq)]
+#[hdk_entry_helper]
 pub struct RoleEvidenceEntry {
     pub role_evidence: ActionHash,
 }
@@ -193,20 +274,48 @@ pub fn require_owner_or_moderator(
     Ok(ValidateCallbackResult::Valid)
 }
 
-pub fn require_owner_moderator_or_writer(
+pub fn require_membership(
     author: &AgentPubKey,
     evidence: Option<ActionHash>,
+    read_only: bool,
 ) -> ExternResult<ValidateCallbackResult> {
     if is_owner(author)? {
         return Ok(ValidateCallbackResult::Valid);
     }
-    let role_grant = match fetch_role_grant(evidence)? {
-        Ok(role_grant) => role_grant,
-        Err(invalid) => return Ok(invalid),
+    let evidence_hash = match evidence {
+        Some(hash) => hash,
+        None => {
+            return Ok(ValidateCallbackResult::Invalid(
+                "author is not a member of this conversation".to_string(),
+            ));
+        }
     };
-    if &role_grant.for_agent != author {
+    let record = must_get_valid_record(evidence_hash)?;
+    let entry = record.entry();
+    let for_agent = if read_only {
+        None
+    } else {
+        entry
+            .to_app_option::<Membership>()
+            .ok()
+            .flatten()
+            .map(|m| m.for_agent)
+    };
+    let for_agent = match for_agent {
+        Some(agent) => agent,
+        None => match entry.to_app_option::<RoleGrant>().ok().flatten() {
+            Some(role_grant) => role_grant.for_agent,
+            None => {
+                return Ok(ValidateCallbackResult::Invalid(
+                    "membership evidence must reference a Membership or RoleGrant entry"
+                        .to_string(),
+                ));
+            }
+        },
+    };
+    if &for_agent != author {
         return Ok(ValidateCallbackResult::Invalid(
-            "role evidence is for a different agent".to_string(),
+            "membership evidence is for a different agent".to_string(),
         ));
     }
     Ok(ValidateCallbackResult::Valid)
