@@ -470,4 +470,22 @@ export class RelayClient {
       payload: agent,
     });
   }
+
+  public async isClosed(cellId: CellId): Promise<boolean> {
+    return this.client.callZome({
+      cell_id: cellId,
+      zome_name: ZOME_NAME,
+      fn_name: "is_closed",
+      payload: null,
+    });
+  }
+
+  public async closeConversation(cellId: CellId): Promise<void> {
+    return this.client.callZome({
+      cell_id: cellId,
+      zome_name: ZOME_NAME,
+      fn_name: "close_conversation",
+      payload: null,
+    });
+  }
 }
