@@ -382,6 +382,20 @@ fn require_owner(agent: &AgentPubKey) -> ExternResult<ValidateCallbackResult> {
     }
 }
 
+fn typed_entry(record: &Record) -> ExternResult<Option<crate::EntryTypes>> {
+    let Some(EntryType::App(app_entry_type)) = record.action().entry_type() else {
+        return Ok(None);
+    };
+    let Some(entry) = record.entry().as_option() else {
+        return Ok(None);
+    };
+    crate::EntryTypes::deserialize_from_type(
+        app_entry_type.zome_index,
+        app_entry_type.entry_index,
+        entry,
+    )
+}
+
 fn fetch_role_grant(
     evidence: Option<ActionHash>,
 ) -> ExternResult<Result<RoleGrant, ValidateCallbackResult>> {
@@ -394,14 +408,12 @@ fn fetch_role_grant(
         }
     };
     let record = must_get_valid_record(evidence_hash)?;
-    let role_grant: RoleGrant = record
-        .entry()
-        .to_app_option()
-        .map_err(|e| wasm_error!(e))?
-        .ok_or(wasm_error!(WasmErrorInner::Guest(
-            "role evidence must reference a RoleGrant entry".to_string()
-        )))?;
-    Ok(Ok(role_grant))
+    match typed_entry(&record)? {
+        Some(crate::EntryTypes::RoleGrant(role_grant)) => Ok(Ok(role_grant)),
+        _ => Ok(Err(ValidateCallbackResult::Invalid(
+            "role evidence must reference a RoleGrant entry".to_string(),
+        ))),
+    }
 }
 
 pub fn require_owner_or_moderator(
@@ -445,21 +457,20 @@ pub fn require_membership(
         }
     };
     let record = must_get_valid_record(evidence_hash)?;
-    let entry = record.entry();
+    let typed = typed_entry(&record)?;
     let for_agent = if read_only {
         None
     } else {
-        entry
-            .to_app_option::<Membership>()
-            .ok()
-            .flatten()
-            .map(|m| m.for_agent)
+        match &typed {
+            Some(crate::EntryTypes::Membership(m)) => Some(m.for_agent.clone()),
+            _ => None,
+        }
     };
     let for_agent = match for_agent {
         Some(agent) => agent,
-        None => match entry.to_app_option::<RoleGrant>().ok().flatten() {
-            Some(role_grant) => role_grant.for_agent,
-            None => {
+        None => match &typed {
+            Some(crate::EntryTypes::RoleGrant(role_grant)) => role_grant.for_agent.clone(),
+            _ => {
                 return Ok(ValidateCallbackResult::Invalid(
                     "membership evidence must reference a Membership or RoleGrant entry"
                         .to_string(),
@@ -482,9 +493,9 @@ pub fn require_owner_or_moderator_for_delete(
         return Ok(ValidateCallbackResult::Valid);
     }
     let record = must_get_valid_record(action.prev_action.clone())?;
-    let evidence_entry: RoleEvidenceEntry = match record.entry().to_app_option().map_err(|e| wasm_error!(e))? {
-        Some(entry) => entry,
-        None => {
+    let evidence_entry = match typed_entry(&record)? {
+        Some(crate::EntryTypes::RoleEvidenceEntry(entry)) => entry,
+        _ => {
             return Ok(ValidateCallbackResult::Invalid(
                 "author is not the conversation owner and the preceding action is not a RoleEvidenceEntry"
                     .to_string(),

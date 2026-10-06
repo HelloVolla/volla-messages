@@ -4,9 +4,17 @@
   import { t } from "$translations";
   import DOMPurify from "dompurify";
   import AgentNickname from "$lib/AgentNickname.svelte";
+  import { getContext } from "svelte";
+  import { type ConversationStore, deriveCellConversationStore } from "$store/ConversationStore";
+  import { verifyModerationNotice } from "$lib/utils";
 
   export let messageExtended: MessageExtended;
   export let cellIdB64: CellIdB64;
+
+  const conversationStore = getContext<{ getStore: () => ConversationStore }>(
+    "conversationStore",
+  ).getStore();
+  const conversation = deriveCellConversationStore(conversationStore, cellIdB64);
 
   // Separate images from other files based on MIME type
   $: imageFiles = messageExtended.message.images.filter((file) =>
@@ -19,17 +27,24 @@
   $: hasFiles = otherFiles.length > 0;
 
   // "" (legacy/join notices) or "<kind>:<targetAgentPubKeyB64>"
-  $: [noticeKind] = messageExtended.message.content.split(":");
+  $: [noticeKind, noticeTargetAgentPubKeyB64] = messageExtended.message.content.split(":");
+
+  $: verifiedNoticeKind = verifyModerationNotice(
+    noticeKind,
+    noticeTargetAgentPubKeyB64,
+    messageExtended.authorAgentPubKeyB64,
+    $conversation,
+  );
 </script>
 
 {#if messageExtended.message.message_type === MessageType.System}
   <div class="mt-1 flex items-center space-x-1 italic text-secondary-400">
     <AgentNickname {cellIdB64} agentPubKeyB64={messageExtended.authorAgentPubKeyB64} />
-    {#if noticeKind === "moderator_granted"}
+    {#if verifiedNoticeKind === "moderator_granted"}
       <span>{$t("common.granted_moderator")}</span>
-    {:else if noticeKind === "moderator_revoked"}
+    {:else if verifiedNoticeKind === "moderator_revoked"}
       <span>{$t("common.revoked_moderator")}</span>
-    {:else if noticeKind === "member_removed"}
+    {:else if verifiedNoticeKind === "member_removed"}
       <span>{$t("common.removed_a_member")}</span>
     {:else}
       <span>{$t("common.joined_the_conversation")}</span>
