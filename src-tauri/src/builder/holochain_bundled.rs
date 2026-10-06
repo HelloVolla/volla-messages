@@ -73,6 +73,7 @@ pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                     handle
                         .plugin(tauri_plugin_barcode_scanner::init())
                         .expect("Failed to initialize tauri_plugin_barcode_scanner");
+
                 });
             });
 

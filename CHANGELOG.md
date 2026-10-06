@@ -15,8 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Known issue: The `holochain_service` (Android system-runtime) build is broken until volla-cloud-services is updated to holochain 0.7 (tracked separately). Desktop and bundled-Android builds are unaffected.
 - Dev: Integration tests now use `@holochain-open-dev/tryorama` 0.20.0 (the holochain-0.7-compatible tryorama line) and run test files sequentially — each file boots multiple conductors and concurrent files starve each other into flaky timeouts.
 
+## [1.0.2] - 2026-08-25
+
+- Fix: The unread indicator now appears inline with the message preview in the conversation list, instead of on its own line above it.
+- Feat: macOS builds are now provided for Intel Macs in addition to Apple Silicon.
+
 ## [1.0.1] - 2026-08-03
 
+- Fix: Scroll functionality has been optimized.
+
+## [1.0.0] - 2026-07-27
 
 - Feat: Added message delivery status indicators (single tick for sent, double tick for delivered).
 - Fix: Added automatic reconnection recovery after the app has been backgrounded for a long time, instead of the connection hanging indefinitely.

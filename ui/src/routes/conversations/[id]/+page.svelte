@@ -78,6 +78,7 @@
   let messageTimeout: ReturnType<typeof setTimeout>;
 
   let conversationMessageInputRef: HTMLInputElement;
+  let conversationMessagesRef: ConversationMessages;
   let sending = false;
   let loadingMessagesNew = false;
   let loadingMessagesOld = false;
@@ -213,6 +214,9 @@ async function loadMoreMessages() {
     sending = true;
     try {
       await messages.sendMessage(text, files);
+      // Sent message should always scroll into view, regardless of
+      // whether you were previously scrolled up reading history.
+      conversationMessagesRef?.scrollToBottom("auto");
     } catch (e) {
       console.error(e);
       toast.error(`${$t("common.error_sending_message")}: ${(e as Error).message || e}`);
@@ -244,10 +248,12 @@ async function loadMoreMessages() {
 
 <Header backUrl="/conversations">
   <div slot="center" class="flex items-center justify-center gap-1 overflow-hidden px-4">
-    <NetworkStatusDot
-      connectionCount={$conversationNetwork?.peerCount || 0}
-      onClick={() => (showConversationNetworkPanel = !showConversationNetworkPanel)}
-    />
+    {#if import.meta.env.DEV}
+      <NetworkStatusDot
+        connectionCount={$conversationNetwork?.peerCount || 0}
+        onClick={() => (showConversationNetworkPanel = !showConversationNetworkPanel)}
+      />
+    {/if}
     <h1 class="overflow-hidden text-ellipsis whitespace-nowrap text-center">
       {$conversationTitle}
     </h1>
@@ -278,7 +284,7 @@ async function loadMoreMessages() {
   </div>
 </Header>
 
-{#if showConversationNetworkPanel}
+{#if import.meta.env.DEV && showConversationNetworkPanel}
   <NetworkStatusPanel
     stats={$networkStatsStore}
     conversationInfo={$conversationNetwork}
@@ -303,6 +309,7 @@ async function loadMoreMessages() {
     {:else}
       <div class="w-full flex-1 overflow-hidden">
         <ConversationMessages
+          bind:this={conversationMessagesRef}
           loadingTop={loadingMessagesOld}
           cellIdB64={$page.params.id}
           messages={$messages.list}
