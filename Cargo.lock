@@ -840,6 +840,7 @@ dependencies = [
  "holochain_serialized_bytes",
  "relay_integrity",
  "serde",
+ "serde_bytes",
 ]
 
 [[package]]
