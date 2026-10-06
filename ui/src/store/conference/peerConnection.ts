@@ -10,6 +10,7 @@ import {
   updateParticipant,
   deriveConnectionQuality,
 } from "./types";
+import { getTurnIceServers } from "./turnCredentials";
 
 export interface PeerConnectionHooks {
   cleanupPeer: (roomId: string, pubKey: string) => void;
@@ -41,7 +42,7 @@ export class PeerConnection {
 
     const opts: SimplePeer.Options = {
       initiator,
-      config: { iceServers: getIceServers() },
+      config: { iceServers: [...getIceServers(), ...getTurnIceServers()] },
       trickle: true,
       objectMode: true,
     };

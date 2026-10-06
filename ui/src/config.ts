@@ -31,8 +31,11 @@ export const POLLING_INTERVAL_FAST = 2 * 1000;
 // Memory management for chat messages
 export const MESSAGES_PER_PAGE = 20;
 
-// Conference WebRTC configuration. No bundled TURN server: a caller behind a
-// symmetric NAT needs their own, supplied via TURN_SERVERS_STORAGE_KEY.
+// Conference WebRTC configuration. TURN credentials come from the issuer at
+// TURN_ISSUER_URL; TURN_SERVERS_STORAGE_KEY remains as a manual override.
+export const TURN_ISSUER_URL: string = import.meta.env.VITE_TURN_ISSUER_URL ?? "";
+export const TURN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
+
 const STUN_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },

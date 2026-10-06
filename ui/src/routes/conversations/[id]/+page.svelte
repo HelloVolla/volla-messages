@@ -35,6 +35,8 @@
     CALL_TRANSPORT_STORAGE_KEY,
     getUserTurnServers,
   } from "$config";
+  import type { RelayClient } from "$store/RelayClient";
+  import { ensureTurnCredential } from "$store/conference/turnCredentials";
   import { deriveThreadViewEnabled } from "$store/ThreadViewStore";
   import DialogConfirm from "$lib/DialogConfirm.svelte";
   import ConversationHeader from "./ConversationHeader.svelte";
@@ -74,6 +76,7 @@
   const networkStatsStore = getContext<{
     getStore: () => NetworkStatsStore;
   }>("networkStatsStore").getStore();
+  const relayClient = getContext<{ getClient: () => RelayClient }>("relayClient").getClient();
 
   let conversation = deriveCellConversationStore(conversationStore, $page.params.id);
   let messages = deriveCellConversationMessageStore(conversationMessageStore, $page.params.id);
@@ -115,7 +118,8 @@
   let selectedTransport: CallTransport =
     (localStorage.getItem(CALL_TRANSPORT_STORAGE_KEY) as CallTransport | null) ??
     CallTransport.Holochain;
-  $: turnConfigured = getUserTurnServers().length > 0;
+  let turnCredentialAvailable = false;
+  $: turnConfigured = turnCredentialAvailable || getUserTurnServers().length > 0;
 
   function toggleTransport() {
     selectedTransport =
@@ -432,6 +436,9 @@
     conversation.updateUnread(false);
     refreshActiveCall();
     activeCallPollTimer = setInterval(refreshActiveCall, 12000);
+    ensureTurnCredential(relayClient, relayClient.decodeCellId($page.params.id)).then(
+      (ok) => (turnCredentialAvailable = ok),
+    );
   });
 
   onDestroy(() => {
