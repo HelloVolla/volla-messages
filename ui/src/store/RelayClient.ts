@@ -269,6 +269,27 @@ export class RelayClient {
     return config ? new EntryRecord<Config>(config).entry : undefined;
   }
 
+  /**
+   * The raw, signed membrane proof this agent joined `cell_id` with, if any.
+   *
+   * Distinct from `getMembraneProof`-style helpers that return only the proof's
+   * inner data: this keeps the progenitor's signature, which is what makes the
+   * proof replayable. The integrity zome binds a proof to the network seed, the
+   * joining agent, and a progenitor signature — never to the DNA hash — so the
+   * same proof still validates after a DNA-breaking upgrade, provided the agent
+   * key is preserved. The migration export needs it to re-join private
+   * conversations this agent did not create.
+   */
+  public async getRawMembraneProof(cell_id: CellId): Promise<MembraneProof | undefined> {
+    const proof = await this.client.callZome({
+      cell_id,
+      zome_name: ZOME_NAME,
+      fn_name: "get_raw_membrane_proof",
+      payload: this.client.myPubKey,
+    });
+    return proof ?? undefined;
+  }
+
   public async createMessage(cell_id: CellId, payload: SendMessageInput): Promise<Record> {
     return this.client.callZome({
       cell_id,

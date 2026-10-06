@@ -1,6 +1,7 @@
 mod builder;
 use builder::setup_builder;
 mod config;
+mod migration_export;
 
 #[cfg(all(feature = "holochain_bundled", not(feature = "holochain_service")))]
 mod happ_update;
@@ -12,6 +13,12 @@ mod android_barcode_scanner;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            migration_export::write_migration_export,
+            migration_export::read_migration_export,
+            migration_export::set_pending_enable,
+            migration_export::get_pending_enable
+        ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -22,6 +29,9 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Warn)
+                // Our own startup trace. Without this the default Warn filter
+                // silently drops it, which makes a startup stall undiagnosable.
+                .level_for("tauri_app_lib", log::LevelFilter::Info)
                 .level_for("holochain", log::LevelFilter::Info)
                 .level_for("holochain_p2p", log::LevelFilter::Debug)
                 .level_for("holochain_runtime", log::LevelFilter::Info)

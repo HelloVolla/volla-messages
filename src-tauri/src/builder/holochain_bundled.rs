@@ -5,6 +5,7 @@ use crate::happ_update;
 use holochain_types::prelude::{AppBundleSource, InstallAppPayload};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Builder, Listener, Manager, Runtime};
 use tauri_plugin_holochain::{
     vec_to_locked, HolochainExt, HolochainPluginConfig, NetworkConfig, WindowOptions, EVENT_READY,
@@ -29,56 +30,87 @@ pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                 log::error!("holochain setup failed: {}", event.payload());
                 handle_fail.exit(1);
             });
+
+            let handle_event = handle.clone();
             app.handle().listen(EVENT_READY, move |_event| {
-                let handle = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    setup(handle.clone()).await.expect("Failed to setup");
-
-                    let mut window_options = WindowOptions::default();
-                    #[cfg(desktop)]
-                    {
-                        window_options.title = Some(String::from("Volla Messages"));
-                    }
-
-                    let main_window = handle
-                        .holochain()
-                        .expect("Failed to get holochain")
-                        .main_window_builder(String::from("main"), Some(APP_ID.into()), window_options)
-                        .await
-                        .expect("Failed to build window")
-                        .build()
-                        .expect("Failed to open main window");
-
-                    // Open devtools for debugging
-                    main_window.open_devtools();
-
-                    #[cfg(desktop)]
-                    {
-                        // After it's done, close the splashscreen and display the main window
-                        if let Some(splashscreen_window) = handle.get_webview_window("splashscreen")
-                        {
-                            let _ = splashscreen_window.close();
-                        }
-                    }
-
-                    // Load barcode scanner plugin if on supported platform
-                    // It is necessary to load this after we have created the new 'main' webview
-                    //  which will be calling into it
-                    #[cfg(target_os = "android")]
-                    handle
-                        .plugin(android_barcode_scanner::init())
-                        .expect("Failed to initialize android_barcode_scanner");
-
-                    #[cfg(all(mobile, not(target_os = "android")))]
-                    handle
-                        .plugin(tauri_plugin_barcode_scanner::init())
-                        .expect("Failed to initialize tauri_plugin_barcode_scanner");
-
-                });
+                open_main_window_once(handle_event.clone());
             });
+
+            // The plugin can become ready *before* Tauri runs this setup hook —
+            // the conductor boots in about a second on a warm machine, while
+            // this closure only runs after every plugin has initialised. When
+            // that happens EVENT_READY is emitted before the listener above
+            // exists, the event is lost (Tauri events have no replay), and the
+            // app waits on the splashscreen forever.
+            //
+            // So also check whether the runtime is already up. Whichever path
+            // fires first wins; `open_main_window_once` makes sure the work
+            // happens exactly once.
+            if handle.holochain().is_ok() {
+                log::info!(
+                    "holochain runtime was already running when the setup hook ran; \
+                     starting the main window without waiting for the event"
+                );
+                open_main_window_once(handle.clone());
+            }
 
             Ok(())
         })
+}
+
+/// Guards against running the startup sequence twice when both EVENT_READY and
+/// the already-running check fire.
+static MAIN_WINDOW_STARTED: AtomicBool = AtomicBool::new(false);
+
+fn open_main_window_once<R: Runtime>(handle: AppHandle<R>) {
+    if MAIN_WINDOW_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        setup(handle.clone()).await.expect("Failed to setup");
+
+        let mut window_options = WindowOptions::default();
+        #[cfg(desktop)]
+        {
+            window_options.title = Some(String::from("Volla Messages"));
+        }
+
+        #[cfg_attr(not(debug_assertions), allow(unused_variables))]
+        let main_window = handle
+            .holochain()
+            .expect("Failed to get holochain")
+            .main_window_builder(String::from("main"), Some(APP_ID.into()), window_options)
+            .await
+            .expect("Failed to build window")
+            .build()
+            .expect("Failed to open main window");
+
+        // Open devtools for debugging (dev builds only; never in production/release builds)
+        #[cfg(debug_assertions)]
+        main_window.open_devtools();
+
+        #[cfg(desktop)]
+        {
+            // After it's done, close the splashscreen and display the main window
+            if let Some(splashscreen_window) = handle.get_webview_window("splashscreen") {
+                let _ = splashscreen_window.close();
+            }
+        }
+
+        // Load barcode scanner plugin if on supported platform
+        // It is necessary to load this after we have created the new 'main' webview
+        //  which will be calling into it
+        #[cfg(target_os = "android")]
+        handle
+            .plugin(android_barcode_scanner::init())
+            .expect("Failed to initialize android_barcode_scanner");
+
+        #[cfg(all(mobile, not(target_os = "android")))]
+        handle
+            .plugin(tauri_plugin_barcode_scanner::init())
+            .expect("Failed to initialize tauri_plugin_barcode_scanner");
+    });
 }
 
 // Very simple setup for now:

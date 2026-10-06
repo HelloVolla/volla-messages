@@ -9,7 +9,7 @@
             "desktop":  "volla-messages.desktop"
         }
     },
-    "version": "@CLICK_VERSION@",
+    "version": "1.0.2",
     "maintainer": "Volla Systeme GmbH <hello@volla.online>",
-    "framework" : "@CLICK_FRAMEWORK@"
+    "framework" : "ubuntu-touch-24.04-2.x"
 }
