@@ -5,6 +5,7 @@
   import { t } from "$translations";
   import { getContext } from "svelte";
   import { type ConversationStore, deriveCellConversationStore } from "$store/ConversationStore";
+  import { verifyModerationNotice } from "$lib/utils";
 
   export let cellIdB64: CellIdB64;
   export let message: MessageExtended;
@@ -20,18 +21,12 @@
     AgentPubKeyB64 | undefined,
   ];
 
-  // Message content is unauthenticated: anyone can post a message claiming to be
-  // a moderation notice. Cross-check the claim against current on-chain role/
-  // membership state so a forged notice can't assert a false moderation event.
-  $: verifiedKind = !targetAgentPubKeyB64
-    ? undefined
-    : kind === "moderator_granted" && $conversation.moderators.includes(targetAgentPubKeyB64)
-      ? kind
-      : kind === "moderator_revoked" && !$conversation.moderators.includes(targetAgentPubKeyB64)
-        ? kind
-        : kind === "member_removed" && !$conversation.members.includes(targetAgentPubKeyB64)
-          ? kind
-          : undefined;
+  $: verifiedKind = verifyModerationNotice(
+    kind,
+    targetAgentPubKeyB64,
+    message.authorAgentPubKeyB64,
+    $conversation,
+  );
 </script>
 
 <div class="text-secondary-400 dark:text-secondary-300 my-2 flex items-center justify-center gap-1 px-4 text-xs">

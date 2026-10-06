@@ -6,6 +6,7 @@
   import AgentNickname from "$lib/AgentNickname.svelte";
   import { getContext } from "svelte";
   import { type ConversationStore, deriveCellConversationStore } from "$store/ConversationStore";
+  import { verifyModerationNotice } from "$lib/utils";
 
   export let messageExtended: MessageExtended;
   export let cellIdB64: CellIdB64;
@@ -28,21 +29,12 @@
   // "" (legacy/join notices) or "<kind>:<targetAgentPubKeyB64>"
   $: [noticeKind, noticeTargetAgentPubKeyB64] = messageExtended.message.content.split(":");
 
-  // Message content is unauthenticated: anyone can post a message claiming to be
-  // a moderation notice. Cross-check the claim against current on-chain role/
-  // membership state so a forged notice can't assert a false moderation event.
-  $: verifiedNoticeKind = !noticeTargetAgentPubKeyB64
-    ? undefined
-    : noticeKind === "moderator_granted" &&
-        $conversation.moderators.includes(noticeTargetAgentPubKeyB64)
-      ? noticeKind
-      : noticeKind === "moderator_revoked" &&
-          !$conversation.moderators.includes(noticeTargetAgentPubKeyB64)
-        ? noticeKind
-        : noticeKind === "member_removed" &&
-            !$conversation.members.includes(noticeTargetAgentPubKeyB64)
-          ? noticeKind
-          : undefined;
+  $: verifiedNoticeKind = verifyModerationNotice(
+    noticeKind,
+    noticeTargetAgentPubKeyB64,
+    messageExtended.authorAgentPubKeyB64,
+    $conversation,
+  );
 </script>
 
 {#if messageExtended.message.message_type === MessageType.System}

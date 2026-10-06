@@ -135,3 +135,14 @@ current members either way, since Close only gates new writes.
   components now cross-check the claimed kind against the conversation's
   live `moderators`/`members` lists before rendering the privileged text,
   falling back to the generic notice otherwise.
+- Round 4 follow-up (`authorization-spoofing` on the same two files): the
+  round-3 fix checked the claimed *target's* state but not the claimed
+  *author's* authority, so a non-moderator could still take credit for a
+  real grant/revoke/removal they didn't perform (e.g. claim
+  `"member_removed:<agent already not a member for any reason>"`). Fixed by
+  adding an author check in the shared `verifyModerationNotice` helper
+  (`ui/src/lib/utils.ts`): granting/revoking Moderator requires the author to
+  be the conversation owner (Moderator role grants are Owner-only per
+  `validate_create_role_grant`), and removing a member requires the author
+  to be the owner or a current moderator (matches
+  `require_owner_or_moderator_for_delete`).
