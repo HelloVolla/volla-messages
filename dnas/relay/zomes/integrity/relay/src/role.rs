@@ -7,19 +7,30 @@ pub enum ConversationRole {
     Member,
 }
 
-// An entry (not a link) so other validators can cite a specific grant as
-// evidence via must_get_valid_record — hdi has no get_links.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum GrantedRole {
+    Moderator,
+    Writer,
+}
+
 #[derive(Clone, PartialEq)]
 #[hdk_entry_helper]
 pub struct RoleGrant {
     pub for_agent: AgentPubKey,
+    pub role: GrantedRole,
+    pub granter_evidence: Option<ActionHash>,
 }
 
 pub fn validate_create_role_grant(
     action: EntryCreationAction,
-    _role_grant: RoleGrant,
+    role_grant: RoleGrant,
 ) -> ExternResult<ValidateCallbackResult> {
-    require_owner(action.author())
+    match role_grant.role {
+        GrantedRole::Moderator => require_owner(action.author()),
+        GrantedRole::Writer => {
+            require_owner_or_moderator(action.author(), role_grant.granter_evidence)
+        }
+    }
 }
 
 pub fn validate_update_role_grant(
@@ -36,9 +47,12 @@ pub fn validate_update_role_grant(
 pub fn validate_delete_role_grant(
     action: Delete,
     _original_action: EntryCreationAction,
-    _original_role_grant: RoleGrant,
+    original_role_grant: RoleGrant,
 ) -> ExternResult<ValidateCallbackResult> {
-    require_owner(&action.author)
+    match original_role_grant.role {
+        GrantedRole::Moderator => require_owner(&action.author),
+        GrantedRole::Writer => require_owner_or_moderator_for_delete(&action),
+    }
 }
 
 pub fn validate_create_link_all_role_grants(
@@ -82,10 +96,6 @@ pub fn validate_delete_link_all_role_grants(
     ))
 }
 
-// Delete actions carry no entry content, so there's nowhere to put a
-// role_evidence field directly on them. Carry it in this entry instead and
-// require it to be authored immediately before the Delete on the same
-// chain, so validate_delete_* can read it off Delete's own prev_action.
 #[derive(Clone, PartialEq)]
 #[hdk_entry_helper]
 pub struct RoleEvidenceEntry {
@@ -137,24 +147,15 @@ fn require_owner(agent: &AgentPubKey) -> ExternResult<ValidateCallbackResult> {
     }
 }
 
-// evidence must be the ActionHash of the author's own RoleGrant entry when
-// the author isn't the Owner. Can't prove the grant hasn't since been
-// revoked (same soft limitation as #212/#217/#218) — a validator that
-// hasn't seen the deletion yet still accepts it.
-pub fn require_owner_or_moderator(
-    author: &AgentPubKey,
+fn fetch_role_grant(
     evidence: Option<ActionHash>,
-) -> ExternResult<ValidateCallbackResult> {
-    if is_owner(author)? {
-        return Ok(ValidateCallbackResult::Valid);
-    }
+) -> ExternResult<Result<RoleGrant, ValidateCallbackResult>> {
     let evidence_hash = match evidence {
         Some(hash) => hash,
         None => {
-            return Ok(ValidateCallbackResult::Invalid(
-                "author is not the conversation owner and provided no Moderator role evidence"
-                    .to_string(),
-            ));
+            return Ok(Err(ValidateCallbackResult::Invalid(
+                "author is not the conversation owner and provided no role evidence".to_string(),
+            )));
         }
     };
     let record = must_get_valid_record(evidence_hash)?;
@@ -165,6 +166,44 @@ pub fn require_owner_or_moderator(
         .ok_or(wasm_error!(WasmErrorInner::Guest(
             "role evidence must reference a RoleGrant entry".to_string()
         )))?;
+    Ok(Ok(role_grant))
+}
+
+pub fn require_owner_or_moderator(
+    author: &AgentPubKey,
+    evidence: Option<ActionHash>,
+) -> ExternResult<ValidateCallbackResult> {
+    if is_owner(author)? {
+        return Ok(ValidateCallbackResult::Valid);
+    }
+    let role_grant = match fetch_role_grant(evidence)? {
+        Ok(role_grant) => role_grant,
+        Err(invalid) => return Ok(invalid),
+    };
+    if &role_grant.for_agent != author {
+        return Ok(ValidateCallbackResult::Invalid(
+            "role evidence is for a different agent".to_string(),
+        ));
+    }
+    if role_grant.role != GrantedRole::Moderator {
+        return Ok(ValidateCallbackResult::Invalid(
+            "role evidence is for Writer, not Moderator".to_string(),
+        ));
+    }
+    Ok(ValidateCallbackResult::Valid)
+}
+
+pub fn require_owner_moderator_or_writer(
+    author: &AgentPubKey,
+    evidence: Option<ActionHash>,
+) -> ExternResult<ValidateCallbackResult> {
+    if is_owner(author)? {
+        return Ok(ValidateCallbackResult::Valid);
+    }
+    let role_grant = match fetch_role_grant(evidence)? {
+        Ok(role_grant) => role_grant,
+        Err(invalid) => return Ok(invalid),
+    };
     if &role_grant.for_agent != author {
         return Ok(ValidateCallbackResult::Invalid(
             "role evidence is for a different agent".to_string(),
@@ -173,9 +212,6 @@ pub fn require_owner_or_moderator(
     Ok(ValidateCallbackResult::Valid)
 }
 
-// Same check as require_owner_or_moderator, but for a Delete action: reads
-// the evidence off the deleter's own immediately-preceding RoleEvidenceEntry
-// (Delete has no entry content to carry it directly).
 pub fn require_owner_or_moderator_for_delete(
     action: &Delete,
 ) -> ExternResult<ValidateCallbackResult> {

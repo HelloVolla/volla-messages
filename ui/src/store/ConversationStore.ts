@@ -202,6 +202,7 @@ export function createConversationStore(client: RelayClient): ConversationStore 
       created: c.dnaProperties.created,
       progenitor: decodeHashFromBase64(c.dnaProperties.progenitor),
       privacy: c.dnaProperties.privacy,
+      mode: c.dnaProperties.mode,
       proof: membraneProof,
       networkSeed: c.cellInfo.dna_modifiers.network_seed,
       title,
@@ -235,6 +236,7 @@ export function createConversationStore(client: RelayClient): ConversationStore 
         created: dnaProperties.created,
         networkSeed: cellInfo.dna_modifiers.network_seed,
         privacy: dnaProperties.privacy,
+        mode: dnaProperties.mode,
         progenitor: decodeHashFromBase64(dnaProperties.progenitor),
         title: config ? config.title : cellInfo.name,
       };

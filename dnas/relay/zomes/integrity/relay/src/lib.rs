@@ -57,11 +57,19 @@ pub enum Privacy {
     Public,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, SerializedBytes, PartialEq)]
+pub enum ConversationMode {
+    Unmoderated,
+    Moderated,
+    ModeratedReadOnly,
+}
+
 #[derive(Serialize, Deserialize, Debug, SerializedBytes, Clone)]
 pub struct Properties {
     pub created: Timestamp,
     pub privacy: Privacy,
     pub progenitor: AgentPubKey,
+    pub mode: ConversationMode,
 }
 
 pub fn check_agent(

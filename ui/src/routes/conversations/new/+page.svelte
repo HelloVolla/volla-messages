@@ -5,7 +5,7 @@
   import Header from "$lib/Header.svelte";
   import { t } from "$translations";
   import { MIN_TITLE_LENGTH } from "$config";
-  import { Privacy } from "$lib/types";
+  import { ConversationMode, Privacy } from "$lib/types";
   import toast from "svelte-french-toast";
   import InputImageAvatar from "$lib/InputImageAvatar.svelte";
   import type { ConversationStore } from "$store/ConversationStore";
@@ -27,6 +27,7 @@
           image: imageUrl,
         },
         privacy,
+        mode: ConversationMode.Unmoderated,
       });
       await goto(`/conversations/${cellIdB64}`);
     } catch (e) {
