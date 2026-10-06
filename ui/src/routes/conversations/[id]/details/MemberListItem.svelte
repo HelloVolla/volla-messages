@@ -21,6 +21,7 @@
   let conversation = deriveCellConversationStore(conversationStore, cellIdB64);
 
   $: isAdmin = agentPubKeyB64 === $conversation.dnaProperties.progenitor;
+  $: isModerator = $conversation.moderators.includes(agentPubKeyB64);
   $: isOnline = $onlinePeers.has(agentPubKeyB64);
 </script>
 
@@ -41,6 +42,8 @@
 
   {#if isAdmin}
     <span class="text-secondary-300 ml-2 shrink-0 text-xs">{$t("common.admin")}</span>
+  {:else if isModerator}
+    <span class="text-secondary-300 ml-2 shrink-0 text-xs">{$t("common.moderator")}</span>
   {/if}
 
   <slot></slot>
