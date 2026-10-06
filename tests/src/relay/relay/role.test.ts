@@ -2,7 +2,9 @@ import { assert, expect, test } from "vitest";
 import { v4 as uuidv4 } from "uuid";
 
 import { runScenario, dhtSync, CallableCell, PlayerApp } from '@holochain/tryorama';
-import { AgentPubKey, encodeHashToBase64 } from '@holochain/client';
+import { AgentPubKey, encodeHashToBase64, Record } from '@holochain/client';
+
+import { createMessage } from './common.js';
 
 const testAppPath = process.cwd() + '/../workdir/relay.happ';
 const appSource = { appBundleSource: { type: "path" as const, value: testAppPath } };
@@ -185,6 +187,55 @@ test('a Moderator can set_config', async () => {
       zome_name: "relay",
       fn_name: "set_config",
       payload: { title: "Renamed by a moderator", image: "" },
+    });
+  });
+});
+
+test('a plain member cannot delete another agent\'s message', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    const aliceConversation = await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+
+    const message: Record = await createMessage(aliceConversation);
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+
+    await expect(
+      bobConversation.callZome({
+        zome_name: "relay",
+        fn_name: "delete_message",
+        payload: { original_message_hash: message.signed_action.hashed.hash, agents: [] },
+      }),
+    ).rejects.toThrow();
+  });
+});
+
+test('a Moderator can delete another agent\'s message', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    const aliceConversation = await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+
+    const message: Record = await createMessage(aliceConversation);
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+
+    await aliceConversation.callZome({
+      zome_name: "relay",
+      fn_name: "grant_moderator_role",
+      payload: bob.agentPubKey,
+    });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+
+    await bobConversation.callZome({
+      zome_name: "relay",
+      fn_name: "delete_message",
+      payload: { original_message_hash: message.signed_action.hashed.hash, agents: [] },
     });
   });
 });
