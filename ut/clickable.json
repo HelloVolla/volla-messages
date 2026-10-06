@@ -3,7 +3,7 @@
   "framework": "ubuntu-touch-24.04-2.x",
   "builder": "custom",
   "kill": "volla_messages",
-  "build": "bash ${ROOT}/build.sh ${DEB}",
+  "build": "bash ${ROOT}/build.sh ${APPIMAGE}",
   "dependencies_host": [
     "apt-file",
     "binutils",

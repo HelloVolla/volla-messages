@@ -8,9 +8,9 @@
 #   lib/webkit2gtk-4.1/       webkit's helper processes
 set -ex
 
-DEB=$1
+APPIMAGE=$(readlink -f "$1")
 
-[ -f "$DEB" ] || { echo "usage: $0 Volla.Messages_*.deb"; exit 1; }
+[ -f "$APPIMAGE" ] || { echo "usage: $0 Volla.Messages_*.AppImage"; exit 1; }
 
 ARCH=${ARCH:-$(dpkg --print-architecture)}
 TRIPLET=$(dpkg-architecture -a"$ARCH" -qDEB_HOST_MULTIARCH)
@@ -20,7 +20,9 @@ WORK=$(mktemp -d)
 STAGE=$WORK/stage
 CLICK=$WORK/click
 
-dpkg-deb -x "$DEB" "$STAGE"
+chmod +x "$APPIMAGE"
+"$APPIMAGE" --appimage-extract
+mv squashfs-root/ "$STAGE"
 cd "$WORK"
 
 # The app and its libraries. The maliit gtk module gives GTK the on-screen keyboard.
