@@ -97,3 +97,12 @@ implementation: `Config.role_evidence: Option<ActionHash>`,
 `role.rs` (coordinator) looked up automatically inside `set_config` so the
 UI never has to know evidence exists. Reuse both for #210/#212/#214/#215/#217
 rather than re-deriving the pattern per issue.
+
+## #218 Ban and rejoin (partial enforcement)
+
+Ban creates a Ban entry, removes the agent's membership and role grants, and the coordinator refuses to issue a membrane proof for a banned agent or to let them self-join.
+
+Limits, which are enforced cooperatively and not by validation:
+- A banned agent who already holds a valid membrane proof for a private conversation can still pass genesis. Genesis is only checked against the proof, and a proof can't be revoked deterministically.
+- Public conversations have no membrane proof. Anyone can self-join by calling the membership coordinator function directly from a hand-built client, and validation can't reject it.
+- Only the coordinator enforces the ban on honest clients. A modified client can bypass it.

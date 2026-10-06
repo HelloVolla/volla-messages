@@ -24,6 +24,7 @@ pub enum EntryTypes {
     Contact(Contact),
     RoleGrant(RoleGrant),
     Membership(Membership),
+    Ban(Ban),
     RoleEvidenceEntry(RoleEvidenceEntry),
 }
 
@@ -38,6 +39,7 @@ pub enum LinkTypes {
     AllContacts,
     AllRoleGrants,
     AllMemberships,
+    AllBans,
 }
 
 #[derive(Serialize, Deserialize, Debug, SerializedBytes, Clone)]
@@ -167,6 +169,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             )
                         }
                         EntryTypes::Membership(membership) => validate_create_membership(EntryCreationAction::Create(action), membership),
+                        EntryTypes::Ban(ban) => validate_create_ban(EntryCreationAction::Create(action), ban),
                         EntryTypes::RoleGrant(role_grant) => {
                             validate_create_role_grant(
                                 EntryCreationAction::Create(action),
@@ -202,6 +205,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             )
                         }
                         EntryTypes::Membership(_) => Ok(ValidateCallbackResult::Invalid("Membership entries cannot be updated".to_string())),
+                        EntryTypes::Ban(_) => Ok(ValidateCallbackResult::Invalid("Ban entries cannot be updated".to_string())),
                         EntryTypes::RoleGrant(role_grant) => {
                             validate_create_role_grant(
                                 EntryCreationAction::Update(action),
@@ -272,6 +276,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             validate_update_config(action, config)
                         }
                         EntryTypes::Membership(_) => Ok(ValidateCallbackResult::Invalid("Membership entries cannot be updated".to_string())),
+                        EntryTypes::Ban(_) => Ok(ValidateCallbackResult::Invalid("Ban entries cannot be updated".to_string())),
                         EntryTypes::RoleGrant(role_grant) => {
                             let original_app_entry = must_get_valid_record(
                                 action.clone().original_action_address,
@@ -396,6 +401,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     );
                 }
                 EntryTypes::Membership(original_membership) => validate_delete_membership(delete_entry.clone().action, original_action, original_membership),
+                EntryTypes::Ban(original_ban) => validate_delete_ban(delete_entry.clone().action, original_action, original_ban),
                 EntryTypes::RoleGrant(original_role_grant) => {
                     validate_delete_role_grant(
                         delete_entry.clone().action,
@@ -469,6 +475,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     )
                 }
                 LinkTypes::AllMemberships => validate_create_link_all_memberships(action, base_address, target_address, tag),
+                LinkTypes::AllBans => validate_create_link_all_bans(action, base_address, target_address, tag),
                 LinkTypes::AllRoleGrants => {
                     validate_create_link_all_role_grants(
                         action,
@@ -543,6 +550,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     )
                 }
                 LinkTypes::AllMemberships => validate_delete_link_all_memberships(action, original_action, base_address, target_address, tag),
+                LinkTypes::AllBans => validate_delete_link_all_bans(action, original_action, base_address, target_address, tag),
                 LinkTypes::AllRoleGrants => {
                     validate_delete_link_all_role_grants(
                         action,
@@ -577,6 +585,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             )
                         }
                         EntryTypes::Membership(membership) => validate_create_membership(EntryCreationAction::Create(action), membership),
+                        EntryTypes::Ban(ban) => validate_create_ban(EntryCreationAction::Create(action), ban),
                         EntryTypes::RoleGrant(role_grant) => {
                             validate_create_role_grant(
                                 EntryCreationAction::Create(action),
@@ -696,6 +705,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             }
                         }
                         EntryTypes::Membership(_) => Ok(ValidateCallbackResult::Invalid("Membership entries cannot be updated".to_string())),
+                        EntryTypes::Ban(_) => Ok(ValidateCallbackResult::Invalid("Ban entries cannot be updated".to_string())),
                         EntryTypes::RoleGrant(role_grant) => {
                             let result = validate_create_role_grant(
                                 EntryCreationAction::Update(action.clone()),
@@ -834,6 +844,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             )
                         }
                         EntryTypes::Membership(original_membership) => validate_delete_membership(action, original_action, original_membership),
+                        EntryTypes::Ban(original_ban) => validate_delete_ban(action, original_action, original_ban),
                         EntryTypes::RoleGrant(original_role_grant) => {
                             validate_delete_role_grant(
                                 action,
@@ -907,6 +918,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             )
                         }
                         LinkTypes::AllMemberships => validate_create_link_all_memberships(action, base_address, target_address, tag),
+                        LinkTypes::AllBans => validate_create_link_all_bans(action, base_address, target_address, tag),
                         LinkTypes::AllRoleGrants => {
                             validate_create_link_all_role_grants(
                                 action,
@@ -995,6 +1007,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             )
                         }
                         LinkTypes::AllMemberships => validate_delete_link_all_memberships(action, create_link.clone(), base_address, create_link.target_address, create_link.tag),
+                        LinkTypes::AllBans => validate_delete_link_all_bans(action, create_link.clone(), base_address, create_link.target_address, create_link.tag),
                         LinkTypes::AllRoleGrants => {
                             validate_delete_link_all_role_grants(
                                 action,

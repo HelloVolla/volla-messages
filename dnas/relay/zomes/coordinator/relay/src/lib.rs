@@ -259,6 +259,12 @@ pub fn get_network_diagnostics(_: ()) -> ExternResult<NetworkDiagnostics> {
 pub fn generate_membrane_proof(input: MembraneProofData) -> ExternResult<SerializedBytes> {
     let me: HoloHash<holo_hash::hash_type::Agent> = agent_info()?.agent_initial_pubkey;
 
+    if role::find_ban(&input.for_agent)?.is_some() {
+        return Err(wasm_error!(WasmErrorInner::Guest(
+            "This agent is banned from the conversation".to_string()
+        )));
+    }
+
     let result = MembraneProofEnvelope {
         signature: sign(me, input.clone())?,
         data: input,

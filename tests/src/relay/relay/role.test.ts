@@ -448,3 +448,65 @@ test('a Moderator can remove a member, which also revokes their Writer grant', a
     await expect(createMessage(carolConversation)).rejects.toThrow();
   });
 });
+
+test('banning a member removes them and blocks their posts', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    const aliceConversation = await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+    await bobConversation.callZome({ zome_name: "relay", fn_name: "create_membership", payload: null });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+    await createMessage(bobConversation);
+
+    await aliceConversation.callZome({ zome_name: "relay", fn_name: "ban_member", payload: bob.agentPubKey });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+
+    await expect(createMessage(bobConversation)).rejects.toThrow();
+  });
+});
+
+test('a banned agent cannot obtain a membrane proof or rejoin', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    const aliceConversation = await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+
+    await aliceConversation.callZome({ zome_name: "relay", fn_name: "ban_member", payload: bob.agentPubKey });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+
+    await expect(
+      aliceConversation.callZome({
+        zome_name: "relay",
+        fn_name: "generate_membrane_proof",
+        payload: { conversation_id: networkSeed, for_agent: bob.agentPubKey, as_role: 0 },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      bobConversation.callZome({ zome_name: "relay", fn_name: "create_membership", payload: null }),
+    ).rejects.toThrow();
+  });
+});
+
+test('a banned agent can be unbanned by the owner', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    const aliceConversation = await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+
+    await aliceConversation.callZome({ zome_name: "relay", fn_name: "ban_member", payload: bob.agentPubKey });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+    await aliceConversation.callZome({ zome_name: "relay", fn_name: "unban_member", payload: bob.agentPubKey });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+
+    await bobConversation.callZome({ zome_name: "relay", fn_name: "create_membership", payload: null });
+  });
+});
