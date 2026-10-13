@@ -6,6 +6,7 @@ import {
 } from "@holochain/client";
 import { SimplePeerSignalType, type SimplePeerSignalPayload } from "$lib/types";
 import { PeerConnection, type PeerConnectionHooks } from "./peerConnection";
+import { ensureTurnCredential } from "./turnCredentials";
 import {
   type ConferenceContext,
   type CleanupReport,
@@ -397,6 +398,10 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
           .catch((error) => console.warn("[SimplePeer] heartbeat ping failed:", error));
       }
 
+      if (currentState.cellIdB64) {
+        void ensureTurnCredential(ctx.client, ctx.client.decodeCellId(currentState.cellIdB64));
+      }
+
       initiateConnections(roomId).catch((error) =>
         console.error("[SimplePeer] heartbeat initiate failed:", error),
       );
@@ -750,6 +755,10 @@ export function createConferenceStreams(ctx: ConferenceContext): ConferenceStrea
     }
 
     try {
+      if (state.cellIdB64) {
+        await ensureTurnCredential(ctx.client, ctx.client.decodeCellId(state.cellIdB64));
+      }
+
       // Adopt the pre-join preview stream if one was acquired, so the camera is opened only once.
       const stream = state.previewStream ?? (await getUserMediaWithFallback());
       ctx.conferences.updateKeyValue(roomId, (conf) => ({
