@@ -1,4 +1,4 @@
-import { CallableCell, PlayerApp } from '@holochain/tryorama';
+import { CallableCell, PlayerApp } from '@holochain-open-dev/tryorama';
 import { NewEntryAction, ActionHash, AgentPubKey, Record, AppBundleSource, SignalType, fakeActionHash, fakeAgentPubKey, fakeEntryHash, fakeDnaHash } from '@holochain/client';
 
 

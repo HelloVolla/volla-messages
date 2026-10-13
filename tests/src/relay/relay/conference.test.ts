@@ -1,6 +1,6 @@
 import { assert, expect, test } from "vitest";
 
-import { runScenario, dhtSync } from "@holochain/tryorama";
+import { runScenario, dhtSync } from "@holochain-open-dev/tryorama";
 import { encodeHashToBase64, fakeAgentPubKey } from "@holochain/client";
 
 import {

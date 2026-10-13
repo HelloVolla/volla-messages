@@ -237,6 +237,7 @@
   async function initHolochainClient() {
     try {
       console.log("__HC_LAUNCHER_ENV__ is", window.__HC_LAUNCHER_ENV__);
+      console.log("__HC_TAURI_HOLOCHAIN__ is", (window as any).__HC_TAURI_HOLOCHAIN__);
 
       // Connect to holochain
       client = await AppWebsocket.connect({ defaultTimeout: 30000 });

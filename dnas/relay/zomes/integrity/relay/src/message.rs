@@ -32,26 +32,26 @@ pub struct MessageRecord {
     pub message: Option<Message>,
 }
 pub fn validate_create_message(
-    _action: EntryCreationAction,
+    _action: TypedAction<EntryCreationData>,
     _message: Message,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_update_message(
-    _action: Update,
+    _action: TypedAction<UpdateData>,
     _message: Message,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_delete_message(
-    _action: Delete,
-    _original_action: EntryCreationAction,
+    _action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
     _original_message: Message,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_create_link_message_updates(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -95,8 +95,8 @@ pub fn validate_create_link_message_updates(
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_delete_link_message_updates(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
@@ -108,7 +108,7 @@ pub fn validate_delete_link_message_updates(
     )
 }
 pub fn validate_create_link_all_messages(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     _base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -135,8 +135,8 @@ pub fn validate_create_link_all_messages(
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_delete_link_all_messages(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
@@ -145,7 +145,7 @@ pub fn validate_delete_link_all_messages(
 }
 
 pub fn validate_create_link_message_replies(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -180,8 +180,8 @@ pub fn validate_create_link_message_replies(
 }
 
 pub fn validate_delete_link_message_replies(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,

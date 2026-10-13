@@ -1,7 +1,7 @@
 import { assert, test } from "vitest";
 import { createPublicKey, randomBytes, verify } from "node:crypto";
 
-import { runScenario } from "@holochain/tryorama";
+import { runScenario } from "@holochain-open-dev/tryorama";
 import { sliceCore32 } from "@holochain/client";
 
 const testAppPath = process.cwd() + "/../workdir/relay.happ";

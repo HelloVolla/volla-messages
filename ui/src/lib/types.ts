@@ -5,14 +5,9 @@ import type {
   AgentPubKeyB64,
   CellId,
   ClonedCell,
-  Create,
-  CreateLink,
-  Delete,
-  DeleteLink,
   EntryHash,
   MembraneProof,
   SignedActionHashed,
-  Update,
 } from "@holochain/client";
 
 export type { ActionHashB64 };
@@ -25,14 +20,14 @@ export type EntryTypes = { type: "Message" } & Message;
 
 export interface MessageSignal {
   type: "Message";
-  action: SignedActionHashed<Create>;
+  action: SignedActionHashed;
   message: Message;
   from: AgentPubKey;
 }
 
 export interface MessageDeleted {
   type: "MessageDeleted";
-  action: SignedActionHashed<Delete>;
+  action: SignedActionHashed;
   original_action: ActionHash;
   from: AgentPubKey;
 }
@@ -54,28 +49,28 @@ export type RelaySignal =
   | PeerPongSignal
   | {
       type: "EntryCreated";
-      action: SignedActionHashed<Create>;
+      action: SignedActionHashed;
       app_entry: EntryTypes;
     }
   | {
       type: "EntryUpdated";
-      action: SignedActionHashed<Update>;
+      action: SignedActionHashed;
       app_entry: EntryTypes;
       original_app_entry: EntryTypes;
     }
   | {
       type: "EntryDeleted";
-      action: SignedActionHashed<Delete>;
+      action: SignedActionHashed;
       original_app_entry: EntryTypes;
     }
   | {
       type: "LinkCreated";
-      action: SignedActionHashed<CreateLink>;
+      action: SignedActionHashed;
       link_type: string;
     }
   | {
       type: "LinkDeleted";
-      action: SignedActionHashed<DeleteLink>;
+      action: SignedActionHashed;
       link_type: string;
     }
   | {
