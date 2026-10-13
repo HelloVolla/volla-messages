@@ -119,6 +119,9 @@
       ) as [string, PeerMetaX][])
     : [];
 
+  type LocalAgentExt = { agent: Uint8Array; storage_arc?: [number, number]; target_arc?: [number, number] };
+  $: localAgentsExt = (conversationInfo?.localAgents ?? []) as unknown as LocalAgentExt[];
+
   $: allKnownPeerKeys = (() => {
     if (!stats.metricsPerDna) return [];
     const keys = new Set<string>();
@@ -281,12 +284,12 @@
     </div>
 
     <!-- Local agent arcs -->
-    {#if detailed && conversationInfo.localAgents.length > 0}
+    {#if detailed && localAgentsExt.length > 0}
       <div class="mb-3 space-y-1 border-t border-neutral-700 pt-3">
         <div class="font-medium text-xs uppercase tracking-wide text-neutral-500">
           Local Agents
         </div>
-        {#each conversationInfo.localAgents as agent}
+        {#each localAgentsExt as agent}
           <div class="rounded bg-neutral-800 p-2 text-xs space-y-0.5">
             <div class="font-mono text-neutral-500" title={encodeHashToBase64(agent.agent)}>
               {displayAgent(encodeHashToBase64(agent.agent))}
