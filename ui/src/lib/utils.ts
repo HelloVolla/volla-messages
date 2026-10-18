@@ -2,6 +2,8 @@ import {
   isPermissionGranted,
   requestPermission,
   sendNotification,
+  registerActionTypes,
+  onAction,
 } from "@tauri-apps/plugin-notification";
 import { shareText as sharesheetShareText } from "@buildyourwebapp/tauri-plugin-sharesheet";
 import { platform } from "@tauri-apps/plugin-os";
@@ -63,6 +65,65 @@ export async function enqueueNotification(title: string, body: string) {
     sendNotification({ title, body });
   } catch (e) {
     console.error("Failed to enqueue notification", e);
+  }
+}
+
+const INCOMING_CALL_ACTION_TYPE = "incoming_call";
+
+export async function setupCallNotifications(
+  onAccept: (roomId: string, cellIdB64?: string) => void,
+  onReject: (roomId: string) => void,
+): Promise<void> {
+  try {
+    await registerActionTypes([
+      {
+        id: INCOMING_CALL_ACTION_TYPE,
+        actions: [
+          { id: "accept", title: "Accept", foreground: true },
+          { id: "reject", title: "Decline", destructive: true },
+        ],
+      },
+    ]);
+
+    await onAction((notification) => {
+      const payload = notification as unknown as {
+        actionId?: string;
+        extra?: { roomId?: string; cellIdB64?: string };
+      };
+      const roomId = payload.extra?.roomId;
+      if (!roomId) return;
+      if (payload.actionId === "reject") {
+        onReject(roomId);
+      } else {
+        onAccept(roomId, payload.extra?.cellIdB64);
+      }
+    });
+  } catch (e) {
+    console.error("Failed to set up call notifications", e);
+  }
+}
+
+export async function sendCallNotification(
+  title: string,
+  body: string,
+  roomId: string,
+  cellIdB64?: string,
+): Promise<void> {
+  try {
+    const hasPermission = await isPermissionGranted();
+    if (!hasPermission) {
+      const permission = await requestPermission();
+      if (permission !== "granted") return;
+    }
+
+    sendNotification({
+      title,
+      body,
+      actionTypeId: INCOMING_CALL_ACTION_TYPE,
+      extra: { roomId, cellIdB64 },
+    });
+  } catch (e) {
+    console.error("Failed to send call notification", e);
   }
 }
 
