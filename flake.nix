@@ -57,7 +57,7 @@
           ndkHome = "${androidHome}/ndk/${ndkVersion}";
 
           # System libraries to build/run a Tauri v2 desktop app on Linux.
-          tauriDeps = with pkgs; [
+          tauriDeps = pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
             webkitgtk_4_1
             gtk3
             gdk-pixbuf
@@ -67,7 +67,7 @@
             libsoup_3
             dbus
             openssl
-          ];
+          ]);
 
           # Tools common to the desktop and android shells.
           commonPackages = (with inputs'.holonix.packages; [
