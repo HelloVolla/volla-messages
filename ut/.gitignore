@@ -1,7 +1,3 @@
 build
 .clickable
-out/
-src/
-pkg/
-*.tar.gz
-PKGBUILD
+*.AppImage

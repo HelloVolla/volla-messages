@@ -1010,9 +1010,9 @@ const paginationState = writable<Record<string, PaginationState>>({});
     const base: MessageExtended = {
       message: messageRecord.message,
       authorAgentPubKeyB64: encodeHashToBase64(
-        messageRecord.signed_action.hashed.content.author,
+        messageRecord.signed_action.hashed.content.header.author,
       ),
-      timestamp: messageRecord.signed_action.hashed.content.timestamp,
+      timestamp: messageRecord.signed_action.hashed.content.header.timestamp,
       deliveredTo: [],
     };
 

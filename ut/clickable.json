@@ -1,17 +1,39 @@
 {
-  "clickable_minimum_required": "8.4.0",
-  "framework": "ubuntu-touch-24.04-1.x",
+  "clickable_minimum_required": "8.10.0",
+  "build": "bash ${ROOT}/build.sh",
+  "postbuild": "bash ${ROOT}/postbuild.sh",
+  "framework": "ubuntu-touch-24.04-2.x",
   "builder": "custom",
-  "kill": "volla-messages",
-  "build": "bash ${ROOT}/build.sh ${ARCH} ${SDK_FRAMEWORK}",
+  "skip_review": true,
+  "always_clean": true,
+  "install_lib": [
+    "/usr/lib/${ARCH_TRIPLET}/gtk-3.0/3.0.0/immodules/im-maliit.so",
+    "libenchant-2.so.2*",
+    "libharfbuzz-icu.so.0*",
+    "libhyphen.so.0*",
+    "libjavascriptcoregtk-4.1.so.0*",
+    "libmaliit-glib.so.2*",
+    "libmanette-0.2.so.0*",
+    "libwebkit2gtk-4.1.so.0*"
+  ],
+  "install_root_data": [
+    "${BUILD_DIR}/squashfs-root/usr/bin/volla_messages",
+    "${BUILD_DIR}/squashfs-root/usr/share/icons/hicolor/256x256@2/apps/volla_messages.png",
+    "manifest.json",
+    "volla-messages.desktop",
+    "volla-messages.apparmor"
+  ],
+  "install_data": {
+    "/usr/lib/${ARCH_TRIPLET}/webkit2gtk-4.1/WebKit*Process": "lib/${ARCH_TRIPLET}/webkit2gtk-4.1",
+    "/usr/lib/${ARCH_TRIPLET}/webkit2gtk-4.1/injected-bundle": "lib/${ARCH_TRIPLET}/webkit2gtk-4.1"
+  },
   "dependencies_host": [
-    "qemu-user-static",
-    "gtk-doc-tools",
-    "wget",
-    "libtool"
+    "click",
+    "gcc",
+    "libc6-dev"
   ],
   "dependencies_target": [
-    "libfreetype6",
-    "libpng16-16"
+    "libwebkit2gtk-4.1-0",
+    "maliit-inputcontext-gtk3"
   ]
 }

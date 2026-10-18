@@ -16,16 +16,16 @@ pub struct RoleGrant {
 }
 
 pub fn validate_create_role_grant(
-    action: EntryCreationAction,
+    action: TypedAction<EntryCreationData>,
     _role_grant: RoleGrant,
 ) -> ExternResult<ValidateCallbackResult> {
     require_owner(action.author())
 }
 
 pub fn validate_update_role_grant(
-    _action: Update,
+    _action: TypedAction<UpdateData>,
     _role_grant: RoleGrant,
-    _original_action: EntryCreationAction,
+    _original_action: TypedAction<EntryCreationData>,
     _original_role_grant: RoleGrant,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Invalid(
@@ -34,15 +34,15 @@ pub fn validate_update_role_grant(
 }
 
 pub fn validate_delete_role_grant(
-    action: Delete,
-    _original_action: EntryCreationAction,
+    action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
     _original_role_grant: RoleGrant,
 ) -> ExternResult<ValidateCallbackResult> {
-    require_owner(&action.author)
+    require_owner(action.author())
 }
 
 pub fn validate_create_link_all_role_grants(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -71,8 +71,8 @@ pub fn validate_create_link_all_role_grants(
 }
 
 pub fn validate_delete_link_all_role_grants(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,

@@ -1,7 +1,7 @@
 import { assert, expect, test } from "vitest";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID as uuidv4 } from "node:crypto";
 
-import { runScenario, dhtSync, CallableCell, PlayerApp } from '@holochain/tryorama';
+import { runScenario, dhtSync, CallableCell, PlayerApp } from '@holochain-open-dev/tryorama';
 import { AgentPubKey, encodeHashToBase64 } from '@holochain/client';
 
 const testAppPath = process.cwd() + '/../workdir/relay.happ';
