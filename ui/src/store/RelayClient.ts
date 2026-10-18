@@ -136,6 +136,7 @@ export class RelayClient {
       properties: {
         created: new Date().getTime(),
         privacy: input.privacy,
+        mode: input.mode,
         progenitor: encodeHashToBase64(this.client.myPubKey),
       },
     };
@@ -154,6 +155,7 @@ export class RelayClient {
       properties: {
         created: invitation.created,
         privacy: invitation.privacy,
+        mode: invitation.mode,
         progenitor: encodeHashToBase64(invitation.progenitor),
       },
     };

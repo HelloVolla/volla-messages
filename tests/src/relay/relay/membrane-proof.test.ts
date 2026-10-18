@@ -25,6 +25,7 @@ function privateConversationModifiers(networkSeed: string, progenitorB64: string
       created: Date.now(),
       privacy: PRIVACY_PRIVATE,
       progenitor: progenitorB64,
+      mode: "Unmoderated",
     },
   };
 }

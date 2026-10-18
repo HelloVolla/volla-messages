@@ -6,7 +6,7 @@
   import ButtonIconBare from "$lib/ButtonIconBare.svelte";
   import InputContact from "../InputContact.svelte";
   import { goto } from "$app/navigation";
-  import { Privacy, type Contact } from "$lib/types";
+  import { ConversationMode, Privacy, type Contact } from "$lib/types";
   import { getContext } from "svelte";
   import type { ContactStore } from "$store/ContactStore";
   import { decodeHashFromBase64, encodeHashToBase64, type AgentPubKeyB64 } from "@holochain/client";
@@ -38,6 +38,7 @@
           image: "",
         },
         privacy: Privacy.Private,
+        mode: ConversationMode.Unmoderated,
       });
       // Invite agent to conversation
       await inviteStore.invite(cellIdB64, [encodeHashToBase64(contact.public_key)]);

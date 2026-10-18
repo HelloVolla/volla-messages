@@ -73,7 +73,10 @@ test('create and read Message', async () => {
       fn_name: "get_original_message",
       payload: record.signed_action.hashed.hash,
     });
-    assert.deepEqual(sample, decode((createReadOutput.entry as any).Present.entry) as any);
+    assert.deepEqual(
+      { ...sample, role_evidence: null },
+      decode((createReadOutput.entry as any).Present.entry) as any,
+    );
 
   });
 });
@@ -125,7 +128,7 @@ test('create and update Message', async () => {
       fn_name: "get_latest_message",
       payload: { input: updatedRecord.signed_action.hashed.hash, local: true },
     });
-    assert.deepEqual(contentUpdate, readUpdatedOutput0.message);
+    assert.deepEqual({ ...contentUpdate, role_evidence: null }, readUpdatedOutput0.message);
 
     // Alice updates the Message again
     contentUpdate = await sampleMessage(alice.cells[0]);
@@ -151,7 +154,7 @@ test('create and update Message', async () => {
       fn_name: "get_latest_message",
       payload: { input: updatedRecord.signed_action.hashed.hash, local: true },
     });
-    assert.deepEqual(contentUpdate, readUpdatedOutput1.message);
+    assert.deepEqual({ ...contentUpdate, role_evidence: null }, readUpdatedOutput1.message);
 
     // Bob gets all the revisions for Message
     const revisions: Record[] = await bob.cells[0].callZome({
@@ -160,7 +163,10 @@ test('create and update Message', async () => {
       payload: originalActionHash,
     });
     assert.equal(revisions.length, 3);
-    assert.deepEqual(contentUpdate, decode((revisions[2].entry as any).Present.entry) as any);
+    assert.deepEqual(
+      { ...contentUpdate, role_evidence: null },
+      decode((revisions[2].entry as any).Present.entry) as any,
+    );
   });
 });
 
