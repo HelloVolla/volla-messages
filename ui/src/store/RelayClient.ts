@@ -414,4 +414,31 @@ export class RelayClient {
       payload: agents,
     });
   }
+
+  public async getModerators(cellId: CellId): Promise<AgentPubKey[]> {
+    return this.client.callZome({
+      cell_id: cellId,
+      zome_name: ZOME_NAME,
+      fn_name: "get_moderators",
+      payload: null,
+    });
+  }
+
+  public async grantModeratorRole(cellId: CellId, agent: AgentPubKey): Promise<void> {
+    return this.client.callZome({
+      cell_id: cellId,
+      zome_name: ZOME_NAME,
+      fn_name: "grant_moderator_role",
+      payload: agent,
+    });
+  }
+
+  public async revokeModeratorRole(cellId: CellId, agent: AgentPubKey): Promise<void> {
+    return this.client.callZome({
+      cell_id: cellId,
+      zome_name: ZOME_NAME,
+      fn_name: "revoke_moderator_role",
+      payload: agent,
+    });
+  }
 }

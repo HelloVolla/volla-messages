@@ -17,12 +17,21 @@
   );
   $: hasImages = imageFiles.length > 0;
   $: hasFiles = otherFiles.length > 0;
+
+  // "" (legacy/join notices) or "<kind>:<targetAgentPubKeyB64>"
+  $: [noticeKind] = messageExtended.message.content.split(":");
 </script>
 
 {#if messageExtended.message.message_type === MessageType.System}
   <div class="mt-1 flex items-center space-x-1 italic text-secondary-400">
     <AgentNickname {cellIdB64} agentPubKeyB64={messageExtended.authorAgentPubKeyB64} />
-    <span>{$t("common.joined_the_conversation")}</span>
+    {#if noticeKind === "moderator_granted"}
+      <span>{$t("common.granted_moderator")}</span>
+    {:else if noticeKind === "moderator_revoked"}
+      <span>{$t("common.revoked_moderator")}</span>
+    {:else}
+      <span>{$t("common.joined_the_conversation")}</span>
+    {/if}
   </div>
 {:else}
   <div class="line-clamp-1 break-words">

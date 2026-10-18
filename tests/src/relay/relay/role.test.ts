@@ -239,3 +239,39 @@ test('a Moderator can delete another agent\'s message', async () => {
     });
   });
 });
+
+test('get_moderators lists current grants and drops revoked ones', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const aliceConversation = await createConversationCell(alice, uuidv4(), alice.agentPubKey, Date.now());
+
+    assert.deepEqual(
+      await aliceConversation.callZome({ zome_name: "relay", fn_name: "get_moderators", payload: null }),
+      [],
+    );
+
+    await aliceConversation.callZome({
+      zome_name: "relay",
+      fn_name: "grant_moderator_role",
+      payload: bob.agentPubKey,
+    });
+    const moderators: AgentPubKey[] = await aliceConversation.callZome({
+      zome_name: "relay",
+      fn_name: "get_moderators",
+      payload: null,
+    });
+    assert.equal(moderators.length, 1);
+    assert.equal(encodeHashToBase64(moderators[0]), encodeHashToBase64(bob.agentPubKey));
+
+    await aliceConversation.callZome({
+      zome_name: "relay",
+      fn_name: "revoke_moderator_role",
+      payload: bob.agentPubKey,
+    });
+    assert.deepEqual(
+      await aliceConversation.callZome({ zome_name: "relay", fn_name: "get_moderators", payload: null }),
+      [],
+    );
+  });
+});

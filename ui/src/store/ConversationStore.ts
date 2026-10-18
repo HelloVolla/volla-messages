@@ -1,5 +1,10 @@
 import { decode, encode } from "@msgpack/msgpack";
-import { decodeHashFromBase64, type AgentPubKeyB64, type ClonedCell } from "@holochain/client";
+import {
+  decodeHashFromBase64,
+  encodeHashToBase64,
+  type AgentPubKeyB64,
+  type ClonedCell,
+} from "@holochain/client";
 import {
   Privacy,
   type CellIdB64,
@@ -28,6 +33,8 @@ export interface ConversationStore extends GenericKeyValueStore<ConversationExte
   create: (input: CreateConversationInput) => Promise<CellIdB64>;
   join(input: Invitation): Promise<CellIdB64>;
   updateConfig: (key: CellIdB64, val: Config) => Promise<void>;
+  grantModerator: (key: CellIdB64, agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
+  revokeModerator: (key: CellIdB64, agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
   enable: (key: CellIdB64) => Promise<void>;
   disable: (key: CellIdB64) => Promise<void>;
   updateUnread: (key: CellIdB64, val: boolean) => Promise<void>;
@@ -140,6 +147,28 @@ export function createConversationStore(client: RelayClient): ConversationStore 
     }));
   }
 
+  async function grantModerator(key: CellIdB64, agentPubKeyB64: AgentPubKeyB64): Promise<void> {
+    await client.grantModeratorRole(decodeCellIdFromBase64(key), decodeHashFromBase64(agentPubKeyB64));
+    conversations.update((c) => ({
+      ...c,
+      [key]: {
+        ...c[key],
+        moderators: [...c[key].moderators, agentPubKeyB64],
+      },
+    }));
+  }
+
+  async function revokeModerator(key: CellIdB64, agentPubKeyB64: AgentPubKeyB64): Promise<void> {
+    await client.revokeModeratorRole(decodeCellIdFromBase64(key), decodeHashFromBase64(agentPubKeyB64));
+    conversations.update((c) => ({
+      ...c,
+      [key]: {
+        ...c[key],
+        moderators: c[key].moderators.filter((a) => a !== agentPubKeyB64),
+      },
+    }));
+  }
+
   async function updateUnread(key: CellIdB64, val: boolean): Promise<void> {
     unread.update((c) => ({
       ...c,
@@ -194,6 +223,9 @@ export function createConversationStore(client: RelayClient): ConversationStore 
     const key = encodeCellIdToBase64(cellInfo.cell_id);
     const dnaProperties = decode(cellInfo.dna_modifiers.properties) as RelayDnaProperties;
     const config = cellInfo.enabled ? await client.getConfig(cellInfo.cell_id, local) : undefined;
+    const moderators = cellInfo.enabled
+      ? (await client.getModerators(cellInfo.cell_id)).map(encodeHashToBase64)
+      : [];
 
     // Generate a public invite code
     // If the conversation is Private, this is undefined
@@ -214,6 +246,7 @@ export function createConversationStore(client: RelayClient): ConversationStore 
       dnaProperties,
       config,
       publicInviteCode,
+      moderators,
 
       // persisted fields
       unread: get(unread)[key] || false,
@@ -229,6 +262,8 @@ export function createConversationStore(client: RelayClient): ConversationStore 
     disable,
     loadConfig,
     updateConfig,
+    grantModerator,
+    revokeModerator,
     updateUnread,
     makePrivateInviteCode,
     getBucket,
@@ -240,6 +275,8 @@ export interface CellConversationStore extends GenericValueStore<ConversationExt
   enable: () => Promise<void>;
   disable: () => Promise<void>;
   updateConfig: (val: Config) => Promise<void>;
+  grantModerator: (agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
+  revokeModerator: (agentPubKeyB64: AgentPubKeyB64) => Promise<void>;
   updateUnread: (val: boolean) => Promise<void>;
   makePrivateInviteCode: (a: AgentPubKeyB64, title: string) => Promise<string>;
   getBucket: (timestamp: number) => number;
@@ -257,6 +294,10 @@ export function deriveCellConversationStore(
     disable: () => conversationStore.disable(key),
     loadConfig: (local: boolean) => conversationStore.loadConfig(key, local),
     updateConfig: (val: Config) => conversationStore.updateConfig(key, val),
+    grantModerator: (agentPubKeyB64: AgentPubKeyB64) =>
+      conversationStore.grantModerator(key, agentPubKeyB64),
+    revokeModerator: (agentPubKeyB64: AgentPubKeyB64) =>
+      conversationStore.revokeModerator(key, agentPubKeyB64),
     updateUnread: (val: boolean) => conversationStore.updateUnread(key, val),
     makePrivateInviteCode: (a: AgentPubKeyB64, title: string) =>
       conversationStore.makePrivateInviteCode(key, a, title),

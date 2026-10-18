@@ -16,7 +16,7 @@ fn progenitor() -> ExternResult<Option<AgentPubKey>> {
     Ok(Some(props.progenitor))
 }
 
-pub fn find_role_grant(agent: &AgentPubKey) -> ExternResult<Option<ActionHash>> {
+fn live_role_grants() -> ExternResult<Vec<(ActionHash, RoleGrant)>> {
     let links = get_links(
         LinkQuery {
             base: roles_path().path_entry_hash()?.into(),
@@ -28,6 +28,7 @@ pub fn find_role_grant(agent: &AgentPubKey) -> ExternResult<Option<ActionHash>> 
         },
         GetStrategy::Local,
     )?;
+    let mut grants = Vec::new();
     for link in links {
         let Some(action_hash) = link.target.into_action_hash() else {
             continue;
@@ -48,11 +49,24 @@ pub fn find_role_grant(agent: &AgentPubKey) -> ExternResult<Option<ActionHash>> 
         else {
             continue;
         };
-        if &role_grant.for_agent == agent {
-            return Ok(Some(action_hash));
-        }
+        grants.push((action_hash, role_grant));
     }
-    Ok(None)
+    Ok(grants)
+}
+
+pub fn find_role_grant(agent: &AgentPubKey) -> ExternResult<Option<ActionHash>> {
+    Ok(live_role_grants()?
+        .into_iter()
+        .find(|(_, role_grant)| &role_grant.for_agent == agent)
+        .map(|(action_hash, _)| action_hash))
+}
+
+#[hdk_extern]
+pub fn get_moderators(_: ()) -> ExternResult<Vec<AgentPubKey>> {
+    Ok(live_role_grants()?
+        .into_iter()
+        .map(|(_, role_grant)| role_grant.for_agent)
+        .collect())
 }
 
 #[hdk_extern]
