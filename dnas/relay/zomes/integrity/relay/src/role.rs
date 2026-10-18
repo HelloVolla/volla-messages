@@ -82,6 +82,42 @@ pub fn validate_delete_link_all_role_grants(
     ))
 }
 
+// Delete actions carry no entry content, so there's nowhere to put a
+// role_evidence field directly on them. Carry it in this entry instead and
+// require it to be authored immediately before the Delete on the same
+// chain, so validate_delete_* can read it off Delete's own prev_action.
+#[derive(Clone, PartialEq)]
+#[hdk_entry_helper]
+pub struct RoleEvidenceEntry {
+    pub role_evidence: ActionHash,
+}
+
+pub fn validate_create_role_evidence_entry(
+    _action: TypedAction<EntryCreationData>,
+    _role_evidence_entry: RoleEvidenceEntry,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Valid)
+}
+
+pub fn validate_update_role_evidence_entry(
+    _action: TypedAction<UpdateData>,
+    _role_evidence_entry: RoleEvidenceEntry,
+    _original_action: TypedAction<EntryCreationData>,
+    _original_role_evidence_entry: RoleEvidenceEntry,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Invalid(
+        "RoleEvidenceEntry entries cannot be updated".to_string(),
+    ))
+}
+
+pub fn validate_delete_role_evidence_entry(
+    _action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
+    _original_role_evidence_entry: RoleEvidenceEntry,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Valid)
+}
+
 fn is_owner(agent: &AgentPubKey) -> ExternResult<bool> {
     let info = dna_info()?;
     if info.modifiers.properties.bytes().len() == 1 {
@@ -135,4 +171,29 @@ pub fn require_owner_or_moderator(
         ));
     }
     Ok(ValidateCallbackResult::Valid)
+}
+
+// Same check as require_owner_or_moderator, but for a Delete action: reads
+// the evidence off the deleter's own immediately-preceding RoleEvidenceEntry
+// (Delete has no entry content to carry it directly).
+pub fn require_owner_or_moderator_for_delete(
+    action: &TypedAction<DeleteData>,
+) -> ExternResult<ValidateCallbackResult> {
+    if is_owner(action.author())? {
+        return Ok(ValidateCallbackResult::Valid);
+    }
+    let prev_action = action.prev_action().cloned().ok_or(wasm_error!(
+        WasmErrorInner::Guest("Delete action has no previous action".to_string())
+    ))?;
+    let record = must_get_valid_record(prev_action)?;
+    let evidence_entry: RoleEvidenceEntry = match record.entry().to_app_option().map_err(|e| wasm_error!(e))? {
+        Some(entry) => entry,
+        None => {
+            return Ok(ValidateCallbackResult::Invalid(
+                "author is not the conversation owner and the preceding action is not a RoleEvidenceEntry"
+                    .to_string(),
+            ));
+        }
+    };
+    require_owner_or_moderator(action.author(), Some(evidence_entry.role_evidence))
 }
