@@ -31,29 +31,29 @@ pub struct MessageRecord {
     pub message: Option<Message>,
 }
 pub fn validate_create_message(
-    _action: EntryCreationAction,
+    _action: TypedAction<EntryCreationData>,
     _message: Message,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_update_message(
-    _action: Update,
+    _action: TypedAction<UpdateData>,
     _message: Message,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_delete_message(
-    action: Delete,
-    original_action: EntryCreationAction,
+    action: TypedAction<DeleteData>,
+    original_action: TypedAction<EntryCreationData>,
     _original_message: Message,
 ) -> ExternResult<ValidateCallbackResult> {
-    if &action.author == original_action.author() {
+    if action.author() == original_action.author() {
         return Ok(ValidateCallbackResult::Valid);
     }
     crate::require_owner_or_moderator_for_delete(&action)
 }
 pub fn validate_create_link_message_updates(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -97,8 +97,8 @@ pub fn validate_create_link_message_updates(
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_delete_link_message_updates(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
@@ -110,7 +110,7 @@ pub fn validate_delete_link_message_updates(
     )
 }
 pub fn validate_create_link_all_messages(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     _base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -137,8 +137,8 @@ pub fn validate_create_link_all_messages(
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_delete_link_all_messages(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,

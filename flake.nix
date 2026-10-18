@@ -9,7 +9,7 @@
   # darksoil-studio/tauri-plugin-holochain, whose availability has been
   # unreliable, and which pinned a stale webkitgtk 2.42.)
   inputs = {
-    holonix.url = "github:holochain/holonix/main-0.6";
+    holonix.url = "github:holochain/holonix/main-0.7";
 
     nixpkgs.follows = "holonix/nixpkgs";
     flake-parts.follows = "holonix/flake-parts";
