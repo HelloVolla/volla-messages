@@ -213,6 +213,11 @@ pub fn get_members(_: ()) -> ExternResult<Vec<AgentPubKey>> {
 
 #[hdk_extern]
 pub fn create_membership(_: ()) -> ExternResult<()> {
+    if is_closed(())? {
+        return Err(wasm_error!(WasmErrorInner::Guest(
+            "This conversation is closed".to_string()
+        )));
+    }
     let me = agent_info()?.agent_initial_pubkey;
     if find_ban(&me)?.is_some() {
         return Err(wasm_error!(WasmErrorInner::Guest(
@@ -323,5 +328,34 @@ pub fn unban_member(agent: AgentPubKey) -> ExternResult<()> {
     if let Some(ban_hash) = find_ban(&agent)? {
         delete_entry(ban_hash)?;
     }
+    Ok(())
+}
+
+#[hdk_extern]
+pub fn is_closed(_: ()) -> ExternResult<bool> {
+    let links = get_links(
+        LinkQuery {
+            base: Path::from("closed").path_entry_hash()?.into(),
+            link_type: LinkTypes::AllClosed.try_into_filter()?,
+            tag_prefix: None,
+            after: None,
+            before: None,
+            author: None,
+        },
+        GetStrategy::Local,
+    )?;
+    Ok(!links.is_empty())
+}
+
+#[hdk_extern]
+pub fn close_conversation(_: ()) -> ExternResult<()> {
+    let me = agent_info()?.agent_initial_pubkey;
+    let closed_hash = create_entry(&EntryTypes::Closed(Closed { closed_by: me }))?;
+    create_link(
+        Path::from("closed").path_entry_hash()?,
+        closed_hash,
+        LinkTypes::AllClosed,
+        (),
+    )?;
     Ok(())
 }

@@ -258,6 +258,81 @@ pub fn validate_delete_link_all_bans(
 
 #[derive(Clone, PartialEq)]
 #[hdk_entry_helper]
+pub struct Closed {
+    pub closed_by: AgentPubKey,
+}
+
+pub fn validate_create_closed(
+    action: TypedAction<EntryCreationData>,
+    _closed: Closed,
+) -> ExternResult<ValidateCallbackResult> {
+    require_owner(action.author())
+}
+
+pub fn validate_update_closed(
+    _action: TypedAction<UpdateData>,
+    _closed: Closed,
+    _original_action: TypedAction<EntryCreationData>,
+    _original_closed: Closed,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Invalid(
+        "Closed entries cannot be updated".to_string(),
+    ))
+}
+
+pub fn validate_delete_closed(
+    _action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
+    _original_closed: Closed,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Invalid(
+        "Closed entries cannot be deleted".to_string(),
+    ))
+}
+
+pub fn validate_create_link_all_closed(
+    _action: TypedAction<CreateLinkData>,
+    base_address: AnyLinkableHash,
+    target_address: AnyLinkableHash,
+    _tag: LinkTag,
+) -> ExternResult<ValidateCallbackResult> {
+    let path_entry_hash = Path::from("closed").path_entry_hash()?;
+    let base_hash = base_address.into_entry_hash().ok_or(wasm_error!(
+        WasmErrorInner::Guest("No entry hash associated with link".to_string())
+    ))?;
+    if base_hash != path_entry_hash {
+        return Ok(ValidateCallbackResult::Invalid(
+            "Closed markers must be linked from the closed anchor".to_string(),
+        ));
+    }
+    let action_hash = target_address.into_action_hash().ok_or(wasm_error!(
+        WasmErrorInner::Guest("No action hash associated with link".to_string())
+    ))?;
+    let record = must_get_valid_record(action_hash)?;
+    let _closed: Closed = record
+        .entry()
+        .to_app_option()
+        .map_err(|e| wasm_error!(e))?
+        .ok_or(wasm_error!(WasmErrorInner::Guest(
+            "Linked action must reference a Closed entry".to_string()
+        )))?;
+    Ok(ValidateCallbackResult::Valid)
+}
+
+pub fn validate_delete_link_all_closed(
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
+    _base: AnyLinkableHash,
+    _target: AnyLinkableHash,
+    _tag: LinkTag,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Invalid(
+        "AllClosed links cannot be deleted".to_string(),
+    ))
+}
+
+#[derive(Clone, PartialEq)]
+#[hdk_entry_helper]
 pub struct RoleEvidenceEntry {
     pub role_evidence: ActionHash,
 }

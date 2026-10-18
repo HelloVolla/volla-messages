@@ -327,12 +327,16 @@ async function loadMoreMessages() {
   </div>
 </div>
 
-<ConversationMessageInput
-  bind:ref={conversationMessageInputRef}
-  disabled={sending}
-  loading={sending}
-  on:send={(e) => sendMessage(e.detail.text, e.detail.files)}
-/>
+{#if $conversation.closed}
+  <p class="text-secondary-400 py-2 text-center text-xs">{$t("common.conversation_closed")}</p>
+{:else}
+  <ConversationMessageInput
+    bind:ref={conversationMessageInputRef}
+    disabled={sending}
+    loading={sending}
+    on:send={(e) => sendMessage(e.detail.text, e.detail.files)}
+  />
+{/if}
 
 <DialogConfirm
   bind:open={showDeleteDialog}

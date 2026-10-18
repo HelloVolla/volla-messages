@@ -11,6 +11,7 @@
   import TitleInput from "./TitleInput.svelte";
   import ButtonIconBare from "$lib/ButtonIconBare.svelte";
   import InputImageAvatar from "$lib/InputImageAvatar.svelte";
+  import DialogConfirm from "$lib/DialogConfirm.svelte";
   import { deriveCellConversationStore, type ConversationStore } from "$store/ConversationStore";
   import {
     deriveCellMergedProfileContactInviteStore,
@@ -147,6 +148,16 @@
       await messages.sendModeratorNotice("moderator_granted", agentPubKeyB64);
     }
   };
+
+  let showCloseDialog = false;
+  let closing = false;
+
+  const closeConversation = async () => {
+    closing = true;
+    await conversation.closeConversation();
+    closing = false;
+    showCloseDialog = false;
+  };
 </script>
 
 <Header backUrl={`/conversations/${$page.params.id}`}>
@@ -269,5 +280,24 @@
         </MemberListItem>
       {/each}
     </ul>
+
+    {#if iAmProgenitor && !$conversation.closed}
+      <button
+        class="text-secondary-300 my-4 self-center text-xs underline"
+        on:click={() => (showCloseDialog = true)}
+      >
+        {$t("common.close_conversation")}
+      </button>
+    {/if}
   </div>
 </div>
+
+<DialogConfirm
+  bind:open={showCloseDialog}
+  title={$t("common.close_conversation")}
+  actionButtonLabel={$t("common.close_conversation")}
+  loading={closing}
+  on:confirm={closeConversation}
+>
+  <p>{$t("common.close_conversation_dialog_message")}</p>
+</DialogConfirm>

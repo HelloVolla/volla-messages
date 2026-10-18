@@ -24,6 +24,7 @@ pub enum EntryTypes {
     Contact(Contact),
     RoleGrant(RoleGrant),
     Membership(Membership),
+    Closed(Closed),
     Ban(Ban),
     RoleEvidenceEntry(RoleEvidenceEntry),
 }
@@ -39,6 +40,7 @@ pub enum LinkTypes {
     AllContacts,
     AllRoleGrants,
     AllMemberships,
+    AllClosed,
     AllBans,
 }
 
@@ -157,6 +159,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
                     EntryTypes::RoleGrant(role_grant) => validate_create_role_grant(action, role_grant),
+                    EntryTypes::Closed(closed) => validate_create_closed(action, closed),
                     EntryTypes::Ban(ban) => validate_create_ban(action, ban),
                     EntryTypes::Membership(membership) => validate_create_membership(action, membership),
                     EntryTypes::RoleEvidenceEntry(role_evidence_entry) => validate_create_role_evidence_entry(action, role_evidence_entry),
@@ -172,6 +175,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
                     EntryTypes::RoleGrant(role_grant) => validate_create_role_grant(action, role_grant),
+                    EntryTypes::Closed(_) => Ok(ValidateCallbackResult::Invalid(
+                        "Closed entries cannot be updated".to_string(),
+                    )),
                     EntryTypes::Ban(_) => Ok(ValidateCallbackResult::Invalid(
                         "Ban entries cannot be updated".to_string(),
                     )),
@@ -235,6 +241,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             original_role_grant,
                         )
                     }
+                    EntryTypes::Closed(_) => Ok(ValidateCallbackResult::Invalid(
+                        "Closed entries cannot be updated".to_string(),
+                    )),
                     EntryTypes::Ban(_) => Ok(ValidateCallbackResult::Invalid(
                         "Ban entries cannot be updated".to_string(),
                     )),
@@ -315,6 +324,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 EntryTypes::RoleGrant(original_role_grant) => {
                     validate_delete_role_grant(action, original_action, original_role_grant)
                 }
+                EntryTypes::Closed(original_closed) => {
+                    validate_delete_closed(action, original_action, original_closed)
+                }
                 EntryTypes::Ban(original_ban) => {
                     validate_delete_ban(action, original_action, original_ban)
                 }
@@ -354,6 +366,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 }
                 LinkTypes::AllRoleGrants => {
                     validate_create_link_all_role_grants(action, base_address, target_address, tag)
+                }
+                LinkTypes::AllClosed => {
+                    validate_create_link_all_closed(action, base_address, target_address, tag)
                 }
                 LinkTypes::AllBans => {
                     validate_create_link_all_bans(action, base_address, target_address, tag)
@@ -421,6 +436,13 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     target_address,
                     tag,
                 ),
+                LinkTypes::AllClosed => validate_delete_link_all_closed(
+                    action,
+                    original_action,
+                    base_address,
+                    target_address,
+                    tag,
+                ),
                 LinkTypes::AllBans => validate_delete_link_all_bans(
                     action,
                     original_action,
@@ -448,6 +470,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
                     EntryTypes::RoleGrant(role_grant) => validate_create_role_grant(action, role_grant),
+                    EntryTypes::Closed(closed) => validate_create_closed(action, closed),
                     EntryTypes::Ban(ban) => validate_create_ban(action, ban),
                     EntryTypes::Membership(membership) => validate_create_membership(action, membership),
                     EntryTypes::RoleEvidenceEntry(role_evidence_entry) => validate_create_role_evidence_entry(action, role_evidence_entry),
@@ -566,6 +589,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             Ok(result)
                         }
                     }
+                    EntryTypes::Closed(_) => Ok(ValidateCallbackResult::Invalid(
+                        "Closed entries cannot be updated".to_string(),
+                    )),
                     EntryTypes::Ban(_) => Ok(ValidateCallbackResult::Invalid(
                         "Ban entries cannot be updated".to_string(),
                     )),
@@ -659,6 +685,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::RoleGrant(original_role_grant) => {
                         validate_delete_role_grant(action, original_action, original_role_grant)
                     }
+                    EntryTypes::Closed(original_closed) => {
+                        validate_delete_closed(action, original_action, original_closed)
+                    }
                     EntryTypes::Ban(original_ban) => {
                         validate_delete_ban(action, original_action, original_ban)
                     }
@@ -706,6 +735,12 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         validate_create_link_all_contacts(action, base_address, target_address, tag)
                     }
                     LinkTypes::AllRoleGrants => validate_create_link_all_role_grants(
+                        action,
+                        base_address,
+                        target_address,
+                        tag,
+                    ),
+                    LinkTypes::AllClosed => validate_create_link_all_closed(
                         action,
                         base_address,
                         target_address,
@@ -794,6 +829,13 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         tag,
                     ),
                     LinkTypes::AllRoleGrants => validate_delete_link_all_role_grants(
+                        action,
+                        create_link,
+                        base_address,
+                        target_address,
+                        tag,
+                    ),
+                    LinkTypes::AllClosed => validate_delete_link_all_closed(
                         action,
                         create_link,
                         base_address,

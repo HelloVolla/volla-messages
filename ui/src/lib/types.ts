@@ -162,6 +162,7 @@ export interface ConversationExtended {
   config?: Config; // undefined if we have not fetched the Config entry
   moderators: AgentPubKeyB64[];
   members: AgentPubKeyB64[];
+  closed: boolean;
 
   // Locally persisted data
   unread: boolean;

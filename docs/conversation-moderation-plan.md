@@ -106,3 +106,17 @@ Limits, which are enforced cooperatively and not by validation:
 - A banned agent who already holds a valid membrane proof for a private conversation can still pass genesis. Genesis is only checked against the proof, and a proof can't be revoked deterministically.
 - Public conversations have no membrane proof. Anyone can self-join by calling the membership coordinator function directly from a hand-built client, and validation can't reject it.
 - Only the coordinator enforces the ban on honest clients. A modified client can bypass it.
+
+## #219 Delete a group: Close (partial enforcement)
+
+Close creates a permanent Closed marker, Owner-only. The coordinator refuses
+create_message and create_membership once it sees one locally.
+
+Same limitation as #218: this is enforced in the coordinator zome function,
+not in validate_create_message/validate_create_membership. A deterministic
+validator check would need to prove a Closed marker exists without get_links,
+which has no sound answer here (same reasoning as membership and ban). A
+network-isolated malicious author's own node could still create and gossip
+a message or membership after close; honest validators would propagate it
+since they can't reject it deterministically. History stays visible to
+current members either way, since Close only gates new writes.

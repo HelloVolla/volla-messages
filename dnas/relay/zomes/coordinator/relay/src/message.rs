@@ -13,6 +13,11 @@ pub struct SendMessageInput {
 
 #[hdk_extern]
 pub fn create_message(mut input: SendMessageInput) -> ExternResult<Record> {
+    if crate::role::is_closed(())? {
+        return Err(wasm_error!(WasmErrorInner::Guest(
+            "This conversation is closed".to_string()
+        )));
+    }
     input.message.role_evidence = crate::role::find_message_role_evidence()?;
     let message_hash = create_entry(&EntryTypes::Message(input.message.clone()))?;
     let record = get(message_hash.clone(), GetOptions::local())?.ok_or(wasm_error!(

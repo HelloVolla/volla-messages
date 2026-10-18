@@ -510,3 +510,45 @@ test('a banned agent can be unbanned by the owner', async () => {
     await bobConversation.callZome({ zome_name: "relay", fn_name: "create_membership", payload: null });
   });
 });
+
+test('closing a conversation blocks new messages and new members', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    const aliceConversation = await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+    await bobConversation.callZome({ zome_name: "relay", fn_name: "create_membership", payload: null });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+    await createMessage(bobConversation);
+
+    await aliceConversation.callZome({ zome_name: "relay", fn_name: "close_conversation", payload: null });
+    await dhtSync([alice, bob], aliceConversation.cell_id[0]);
+
+    await expect(createMessage(aliceConversation)).rejects.toThrow();
+    await expect(createMessage(bobConversation)).rejects.toThrow();
+
+    const [carol] = await scenario.addPlayersWithApps([appSource]);
+    const carolConversation = await createConversationCell(carol, networkSeed, alice.agentPubKey, created);
+    await dhtSync([alice, bob, carol], aliceConversation.cell_id[0]);
+    await expect(
+      carolConversation.callZome({ zome_name: "relay", fn_name: "create_membership", payload: null }),
+    ).rejects.toThrow();
+  });
+});
+
+test('a non-owner cannot close a conversation', async () => {
+  await runScenario(async scenario => {
+    const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+    await scenario.shareAllAgents();
+    const networkSeed = uuidv4();
+    const created = Date.now();
+    await createConversationCell(alice, networkSeed, alice.agentPubKey, created);
+    const bobConversation = await createConversationCell(bob, networkSeed, alice.agentPubKey, created);
+
+    await expect(
+      bobConversation.callZome({ zome_name: "relay", fn_name: "close_conversation", payload: null }),
+    ).rejects.toThrow();
+  });
+});
