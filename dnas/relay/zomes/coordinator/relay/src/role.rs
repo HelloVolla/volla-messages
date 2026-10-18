@@ -214,6 +214,11 @@ pub fn get_members(_: ()) -> ExternResult<Vec<AgentPubKey>> {
 #[hdk_extern]
 pub fn create_membership(_: ()) -> ExternResult<()> {
     let me = agent_info()?.agent_initial_pubkey;
+    if find_ban(&me)?.is_some() {
+        return Err(wasm_error!(WasmErrorInner::Guest(
+            "You have been banned from this conversation".to_string()
+        )));
+    }
     let membership_hash = create_entry(&EntryTypes::Membership(Membership { for_agent: me }))?;
     create_link(
         Path::from("members").path_entry_hash()?,
@@ -247,5 +252,76 @@ fn delete_as_authority(hash: ActionHash) -> ExternResult<()> {
         }
     }
     delete_entry(hash)?;
+    Ok(())
+}
+
+fn live_bans() -> ExternResult<Vec<(ActionHash, Ban)>> {
+    let links = get_links(
+        LinkQuery {
+            base: Path::from("bans").path_entry_hash()?.into(),
+            link_type: LinkTypes::AllBans.try_into_filter()?,
+            tag_prefix: None,
+            after: None,
+            before: None,
+            author: None,
+        },
+        GetStrategy::Local,
+    )?;
+    let mut bans = Vec::new();
+    for link in links {
+        let Some(action_hash) = link.target.into_action_hash() else {
+            continue;
+        };
+        let Some(Details::Record(details)) =
+            get_details(action_hash.clone(), GetOptions::local())?
+        else {
+            continue;
+        };
+        if !details.deletes.is_empty() {
+            continue;
+        }
+        let Some(ban): Option<Ban> = details
+            .record
+            .entry()
+            .to_app_option()
+            .map_err(|e| wasm_error!(e))?
+        else {
+            continue;
+        };
+        bans.push((action_hash, ban));
+    }
+    Ok(bans)
+}
+
+pub fn find_ban(agent: &AgentPubKey) -> ExternResult<Option<ActionHash>> {
+    Ok(live_bans()?
+        .into_iter()
+        .find(|(_, ban)| &ban.for_agent == agent)
+        .map(|(action_hash, _)| action_hash))
+}
+
+#[hdk_extern]
+pub fn ban_member(agent: AgentPubKey) -> ExternResult<()> {
+    remove_member(agent.clone())?;
+    let me = agent_info()?.agent_initial_pubkey;
+    let role_evidence = find_role_grant(&me, GrantedRole::Moderator)?;
+    let ban_hash = create_entry(&EntryTypes::Ban(Ban {
+        for_agent: agent,
+        role_evidence,
+    }))?;
+    create_link(
+        Path::from("bans").path_entry_hash()?,
+        ban_hash,
+        LinkTypes::AllBans,
+        (),
+    )?;
+    Ok(())
+}
+
+#[hdk_extern]
+pub fn unban_member(agent: AgentPubKey) -> ExternResult<()> {
+    if let Some(ban_hash) = find_ban(&agent)? {
+        delete_entry(ban_hash)?;
+    }
     Ok(())
 }

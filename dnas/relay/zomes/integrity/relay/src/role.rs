@@ -179,6 +179,85 @@ pub fn validate_delete_link_all_memberships(
 
 #[derive(Clone, PartialEq)]
 #[hdk_entry_helper]
+pub struct Ban {
+    pub for_agent: AgentPubKey,
+    pub role_evidence: Option<ActionHash>,
+}
+
+pub fn validate_create_ban(
+    action: TypedAction<EntryCreationData>,
+    ban: Ban,
+) -> ExternResult<ValidateCallbackResult> {
+    if action.author() == &ban.for_agent {
+        return Ok(ValidateCallbackResult::Invalid(
+            "Cannot ban yourself".to_string(),
+        ));
+    }
+    require_owner_or_moderator(action.author(), ban.role_evidence)
+}
+
+pub fn validate_update_ban(
+    _action: TypedAction<UpdateData>,
+    _ban: Ban,
+    _original_action: TypedAction<EntryCreationData>,
+    _original_ban: Ban,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Invalid(
+        "Ban entries cannot be updated".to_string(),
+    ))
+}
+
+pub fn validate_delete_ban(
+    action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
+    _original_ban: Ban,
+) -> ExternResult<ValidateCallbackResult> {
+    require_owner(action.author())
+}
+
+pub fn validate_create_link_all_bans(
+    _action: TypedAction<CreateLinkData>,
+    base_address: AnyLinkableHash,
+    target_address: AnyLinkableHash,
+    _tag: LinkTag,
+) -> ExternResult<ValidateCallbackResult> {
+    let path_entry_hash = Path::from("bans").path_entry_hash()?;
+    let base_hash = base_address.into_entry_hash().ok_or(wasm_error!(
+        WasmErrorInner::Guest("No entry hash associated with link".to_string())
+    ))?;
+    if base_hash != path_entry_hash {
+        return Ok(ValidateCallbackResult::Invalid(
+            "Bans must be linked from the bans anchor".to_string(),
+        ));
+    }
+    let action_hash = target_address.into_action_hash().ok_or(wasm_error!(
+        WasmErrorInner::Guest("No action hash associated with link".to_string())
+    ))?;
+    let record = must_get_valid_record(action_hash)?;
+    let _ban: Ban = record
+        .entry()
+        .to_app_option()
+        .map_err(|e| wasm_error!(e))?
+        .ok_or(wasm_error!(WasmErrorInner::Guest(
+            "Linked action must reference a Ban entry".to_string()
+        )))?;
+    Ok(ValidateCallbackResult::Valid)
+}
+
+pub fn validate_delete_link_all_bans(
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
+    _base: AnyLinkableHash,
+    _target: AnyLinkableHash,
+    _tag: LinkTag,
+) -> ExternResult<ValidateCallbackResult> {
+    Ok(ValidateCallbackResult::Invalid(
+        "AllBans links cannot be deleted".to_string(),
+    ))
+}
+
+#[derive(Clone, PartialEq)]
+#[hdk_entry_helper]
 pub struct RoleEvidenceEntry {
     pub role_evidence: ActionHash,
 }
