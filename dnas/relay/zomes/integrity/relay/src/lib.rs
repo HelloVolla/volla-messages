@@ -4,6 +4,8 @@ pub mod message;
 pub use message::*;
 pub mod config;
 pub use config::*;
+pub mod role;
+pub use role::*;
 use hdi::prelude::*;
 
 pub const MESSAGES_PATH_PREFIX: &str = "msg";
@@ -20,6 +22,7 @@ pub enum EntryTypes {
     Config(Config),
     Message(Message),
     Contact(Contact),
+    RoleGrant(RoleGrant),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,6 +34,7 @@ pub enum LinkTypes {
     ContactToContacts,
     ContactUpdates,
     AllContacts,
+    AllRoleGrants,
 }
 
 #[derive(Serialize, Deserialize, Debug, SerializedBytes, Clone)]
@@ -139,6 +143,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Config(config) => validate_create_config(action, config),
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
+                    EntryTypes::RoleGrant(role_grant) => validate_create_role_grant(action, role_grant),
                 }
             }
             OpEntry::UpdateEntry { app_entry, action } => {
@@ -150,6 +155,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Config(config) => validate_create_config(action, config),
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
+                    EntryTypes::RoleGrant(role_grant) => validate_create_role_grant(action, role_grant),
                 }
             }
             _ => Ok(ValidateCallbackResult::Valid),
@@ -189,6 +195,23 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     }
                     EntryTypes::Message(message) => validate_update_message(action, message),
                     EntryTypes::Config(config) => validate_update_config(action, config),
+                    EntryTypes::RoleGrant(role_grant) => {
+                        let original_app_entry = must_get_valid_record(original_action_hash)?;
+                        let original_role_grant = match RoleGrant::try_from(original_app_entry) {
+                            Ok(entry) => entry,
+                            Err(e) => {
+                                return Ok(ValidateCallbackResult::Invalid(format!(
+                                    "Expected to get RoleGrant from Record: {e:?}"
+                                )));
+                            }
+                        };
+                        validate_update_role_grant(
+                            action,
+                            role_grant,
+                            original_create_action,
+                            original_role_grant,
+                        )
+                    }
                 }
             }
             _ => Ok(ValidateCallbackResult::Valid),
@@ -243,6 +266,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 EntryTypes::Config(_original_config) => Ok(ValidateCallbackResult::Invalid(
                     "Cannot delete Config Entry".to_string(),
                 )),
+                EntryTypes::RoleGrant(original_role_grant) => {
+                    validate_delete_role_grant(action, original_action, original_role_grant)
+                }
             }
         }
         FlatOp::Link(OpLink::CreateLink { link_type, action }) => {
@@ -270,6 +296,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 }
                 LinkTypes::AllContacts => {
                     validate_create_link_all_contacts(action, base_address, target_address, tag)
+                }
+                LinkTypes::AllRoleGrants => {
+                    validate_create_link_all_role_grants(action, base_address, target_address, tag)
                 }
             }
         }
@@ -324,6 +353,13 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     target_address,
                     tag,
                 ),
+                LinkTypes::AllRoleGrants => validate_delete_link_all_role_grants(
+                    action,
+                    original_action,
+                    base_address,
+                    target_address,
+                    tag,
+                ),
             }
         }
         FlatOp::CreateRecord(store_record) => match store_record {
@@ -336,6 +372,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Config(config) => validate_create_config(action, config),
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
+                    EntryTypes::RoleGrant(role_grant) => validate_create_role_grant(action, role_grant),
                 }
             }
             OpRecord::UpdateEntry { app_entry, action } => {
@@ -425,6 +462,32 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             Ok(result)
                         }
                     }
+                    EntryTypes::RoleGrant(role_grant) => {
+                        let result = validate_create_role_grant(create_action, role_grant.clone())?;
+                        if let ValidateCallbackResult::Valid = result {
+                            let original_role_grant: Option<RoleGrant> = original_record
+                                .entry()
+                                .to_app_option()
+                                .map_err(|e| wasm_error!(e))?;
+                            let original_role_grant = match original_role_grant {
+                                Some(role_grant) => role_grant,
+                                None => {
+                                    return Ok(ValidateCallbackResult::Invalid(
+                                        "The updated entry type must be the same as the original entry type"
+                                            .to_string(),
+                                    ));
+                                }
+                            };
+                            validate_update_role_grant(
+                                action,
+                                role_grant,
+                                original_action,
+                                original_role_grant,
+                            )
+                        } else {
+                            Ok(result)
+                        }
+                    }
                 }
             }
             OpRecord::DeleteEntry { action } => {
@@ -483,6 +546,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Contact(original_contact) => {
                         validate_delete_contact(action, original_action, original_contact)
                     }
+                    EntryTypes::RoleGrant(original_role_grant) => {
+                        validate_delete_role_grant(action, original_action, original_role_grant)
+                    }
                 }
             }
             OpRecord::CreateLink { link_type, action } => {
@@ -520,6 +586,12 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     LinkTypes::AllContacts => {
                         validate_create_link_all_contacts(action, base_address, target_address, tag)
                     }
+                    LinkTypes::AllRoleGrants => validate_create_link_all_role_grants(
+                        action,
+                        base_address,
+                        target_address,
+                        tag,
+                    ),
                 }
             }
             OpRecord::DeleteLink { action } => {
@@ -584,6 +656,13 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         tag,
                     ),
                     LinkTypes::AllContacts => validate_delete_link_all_contacts(
+                        action,
+                        create_link,
+                        base_address,
+                        target_address,
+                        tag,
+                    ),
+                    LinkTypes::AllRoleGrants => validate_delete_link_all_role_grants(
                         action,
                         create_link,
                         base_address,

@@ -25,7 +25,10 @@ test('set and get Config', async () => {
       payload: { input: null, local: true },
     });
     assert.ok(record);
-    assert.deepEqual(sample, decode((record.entry as any).Present.entry) as any);
+    assert.deepEqual(
+      { ...sample, role_evidence: null },
+      decode((record.entry as any).Present.entry) as any,
+    );
   });
 });
 
@@ -45,6 +48,9 @@ test('get_config returns the most recently set Config', async () => {
       fn_name: "get_config",
       payload: { input: null, local: true },
     });
-    assert.deepEqual(latest, decode((record.entry as any).Present.entry) as any);
+    assert.deepEqual(
+      { ...latest, role_evidence: null },
+      decode((record.entry as any).Present.entry) as any,
+    );
   });
 });

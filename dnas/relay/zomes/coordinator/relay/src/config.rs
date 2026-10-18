@@ -2,9 +2,23 @@ use hdk::prelude::*;
 use relay_integrity::*;
 
 use crate::helper::ZomeFnInput;
+use crate::role::find_role_grant;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SetConfigInput {
+    pub title: String,
+    pub image: String,
+}
+
 #[hdk_extern]
-pub fn set_config(config: Config) -> ExternResult<()> {
-    let config_hash = create_entry(&EntryTypes::Config(config.clone()))?;
+pub fn set_config(input: SetConfigInput) -> ExternResult<()> {
+    let me = agent_info()?.agent_initial_pubkey;
+    let config = Config {
+        title: input.title,
+        image: input.image,
+        role_evidence: find_role_grant(&me)?,
+    };
+    let config_hash = create_entry(&EntryTypes::Config(config))?;
     let path = Path::from("config");
     let _link = create_link(
         path.path_entry_hash()?,
