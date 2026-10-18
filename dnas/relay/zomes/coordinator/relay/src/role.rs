@@ -85,14 +85,17 @@ pub fn find_message_role_evidence() -> ExternResult<Option<ActionHash>> {
         return Ok(None);
     }
     let props = Properties::try_from(info.modifiers.properties).map_err(|e| wasm_error!(e))?;
-    if props.mode != ConversationMode::ModeratedReadOnly {
+    let me = agent_info()?.agent_initial_pubkey;
+    if props.progenitor == me {
         return Ok(None);
     }
-    let me = agent_info()?.agent_initial_pubkey;
-    if let Some(hash) = find_role_grant(&me, GrantedRole::Moderator)? {
-        return Ok(Some(hash));
+    if props.mode != ConversationMode::ModeratedReadOnly {
+        return find_membership(&me);
     }
-    find_role_grant(&me, GrantedRole::Writer)
+    match find_role_grant(&me, GrantedRole::Moderator)? {
+        Some(hash) => Ok(Some(hash)),
+        None => find_role_grant(&me, GrantedRole::Writer),
+    }
 }
 
 #[hdk_extern]
@@ -133,16 +136,7 @@ pub fn revoke_writer_role(agent: AgentPubKey) -> ExternResult<()> {
     let Some(role_grant_hash) = find_role_grant(&agent, GrantedRole::Writer)? else {
         return Ok(());
     };
-    let me = agent_info()?.agent_initial_pubkey;
-    if progenitor()?.is_none_or(|owner| owner != me) {
-        if let Some(moderator_evidence) = find_role_grant(&me, GrantedRole::Moderator)? {
-            create_entry(&EntryTypes::RoleEvidenceEntry(RoleEvidenceEntry {
-                role_evidence: moderator_evidence,
-            }))?;
-        }
-    }
-    delete_entry(role_grant_hash)?;
-    Ok(())
+    delete_as_authority(role_grant_hash)
 }
 
 fn create_role_grant(
@@ -161,5 +155,97 @@ fn create_role_grant(
         LinkTypes::AllRoleGrants,
         (),
     )?;
+    Ok(())
+}
+
+fn live_memberships() -> ExternResult<Vec<(ActionHash, Membership)>> {
+    let links = get_links(
+        LinkQuery {
+            base: Path::from("members").path_entry_hash()?.into(),
+            link_type: LinkTypes::AllMemberships.try_into_filter()?,
+            tag_prefix: None,
+            after: None,
+            before: None,
+            author: None,
+        },
+        GetStrategy::Local,
+    )?;
+    let mut memberships = Vec::new();
+    for link in links {
+        let Some(action_hash) = link.target.into_action_hash() else {
+            continue;
+        };
+        let Some(Details::Record(details)) =
+            get_details(action_hash.clone(), GetOptions::local())?
+        else {
+            continue;
+        };
+        if !details.deletes.is_empty() {
+            continue;
+        }
+        let Some(membership): Option<Membership> = details
+            .record
+            .entry()
+            .to_app_option()
+            .map_err(|e| wasm_error!(e))?
+        else {
+            continue;
+        };
+        memberships.push((action_hash, membership));
+    }
+    Ok(memberships)
+}
+
+fn find_membership(agent: &AgentPubKey) -> ExternResult<Option<ActionHash>> {
+    Ok(live_memberships()?
+        .into_iter()
+        .find(|(_, membership)| &membership.for_agent == agent)
+        .map(|(action_hash, _)| action_hash))
+}
+
+#[hdk_extern]
+pub fn get_members(_: ()) -> ExternResult<Vec<AgentPubKey>> {
+    Ok(live_memberships()?
+        .into_iter()
+        .map(|(_, membership)| membership.for_agent)
+        .collect())
+}
+
+#[hdk_extern]
+pub fn create_membership(_: ()) -> ExternResult<()> {
+    let me = agent_info()?.agent_initial_pubkey;
+    let membership_hash = create_entry(&EntryTypes::Membership(Membership { for_agent: me }))?;
+    create_link(
+        Path::from("members").path_entry_hash()?,
+        membership_hash,
+        LinkTypes::AllMemberships,
+        (),
+    )?;
+    Ok(())
+}
+
+#[hdk_extern]
+pub fn remove_member(agent: AgentPubKey) -> ExternResult<()> {
+    for role in [GrantedRole::Writer, GrantedRole::Moderator] {
+        if let Some(role_grant_hash) = find_role_grant(&agent, role)? {
+            delete_as_authority(role_grant_hash)?;
+        }
+    }
+    if let Some(membership_hash) = find_membership(&agent)? {
+        delete_as_authority(membership_hash)?;
+    }
+    Ok(())
+}
+
+fn delete_as_authority(hash: ActionHash) -> ExternResult<()> {
+    let me = agent_info()?.agent_initial_pubkey;
+    if progenitor()?.is_none_or(|owner| owner != me) {
+        if let Some(moderator_evidence) = find_role_grant(&me, GrantedRole::Moderator)? {
+            create_entry(&EntryTypes::RoleEvidenceEntry(RoleEvidenceEntry {
+                role_evidence: moderator_evidence,
+            }))?;
+        }
+    }
+    delete_entry(hash)?;
     Ok(())
 }

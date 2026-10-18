@@ -66,7 +66,7 @@ export interface ConversationMessageStore
   sendJoinNotice: (key1: CellIdB64) => Promise<void>;
   sendModeratorNotice: (
     key1: CellIdB64,
-    kind: "moderator_granted" | "moderator_revoked",
+    kind: "moderator_granted" | "moderator_revoked" | "member_removed",
     targetAgentPubKeyB64: AgentPubKeyB64,
   ) => Promise<void>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
@@ -937,7 +937,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
 
   async function sendModeratorNotice(
     key1: CellIdB64,
-    kind: "moderator_granted" | "moderator_revoked",
+    kind: "moderator_granted" | "moderator_revoked" | "member_removed",
     targetAgentPubKeyB64: AgentPubKeyB64,
   ): Promise<void> {
     return _sendNotice(key1, `${kind}:${targetAgentPubKeyB64}`);
@@ -1111,7 +1111,7 @@ export interface CellConversationMessageStore
   sendMessage: (content: string, files: LocalFile[]) => Promise<void>;
   sendJoinNotice: () => Promise<void>;
   sendModeratorNotice: (
-    kind: "moderator_granted" | "moderator_revoked",
+    kind: "moderator_granted" | "moderator_revoked" | "member_removed",
     targetAgentPubKeyB64: AgentPubKeyB64,
   ) => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
@@ -1168,7 +1168,7 @@ export function deriveCellConversationMessageStore(
       conversationMessageStore.sendMessage(key, content, files),
     sendJoinNotice: () => conversationMessageStore.sendJoinNotice(key),
     sendModeratorNotice: (
-      kind: "moderator_granted" | "moderator_revoked",
+      kind: "moderator_granted" | "moderator_revoked" | "member_removed",
       targetAgentPubKeyB64: AgentPubKeyB64,
     ) => conversationMessageStore.sendModeratorNotice(key, kind, targetAgentPubKeyB64),
     handleMessageSignalReceived: (signal: MessageSignal) =>
