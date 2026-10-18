@@ -6,15 +6,18 @@ Built with Holochain + Tauri + SvelteKit + TailWind + Skeleton
 
 ## Developer Notes
 
-Volla Messages is a Holochain application deployed using [p2pShipyard](https://darksoil.studio/p2p-shipyard/) for Mobile and Desktop.
-
-Note: the `tauri-plugin-holochain` dependency is pinned to an exact rev of
-`darksoil-studio/tauri-plugin-holochain`, a repo whose availability has been
-unreliable. If it becomes unfetchable, push a local clone of that repo (at the
-pinned rev) to a HelloVolla-controlled remote and swap the `git` URL in
-`src-tauri/Cargo.toml` — same rev, no other changes. A planned migration off
-this dependency is documented in
+Volla Messages is a Holochain application built with the in-process
+`tauri-plugin-holochain` from
+[holochain/android-service-runtime](https://github.com/holochain/android-service-runtime)
+(pinned by rev in `src-tauri/Cargo.toml`). The UI talks to the conductor over
+direct Tauri IPC via `@holochain/client`'s Tauri transport — no loopback
+websocket. The migration history and remaining follow-ups (data migration,
+the Android service track) are documented in
 `docs/superpowers/plans/2026-08-13-desktop-unified-plugin-migration.md`.
+
+Note: the `holochain_service` build (Android system-runtime) still depends on
+the holochain-0.6.1-based `volla-cloud-services` fork and is broken until that
+fork updates to holochain 0.7.
 
 ### Run on desktop
 
