@@ -9,7 +9,12 @@ import { setModeCurrent } from "@skeletonlabs/skeleton";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Base64 } from "js-base64";
 import type { AgentPubKeyB64, CellId } from "@holochain/client";
-import { DeliveryStatus, type CellIdB64, type MessageExtended } from "./types";
+import {
+  DeliveryStatus,
+  type CellIdB64,
+  type ConversationExtended,
+  type MessageExtended,
+} from "./types";
 import { format } from "date-fns";
 
 /**
@@ -155,6 +160,46 @@ export function isWithinFiveMinutes(d1: Date, d2?: Date): boolean {
   if (d2 === undefined) return false;
 
   return Math.abs(d1.getTime() - d2.getTime()) <= 5 * 60 * 1000;
+}
+
+export type ModerationNoticeKind = "moderator_granted" | "moderator_revoked" | "member_removed";
+
+/**
+ * A system notice's content ("<kind>:<target>") is an unauthenticated string:
+ * any member can post one. Only trust it as a real moderation event when both
+ * the claimed author and the claimed target's current state are consistent
+ * with it actually having happened - granting/revoking Moderator is
+ * Owner-only, removing a member is Owner-or-Moderator-only.
+ */
+export function verifyModerationNotice(
+  kind: string,
+  target: AgentPubKeyB64 | undefined,
+  authorAgentPubKeyB64: AgentPubKeyB64,
+  conversation: Pick<ConversationExtended, "dnaProperties" | "moderators" | "members">,
+): ModerationNoticeKind | undefined {
+  if (!target) return undefined;
+
+  const authorIsOwner = authorAgentPubKeyB64 === conversation.dnaProperties.progenitor;
+  const authorIsModerator = conversation.moderators.includes(authorAgentPubKeyB64);
+
+  if (kind === "moderator_granted" && authorIsOwner && conversation.moderators.includes(target)) {
+    return kind;
+  }
+  if (
+    kind === "moderator_revoked" &&
+    authorIsOwner &&
+    !conversation.moderators.includes(target)
+  ) {
+    return kind;
+  }
+  if (
+    kind === "member_removed" &&
+    (authorIsOwner || authorIsModerator) &&
+    !conversation.members.includes(target)
+  ) {
+    return kind;
+  }
+  return undefined;
 }
 
 export function computeDeliveryStatus(

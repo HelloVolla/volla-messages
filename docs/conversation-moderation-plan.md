@@ -120,3 +120,29 @@ network-isolated malicious author's own node could still create and gossip
 a message or membership after close; honest validators would propagate it
 since they can't reject it deterministically. History stays visible to
 current members either way, since Close only gates new writes.
+
+## Security review round 3
+
+- `authorization-revocation-bypass` and `missing-integrity-check` in
+  `role.rs`: both are the stale-evidence gap already named above (role
+  grants and membership proofs are validated by resolving their original
+  `ActionHash`, which stays resolvable after the entry is later deleted) —
+  no new code, same accepted limitation as #217/#218/#219.
+- `spoofable-system-notice` in `NoticeMessage.svelte`/`MessagePreview.svelte`:
+  real gap, fixed. `Message.content` for a system notice was an
+  unauthenticated string (`"<kind>:<targetAgentPubKeyB64>"`); any member
+  could post one claiming a grant/revoke/removal that never happened. Both
+  components now cross-check the claimed kind against the conversation's
+  live `moderators`/`members` lists before rendering the privileged text,
+  falling back to the generic notice otherwise.
+- Round 4 follow-up (`authorization-spoofing` on the same two files): the
+  round-3 fix checked the claimed *target's* state but not the claimed
+  *author's* authority, so a non-moderator could still take credit for a
+  real grant/revoke/removal they didn't perform (e.g. claim
+  `"member_removed:<agent already not a member for any reason>"`). Fixed by
+  adding an author check in the shared `verifyModerationNotice` helper
+  (`ui/src/lib/utils.ts`): granting/revoking Moderator requires the author to
+  be the conversation owner (Moderator role grants are Owner-only per
+  `validate_create_role_grant`), and removing a member requires the author
+  to be the owner or a current moderator (matches
+  `require_owner_or_moderator_for_delete`).
