@@ -21,10 +21,10 @@ fn recv_remote_signal(payload: RemoteSignalPayload) -> ExternResult<()> {
         RemoteSignalPayload::Message(message_record) => {
             let info: CallInfo = call_info()?;
 
-            let is_deletion = match message_record.signed_action.action() {
-                Action::Delete(_) => true,
-                _ => false,
-            };
+            let is_deletion = matches!(
+                message_record.signed_action.action().data,
+                ActionData::Delete(_)
+            );
 
             if is_deletion {
                 let signal = Signal::MessageDeleted {
@@ -120,8 +120,8 @@ pub fn post_commit(committed_actions: Vec<SignedActionHashed>) {
     }
 }
 fn signal_action(action: SignedActionHashed) -> ExternResult<()> {
-    match action.hashed.content.clone() {
-        Action::CreateLink(create_link) => {
+    match action.hashed.content.data.clone() {
+        ActionData::CreateLink(create_link) => {
             if let Ok(Some(link_type)) =
                 LinkTypes::from_type(create_link.zome_index, create_link.link_type)
             {
@@ -129,14 +129,14 @@ fn signal_action(action: SignedActionHashed) -> ExternResult<()> {
             }
             Ok(())
         }
-        Action::DeleteLink(delete_link) => {
+        ActionData::DeleteLink(delete_link) => {
             let record = get(delete_link.link_add_address.clone(), GetOptions::local())?.ok_or(
                 wasm_error!(WasmErrorInner::Guest(
                     "Failed to fetch CreateLink action".to_string()
                 )),
             )?;
-            match record.action() {
-                Action::CreateLink(create_link) => {
+            match &record.action().data {
+                ActionData::CreateLink(create_link) => {
                     if let Ok(Some(link_type)) =
                         LinkTypes::from_type(create_link.zome_index, create_link.link_type)
                     {
@@ -153,13 +153,13 @@ fn signal_action(action: SignedActionHashed) -> ExternResult<()> {
                 ))),
             }
         }
-        Action::Create(_create) => {
+        ActionData::Create(_create) => {
             if let Ok(Some(app_entry)) = get_entry_for_action(&action.hashed.hash) {
                 emit_signal(Signal::EntryCreated { action, app_entry })?;
             }
             Ok(())
         }
-        Action::Update(update) => {
+        ActionData::Update(update) => {
             if let Ok(Some(app_entry)) = get_entry_for_action(&action.hashed.hash) {
                 if let Ok(Some(original_app_entry)) =
                     get_entry_for_action(&update.original_action_address)
@@ -173,7 +173,7 @@ fn signal_action(action: SignedActionHashed) -> ExternResult<()> {
             }
             Ok(())
         }
-        Action::Delete(delete) => {
+        ActionData::Delete(delete) => {
             if let Ok(Some(original_app_entry)) = get_entry_for_action(&delete.deletes_address) {
                 emit_signal(Signal::EntryDeleted {
                     action,
@@ -234,12 +234,12 @@ pub fn get_network_diagnostics(_: ()) -> ExternResult<NetworkDiagnostics> {
     let mut delete_link_count = 0;
 
     for record in &all_records {
-        match record.action() {
-            Action::Create(_) => create_count += 1,
-            Action::Update(_) => update_count += 1,
-            Action::Delete(_) => delete_count += 1,
-            Action::CreateLink(_) => create_link_count += 1,
-            Action::DeleteLink(_) => delete_link_count += 1,
+        match record.action().data {
+            ActionData::Create(_) => create_count += 1,
+            ActionData::Update(_) => update_count += 1,
+            ActionData::Delete(_) => delete_count += 1,
+            ActionData::CreateLink(_) => create_link_count += 1,
+            ActionData::DeleteLink(_) => delete_link_count += 1,
             _ => {}
         }
     }
@@ -273,8 +273,9 @@ pub fn generate_membrane_proof(input: MembraneProofData) -> ExternResult<Seriali
     Ok(proof)
 }
 
-#[hdk_extern]
-pub fn get_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<MembraneProofData>> {
+/// Read an agent's membrane proof out of their `AgentValidationPkg` action,
+/// still serialized and with the progenitor's signature intact.
+fn find_raw_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<SerializedBytes>> {
     match get_details(agent, GetOptions::local())? {
         None => Ok(None),
         Some(details) => match details {
@@ -283,15 +284,11 @@ pub fn get_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<MembranePro
                 let maybe_record = get(prev.clone(), GetOptions::local())?;
                 match maybe_record {
                     None => Err(wasm_error!("expected agent validation record")),
-                    Some(record) => match record.action() {
-                        Action::AgentValidationPkg(AgentValidationPkg {
+                    Some(record) => match &record.action().data {
+                        ActionData::AgentValidationPkg(AgentValidationPkgData {
                             membrane_proof, ..
                         }) => match membrane_proof {
-                            Some(proof) => {
-                                let envelope = MembraneProofEnvelope::try_from((**proof).clone())
-                                    .map_err(|e| wasm_error!(e))?;
-                                Ok(Some(envelope.data))
-                            }
+                            Some(proof) => Ok(Some((**proof).clone())),
                             None => Ok(None),
                         },
                         _ => Err(wasm_error!("expected AgentValidationPkg")),
@@ -301,4 +298,29 @@ pub fn get_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<MembranePro
             _ => Err(wasm_error!("unexpected entry type")),
         },
     }
+}
+
+#[hdk_extern]
+pub fn get_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<MembraneProofData>> {
+    match find_raw_membrane_proof(agent)? {
+        None => Ok(None),
+        Some(raw) => {
+            let envelope = MembraneProofEnvelope::try_from(raw).map_err(|e| wasm_error!(e))?;
+            Ok(Some(envelope.data))
+        }
+    }
+}
+
+/// Like `get_membrane_proof`, but returns the whole signed envelope rather than
+/// only its inner data.
+///
+/// The migration export needs the signature. `check_agent` in the integrity
+/// zome binds a proof to `conversation_id`, `for_agent`, and a progenitor
+/// signature over that data — never to the DNA hash. So an existing proof stays
+/// valid on a new DNA as long as the network seed, the progenitor, and the
+/// agent's own key are unchanged, and replaying it is what lets a
+/// non-progenitor re-join a private conversation after a DNA-breaking upgrade.
+#[hdk_extern]
+pub fn get_raw_membrane_proof(agent: AgentPubKey) -> ExternResult<Option<SerializedBytes>> {
+    find_raw_membrane_proof(agent)
 }

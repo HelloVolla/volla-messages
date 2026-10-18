@@ -10,26 +10,26 @@ pub struct Config {
     pub role_evidence: Option<ActionHash>,
 }
 pub fn validate_create_config(
-    action: EntryCreationAction,
+    action: TypedAction<EntryCreationData>,
     config: Config,
 ) -> ExternResult<ValidateCallbackResult> {
     require_owner_or_moderator(action.author(), config.role_evidence)
 }
 pub fn validate_update_config(
-    action: Update,
+    action: TypedAction<UpdateData>,
     config: Config,
 ) -> ExternResult<ValidateCallbackResult> {
-    require_owner_or_moderator(&action.author, config.role_evidence)
+    require_owner_or_moderator(action.author(), config.role_evidence)
 }
 pub fn validate_delete_config(
-    _action: Delete,
-    _original_action: EntryCreationAction,
+    _action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
     _original_config: Config,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Invalid(String::from("Config cannot be deleted")))
 }
 pub fn validate_create_link_config_updates(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -69,8 +69,8 @@ pub fn validate_create_link_config_updates(
     Ok(ValidateCallbackResult::Valid)
 }
 pub fn validate_delete_link_config_updates(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
