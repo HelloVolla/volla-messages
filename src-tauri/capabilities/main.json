@@ -26,6 +26,7 @@
     "os:allow-platform",
     "dialog:allow-save",
     "fs:write-all",
-    "log:default"
+    "log:default",
+    "holochain:default"
   ]
 }

@@ -22,7 +22,7 @@ pub struct RoleGrant {
 }
 
 pub fn validate_create_role_grant(
-    action: EntryCreationAction,
+    action: TypedAction<EntryCreationData>,
     role_grant: RoleGrant,
 ) -> ExternResult<ValidateCallbackResult> {
     match role_grant.role {
@@ -34,9 +34,9 @@ pub fn validate_create_role_grant(
 }
 
 pub fn validate_update_role_grant(
-    _action: Update,
+    _action: TypedAction<UpdateData>,
     _role_grant: RoleGrant,
-    _original_action: EntryCreationAction,
+    _original_action: TypedAction<EntryCreationData>,
     _original_role_grant: RoleGrant,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Invalid(
@@ -45,18 +45,18 @@ pub fn validate_update_role_grant(
 }
 
 pub fn validate_delete_role_grant(
-    action: Delete,
-    _original_action: EntryCreationAction,
+    action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
     original_role_grant: RoleGrant,
 ) -> ExternResult<ValidateCallbackResult> {
     match original_role_grant.role {
-        GrantedRole::Moderator => require_owner(&action.author),
+        GrantedRole::Moderator => require_owner(action.author()),
         GrantedRole::Writer => require_owner_or_moderator_for_delete(&action),
     }
 }
 
 pub fn validate_create_link_all_role_grants(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -85,8 +85,8 @@ pub fn validate_create_link_all_role_grants(
 }
 
 pub fn validate_delete_link_all_role_grants(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
@@ -103,7 +103,7 @@ pub struct Membership {
 }
 
 pub fn validate_create_membership(
-    action: EntryCreationAction,
+    action: TypedAction<EntryCreationData>,
     membership: Membership,
 ) -> ExternResult<ValidateCallbackResult> {
     if action.author() != &membership.for_agent {
@@ -115,9 +115,9 @@ pub fn validate_create_membership(
 }
 
 pub fn validate_update_membership(
-    _action: Update,
+    _action: TypedAction<UpdateData>,
     _membership: Membership,
-    _original_action: EntryCreationAction,
+    _original_action: TypedAction<EntryCreationData>,
     _original_membership: Membership,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Invalid(
@@ -126,18 +126,18 @@ pub fn validate_update_membership(
 }
 
 pub fn validate_delete_membership(
-    action: Delete,
-    _original_action: EntryCreationAction,
+    action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
     original_membership: Membership,
 ) -> ExternResult<ValidateCallbackResult> {
-    if action.author == original_membership.for_agent {
+    if action.author() == &original_membership.for_agent {
         return Ok(ValidateCallbackResult::Valid);
     }
     require_owner_or_moderator_for_delete(&action)
 }
 
 pub fn validate_create_link_all_memberships(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -166,8 +166,8 @@ pub fn validate_create_link_all_memberships(
 }
 
 pub fn validate_delete_link_all_memberships(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
@@ -185,7 +185,7 @@ pub struct Ban {
 }
 
 pub fn validate_create_ban(
-    action: EntryCreationAction,
+    action: TypedAction<EntryCreationData>,
     ban: Ban,
 ) -> ExternResult<ValidateCallbackResult> {
     if action.author() == &ban.for_agent {
@@ -197,9 +197,9 @@ pub fn validate_create_ban(
 }
 
 pub fn validate_update_ban(
-    _action: Update,
+    _action: TypedAction<UpdateData>,
     _ban: Ban,
-    _original_action: EntryCreationAction,
+    _original_action: TypedAction<EntryCreationData>,
     _original_ban: Ban,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Invalid(
@@ -208,15 +208,15 @@ pub fn validate_update_ban(
 }
 
 pub fn validate_delete_ban(
-    action: Delete,
-    _original_action: EntryCreationAction,
+    action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
     _original_ban: Ban,
 ) -> ExternResult<ValidateCallbackResult> {
-    require_owner(&action.author)
+    require_owner(action.author())
 }
 
 pub fn validate_create_link_all_bans(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -245,8 +245,8 @@ pub fn validate_create_link_all_bans(
 }
 
 pub fn validate_delete_link_all_bans(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
@@ -263,16 +263,16 @@ pub struct Closed {
 }
 
 pub fn validate_create_closed(
-    action: EntryCreationAction,
+    action: TypedAction<EntryCreationData>,
     _closed: Closed,
 ) -> ExternResult<ValidateCallbackResult> {
     require_owner(action.author())
 }
 
 pub fn validate_update_closed(
-    _action: Update,
+    _action: TypedAction<UpdateData>,
     _closed: Closed,
-    _original_action: EntryCreationAction,
+    _original_action: TypedAction<EntryCreationData>,
     _original_closed: Closed,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Invalid(
@@ -281,8 +281,8 @@ pub fn validate_update_closed(
 }
 
 pub fn validate_delete_closed(
-    _action: Delete,
-    _original_action: EntryCreationAction,
+    _action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
     _original_closed: Closed,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Invalid(
@@ -291,7 +291,7 @@ pub fn validate_delete_closed(
 }
 
 pub fn validate_create_link_all_closed(
-    _action: CreateLink,
+    _action: TypedAction<CreateLinkData>,
     base_address: AnyLinkableHash,
     target_address: AnyLinkableHash,
     _tag: LinkTag,
@@ -320,8 +320,8 @@ pub fn validate_create_link_all_closed(
 }
 
 pub fn validate_delete_link_all_closed(
-    _action: DeleteLink,
-    _original_action: CreateLink,
+    _action: TypedAction<DeleteLinkData>,
+    _original_action: TypedAction<CreateLinkData>,
     _base: AnyLinkableHash,
     _target: AnyLinkableHash,
     _tag: LinkTag,
@@ -338,16 +338,16 @@ pub struct RoleEvidenceEntry {
 }
 
 pub fn validate_create_role_evidence_entry(
-    _action: EntryCreationAction,
+    _action: TypedAction<EntryCreationData>,
     _role_evidence_entry: RoleEvidenceEntry,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
 }
 
 pub fn validate_update_role_evidence_entry(
-    _action: Update,
+    _action: TypedAction<UpdateData>,
     _role_evidence_entry: RoleEvidenceEntry,
-    _original_action: EntryCreationAction,
+    _original_action: TypedAction<EntryCreationData>,
     _original_role_evidence_entry: RoleEvidenceEntry,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Invalid(
@@ -356,8 +356,8 @@ pub fn validate_update_role_evidence_entry(
 }
 
 pub fn validate_delete_role_evidence_entry(
-    _action: Delete,
-    _original_action: EntryCreationAction,
+    _action: TypedAction<DeleteData>,
+    _original_action: TypedAction<EntryCreationData>,
     _original_role_evidence_entry: RoleEvidenceEntry,
 ) -> ExternResult<ValidateCallbackResult> {
     Ok(ValidateCallbackResult::Valid)
@@ -476,12 +476,15 @@ pub fn require_membership(
 }
 
 pub fn require_owner_or_moderator_for_delete(
-    action: &Delete,
+    action: &TypedAction<DeleteData>,
 ) -> ExternResult<ValidateCallbackResult> {
-    if is_owner(&action.author)? {
+    if is_owner(action.author())? {
         return Ok(ValidateCallbackResult::Valid);
     }
-    let record = must_get_valid_record(action.prev_action.clone())?;
+    let prev_action = action.prev_action().cloned().ok_or(wasm_error!(
+        WasmErrorInner::Guest("Delete action has no previous action".to_string())
+    ))?;
+    let record = must_get_valid_record(prev_action)?;
     let evidence_entry: RoleEvidenceEntry = match record.entry().to_app_option().map_err(|e| wasm_error!(e))? {
         Some(entry) => entry,
         None => {
@@ -491,5 +494,5 @@ pub fn require_owner_or_moderator_for_delete(
             ));
         }
     };
-    require_owner_or_moderator(&action.author, Some(evidence_entry.role_evidence))
+    require_owner_or_moderator(action.author(), Some(evidence_entry.role_evidence))
 }

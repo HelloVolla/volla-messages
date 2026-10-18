@@ -1,7 +1,7 @@
 {
     "name": "volla-messages.volla",
-    "description": "Volla Messages",
-    "architecture": "@CLICK_ARCH@",
+    "description": "Private chat for Ubuntu Touch, Android and Desktop environments.",
+    "architecture": "$ENV{ARCH}",
     "title": "Volla Messages",
     "hooks": {
         "volla-messages": {
@@ -9,7 +9,7 @@
             "desktop":  "volla-messages.desktop"
         }
     },
-    "version": "@CLICK_VERSION@",
+    "version": "1.0.3",
     "maintainer": "Volla Systeme GmbH <hello@volla.online>",
-    "framework" : "@CLICK_FRAMEWORK@"
+    "framework" : "$ENV{CLICK_FRAMEWORK}"
 }
