@@ -149,6 +149,12 @@
       // Setup stores
       relayClient = new RelayClient(client, provisionedRelayCellId);
       myPubKeyB64 = encodeHashToBase64(client.myPubKey);
+
+      // First launch after upgrading from 1.x: restore the account from the
+      // 1.0.3 export. Before any store exists, because stores read their
+      // localStorage state once at creation. Little to do on later launches.
+      await importMigrationExport(relayClient, myPubKeyB64);
+
       contactStore = createContactStore(relayClient);
       profileStore = createProfileStore(relayClient);
       provisionedRelayCellProfileStore = deriveCellProfileStore(
@@ -196,15 +202,6 @@
       // Initialize store data
       await contactStore.initialize();
       await profileStore.initialize();
-
-      // First launch after upgrading from 1.x: restore the profile and
-      // conversations before the stores below load them. A no-op afterwards.
-      await importMigrationExport(
-        relayClient,
-        profileStore,
-        provisionedRelayCellIdB64,
-        myPubKeyB64,
-      );
 
       await conversationStore.initialize();
       await conversationMessageStore.initialize();
