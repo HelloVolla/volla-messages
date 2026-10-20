@@ -18,12 +18,18 @@ pub const BOOTSTRAP_URL: &'static str = "https://relay2.volla.tech/";
 pub const IROH_RELAY_URL: &'static str = "https://iroh-relay.volla.tech/";
 
 pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
+    // Before the plugin starts lair, so the conductor opens the carried 1.x
+    // keystore instead of creating an empty one.
+    crate::migration_identity::carry_keystore_forward(&holochain_dir());
+
     builder
         .plugin(tauri_plugin_holochain::init(
             vec_to_locked(vec![]),
             HolochainPluginConfig::new(holochain_dir(), network_config()),
         ))
         .setup(|app| {
+            crate::migration_identity::report_carry_outcome();
+
             let handle = app.handle().clone();
             let handle_fail = app.handle().clone();
             app.handle().listen(EVENT_SETUP_FAILED, move |event| {
@@ -122,21 +128,40 @@ async fn setup<R: Runtime>(handle: AppHandle<R>) -> anyhow::Result<()> {
     let runtime = handle.holochain()?.runtime();
 
     if !runtime.is_app_installed(APP_ID.into()).await? {
-        runtime
-            .setup_app(
-                InstallAppPayload {
-                    source: AppBundleSource::Bytes(HAPP_BUNDLE_BYTES.to_vec().into()),
-                    agent_key: None,
-                    installed_app_id: Some(APP_ID.into()),
-                    // Generate a random network seed so every user has their own private DHT for storing contacts
-                    network_seed: Some(Uuid::new_v4().to_string()),
-                    roles_settings: Some(HashMap::new()),
-                    ignore_genesis_failure: false,
-                    restore_from_dht: false,
-                },
-                true,
-            )
-            .await?;
+        let install_payload = |agent_key| InstallAppPayload {
+            source: AppBundleSource::Bytes(HAPP_BUNDLE_BYTES.to_vec().into()),
+            agent_key,
+            installed_app_id: Some(APP_ID.into()),
+            // Generate a random network seed so every user has their own private DHT for storing contacts
+            network_seed: Some(Uuid::new_v4().to_string()),
+            roles_settings: Some(HashMap::new()),
+            ignore_genesis_failure: false,
+            restore_from_dht: false,
+        };
+
+        // Install under the 1.x agent when its keystore was carried over, so
+        // membrane proofs naming that agent still admit it to its private
+        // conversations.
+        match crate::migration_identity::carried_agent_key(&holochain_dir()) {
+            Some(agent_key) => {
+                log::info!("installing under the carried 1.x agent {agent_key}");
+                if let Err(e) = runtime
+                    .setup_app(install_payload(Some(agent_key)), true)
+                    .await
+                {
+                    // Falling back costs the user their old identity, but
+                    // failing here would leave the app unable to start at all,
+                    // on every launch.
+                    log::error!(
+                        "installing under the carried agent failed, starting with a new agent: {e:?}"
+                    );
+                    runtime.setup_app(install_payload(None), true).await?;
+                }
+            }
+            None => {
+                runtime.setup_app(install_payload(None), true).await?;
+            }
+        }
         happ_update::record_installed_bundle_hash(&holochain_dir(), APP_ID, HAPP_BUNDLE_BYTES)?;
     } else {
         happ_update::update_app_if_necessary(&runtime, &holochain_dir(), APP_ID, HAPP_BUNDLE_BYTES)

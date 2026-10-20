@@ -62,14 +62,25 @@ fn export_path(agent: Option<&str>) -> Result<PathBuf, String> {
     Ok(app_root()?.join(dir).join(file))
 }
 
+/// Root of the app's own data directory, for modules that need to place files
+/// relative to the export rather than inside a version bucket.
+pub(crate) fn app_root_dir() -> Result<PathBuf, String> {
+    app_root()
+}
+
 /// Read the migration export, or `None` when there is none to import.
-#[tauri::command]
-pub fn read_migration_export(agent: Option<String>) -> Result<Option<String>, String> {
-    let path = export_path(agent.as_deref())?;
+pub(crate) fn read_export(agent: Option<&str>) -> Result<Option<String>, String> {
+    let path = export_path(agent)?;
 
     match fs::read_to_string(&path) {
         Ok(contents) => Ok(Some(contents)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("Could not read {}: {e}", path.display())),
     }
+}
+
+/// Read the migration export, or `None` when there is none to import.
+#[tauri::command]
+pub fn read_migration_export(agent: Option<String>) -> Result<Option<String>, String> {
+    read_export(agent.as_deref())
 }

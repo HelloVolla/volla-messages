@@ -50,6 +50,7 @@
   import { createFileStore, type FileStore } from "$store/FileStore";
   import { createNetworkStatsStore, type NetworkStatsStore } from "$store/NetworkStatsStore";
   import Dialog from "$lib/Dialog.svelte";
+  import { importMigrationExport } from "$lib/migrationImport";
 
   // Holochain client
   let client: AppClient;
@@ -195,6 +196,16 @@
       // Initialize store data
       await contactStore.initialize();
       await profileStore.initialize();
+
+      // First launch after upgrading from 1.x: restore the profile and
+      // conversations before the stores below load them. A no-op afterwards.
+      await importMigrationExport(
+        relayClient,
+        profileStore,
+        provisionedRelayCellIdB64,
+        myPubKeyB64,
+      );
+
       await conversationStore.initialize();
       await conversationMessageStore.initialize();
 
