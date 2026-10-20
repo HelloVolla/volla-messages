@@ -40,12 +40,15 @@ export class RelayClient {
     public provisionedRelayCellId: CellId,
   ) {}
 
+  // The 0.7 profiles zome takes `ZomeFnInput<Profile>` ({ input, local }) for
+  // writes, not a bare profile. `local` is left unset: it defaults to true,
+  // which keeps the nickname path write off the network.
   async createProfile(cellId: CellId, payload: Profile): Promise<Record> {
     return this.client.callZome({
       cell_id: cellId,
       zome_name: "profiles",
       fn_name: "create_profile",
-      payload,
+      payload: { input: payload },
     });
   }
 
@@ -54,7 +57,7 @@ export class RelayClient {
       cell_id: cellId,
       zome_name: "profiles",
       fn_name: "update_profile",
-      payload,
+      payload: { input: payload },
     });
   }
 
@@ -307,7 +310,7 @@ export class RelayClient {
       cell_id,
       zome_name: "profiles",
       fn_name: "create_profile",
-      payload: profile,
+      payload: { input: profile },
     });
   }
 
