@@ -14,7 +14,9 @@ pub fn run() {
             migration_export::write_migration_export,
             migration_export::read_migration_export,
             migration_export::set_pending_enable,
-            migration_export::get_pending_enable
+            migration_export::get_pending_enable,
+            migration_export::write_history_export,
+            migration_export::read_history_export
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())

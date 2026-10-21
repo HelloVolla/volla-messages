@@ -51,6 +51,7 @@
   import { createNetworkStatsStore, type NetworkStatsStore } from "$store/NetworkStatsStore";
   import Dialog from "$lib/Dialog.svelte";
   import { exportMigrationData } from "$lib/migrationExport";
+  import { exportHistory } from "$lib/historyExport";
 
   // Holochain client
   let client: AppClient;
@@ -225,6 +226,9 @@
         migrationExportTimer = undefined;
         runMigrationExport();
       }
+      if (isStoresSetup && Date.now() - lastHistoryExport > HISTORY_EXPORT_MIN_GAP_MS) {
+        runHistoryExport();
+      }
       return;
     }
 
@@ -275,6 +279,21 @@
     }, MIGRATION_EXPORT_COALESCE_MS);
   }
 
+  // Message history for the next major release. It changes with every message,
+  // so it is exported on a timer and when the app is backgrounded rather than
+  // on store changes. A full run on a real account took a few seconds.
+  const HISTORY_EXPORT_FIRST_DELAY_MS = 15_000;
+  const HISTORY_EXPORT_INTERVAL_MS = 30 * 60 * 1000;
+  const HISTORY_EXPORT_MIN_GAP_MS = 5 * 60 * 1000;
+  let historyExportInterval: ReturnType<typeof setInterval> | undefined;
+  let lastHistoryExport = 0;
+
+  function runHistoryExport() {
+    lastHistoryExport = Date.now();
+    // Not awaited and never fatal, like the main export.
+    void exportHistory(relayClient, conversationStore, myPubKeyB64);
+  }
+
   async function setupApp() {
     initLightDarkModeSwitcher();
     await initHolochainClient();
@@ -291,6 +310,19 @@
       conversationStore.subscribe(scheduleMigrationExport),
       contactStore.subscribe(scheduleMigrationExport),
     ];
+
+    setTimeout(runHistoryExport, HISTORY_EXPORT_FIRST_DELAY_MS);
+    historyExportInterval = setInterval(runHistoryExport, HISTORY_EXPORT_INTERVAL_MS);
+
+    // MEASUREMENT ONLY: size the 1.0.4 history export. Built in only with
+    // VITE_MEASURE_HISTORY=1; delayed so it does not compete with startup.
+    if (import.meta.env.VITE_MEASURE_HISTORY === "1") {
+      setTimeout(() => {
+        import("$lib/historyMeasure").then(({ measureHistory }) =>
+          measureHistory(relayClient, conversationStore),
+        );
+      }, 10_000);
+    }
   }
 
   onMount(async () => {
@@ -301,6 +333,7 @@
   onDestroy(() => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     if (migrationExportTimer !== undefined) clearTimeout(migrationExportTimer);
+    if (historyExportInterval !== undefined) clearInterval(historyExportInterval);
     migrationExportUnsubscribers.forEach((unsubscribe) => unsubscribe());
   });
 

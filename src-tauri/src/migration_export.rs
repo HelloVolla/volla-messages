@@ -14,7 +14,7 @@
 
 use std::fs;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::APP_ID;
 
@@ -78,6 +78,13 @@ fn export_path(agent: Option<&str>) -> Result<PathBuf, String> {
 #[tauri::command]
 pub fn write_migration_export(contents: String, agent: Option<String>) -> Result<String, String> {
     let path = export_path(agent.as_deref())?;
+    write_atomically(&path, contents.as_bytes())?;
+    Ok(path.display().to_string())
+}
+
+/// Write `bytes` to `path` through a temporary file and a rename, so a crash
+/// or a full disk leaves the previous file intact instead of truncating it.
+fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let dir = path
         .parent()
         .ok_or_else(|| "Export path has no parent directory".to_string())?;
@@ -89,12 +96,62 @@ pub fn write_migration_export(contents: String, agent: Option<String>) -> Result
     fs::create_dir_all(dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
 
     let tmp_path = dir.join(format!("{file_name}.tmp"));
-    fs::write(&tmp_path, contents.as_bytes())
+    fs::write(&tmp_path, bytes)
         .map_err(|e| format!("Could not write {}: {e}", tmp_path.display()))?;
-    fs::rename(&tmp_path, &path)
+    fs::rename(&tmp_path, path)
         .map_err(|e| format!("Could not replace {}: {e}", path.display()))?;
+    Ok(())
+}
 
+/// Directory holding one message-history file per conversation, beside the
+/// main export. Shares the export's dev and per-agent scoping.
+fn history_dir(agent: Option<&str>) -> Result<PathBuf, String> {
+    let export = export_path(agent)?;
+    let dir = export
+        .parent()
+        .ok_or_else(|| "Export path has no parent directory".to_string())?;
+    let name = match (tauri::is_dev(), agent) {
+        (true, Some(agent)) => format!("history-{}", agent_fragment(agent)),
+        _ => "history".to_string(),
+    };
+    Ok(dir.join(name))
+}
+
+/// The history file for a conversation, named after its network seed.
+///
+/// The seed comes from the frontend, so anything that is not a plain UUID-like
+/// name is refused rather than allowed to form a path.
+fn history_path(seed: &str, agent: Option<&str>) -> Result<PathBuf, String> {
+    let valid = !seed.is_empty()
+        && seed.len() <= 128
+        && seed.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !valid {
+        return Err(format!("Refusing unexpected network seed {seed:?} as a file name"));
+    }
+    Ok(history_dir(agent)?.join(format!("{seed}.json")))
+}
+
+/// Write the message history of one conversation, replacing the previous one.
+#[tauri::command]
+pub fn write_history_export(
+    seed: String,
+    contents: String,
+    agent: Option<String>,
+) -> Result<String, String> {
+    let path = history_path(&seed, agent.as_deref())?;
+    write_atomically(&path, contents.as_bytes())?;
     Ok(path.display().to_string())
+}
+
+/// Read the exported history of one conversation, or `None` if there is none.
+#[tauri::command]
+pub fn read_history_export(seed: String, agent: Option<String>) -> Result<Option<String>, String> {
+    let path = history_path(&seed, agent.as_deref())?;
+    match fs::read_to_string(&path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("Could not read {}: {e}", path.display())),
+    }
 }
 
 fn pending_enable_path(agent: Option<&str>) -> Result<PathBuf, String> {

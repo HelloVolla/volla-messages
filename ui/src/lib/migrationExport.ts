@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { get } from "svelte/store";
 import { Base64 } from "js-base64";
-import type { AgentPubKeyB64 } from "@holochain/client";
+import type { AgentPubKeyB64, CellId } from "@holochain/client";
 import { Privacy, type ConversationExtended, type ProfileExtended } from "$lib/types";
 import type { RelayClient } from "$store/RelayClient";
 import type { ConversationStore } from "$store/ConversationStore";
@@ -164,25 +164,53 @@ async function recoverArchivedProof(
   myPubKeyB64: AgentPubKeyB64,
 ): Promise<string | undefined> {
   const cellId = conversation.cellInfo.cell_id;
-
-  await invoke("set_pending_enable", { cell: cellIdB64, agent: myPubKeyB64 });
-  try {
-    await relayClient.enableConversationCell(cellId);
+  return withArchivedCellEnabled(relayClient, cellId, cellIdB64, myPubKeyB64, async () => {
     const proof = await relayClient.getRawMembraneProof(cellId);
     return proof ? Base64.fromUint8Array(new Uint8Array(proof)) : undefined;
-  } finally {
-    // Restore the archived state even if the read failed, then drop the
-    // marker only once the cell is genuinely disabled again.
+  });
+}
+
+/** Serializes every temporary enable: there is one pending-enable marker. */
+let archivedCellQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run `read` against an archived (disabled) conversation by enabling it for
+ * the duration, then archiving it again.
+ *
+ * The intent is recorded with `set_pending_enable` first, so an interrupted
+ * run is repaired on the next launch instead of leaving the conversation
+ * un-archived. That marker holds one cell, so callers are queued: the proof
+ * recovery and the history export must never have two cells enabled at once.
+ */
+export function withArchivedCellEnabled<T>(
+  relayClient: RelayClient,
+  cellId: CellId,
+  cellIdB64: string,
+  myPubKeyB64: AgentPubKeyB64,
+  read: () => Promise<T>,
+): Promise<T> {
+  const run = async (): Promise<T> => {
+    await invoke("set_pending_enable", { cell: cellIdB64, agent: myPubKeyB64 });
     try {
-      await relayClient.disableConversationCell(cellId);
-      await invoke("set_pending_enable", { cell: null, agent: myPubKeyB64 });
-    } catch (e) {
-      console.error(
-        `[migration-export] could not re-archive ${cellIdB64}; it will be repaired on next launch`,
-        e,
-      );
+      await relayClient.enableConversationCell(cellId);
+      return await read();
+    } finally {
+      // Restore the archived state even if the read failed, then drop the
+      // marker only once the cell is genuinely disabled again.
+      try {
+        await relayClient.disableConversationCell(cellId);
+        await invoke("set_pending_enable", { cell: null, agent: myPubKeyB64 });
+      } catch (e) {
+        console.error(
+          `[migration-export] could not re-archive ${cellIdB64}; it will be repaired on next launch`,
+          e,
+        );
+      }
     }
-  }
+  };
+  const result = archivedCellQueue.then(run, run);
+  archivedCellQueue = result.catch(() => undefined);
+  return result;
 }
 
 /**
