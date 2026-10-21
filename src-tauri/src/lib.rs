@@ -16,7 +16,10 @@ pub fn run() {
             migration_export::set_pending_enable,
             migration_export::get_pending_enable,
             migration_export::write_history_export,
-            migration_export::read_history_export
+            migration_export::read_history_export,
+            migration_export::write_export_image,
+            migration_export::list_export_images,
+            migration_export::write_image_index
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())

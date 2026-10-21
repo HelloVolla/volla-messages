@@ -103,33 +103,41 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Directory holding one message-history file per conversation, beside the
-/// main export. Shares the export's dev and per-agent scoping.
-fn history_dir(agent: Option<&str>) -> Result<PathBuf, String> {
+/// A subdirectory of the export directory, e.g. `history` or `images`.
+/// Shares the export's dev and per-agent scoping.
+fn export_subdir(name: &str, agent: Option<&str>) -> Result<PathBuf, String> {
     let export = export_path(agent)?;
     let dir = export
         .parent()
         .ok_or_else(|| "Export path has no parent directory".to_string())?;
     let name = match (tauri::is_dev(), agent) {
-        (true, Some(agent)) => format!("history-{}", agent_fragment(agent)),
-        _ => "history".to_string(),
+        (true, Some(agent)) => format!("{name}-{}", agent_fragment(agent)),
+        _ => name.to_string(),
     };
     Ok(dir.join(name))
 }
 
-/// The history file for a conversation, named after its network seed.
-///
-/// The seed comes from the frontend, so anything that is not a plain UUID-like
-/// name is refused rather than allowed to form a path.
-fn history_path(seed: &str, agent: Option<&str>) -> Result<PathBuf, String> {
-    let valid = !seed.is_empty()
-        && seed.len() <= 128
-        && seed.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    if !valid {
-        return Err(format!("Refusing unexpected network seed {seed:?} as a file name"));
+/// Network seeds and image hashes come from the frontend and become file
+/// names, so anything but a plain identifier is refused rather than allowed
+/// to form a path.
+fn checked_name<'a>(name: &'a str, what: &str) -> Result<&'a str, String> {
+    let valid = !name.is_empty()
+        && name.len() <= 128
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if valid {
+        Ok(name)
+    } else {
+        Err(format!("Refusing unexpected {what} {name:?} as a file name"))
     }
-    Ok(history_dir(agent)?.join(format!("{seed}.json")))
 }
+
+/// The history file for a conversation, named after its network seed.
+fn history_path(seed: &str, agent: Option<&str>) -> Result<PathBuf, String> {
+    let seed = checked_name(seed, "network seed")?;
+    Ok(export_subdir("history", agent)?.join(format!("{seed}.json")))
+}
+
+const IMAGE_INDEX_FILE_NAME: &str = "index.json";
 
 /// Write the message history of one conversation, replacing the previous one.
 #[tauri::command]
@@ -224,4 +232,53 @@ pub fn read_migration_export(agent: Option<String>) -> Result<Option<String>, St
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("Could not read {}: {e}", path.display())),
     }
+}
+
+/// Write one exported image, named after its file-storage entry hash.
+///
+/// Takes the bytes as a raw IPC body rather than JSON: a JSON array spends
+/// several bytes per image byte, which matters for photos. The hash and agent
+/// travel as `x-image-hash` and `x-agent` headers.
+#[tauri::command]
+pub fn write_export_image(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Expected the image as raw bytes".to_string());
+    };
+    let header = |key: &str| {
+        request
+            .headers()
+            .get(key)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+    let hash = header("x-image-hash").ok_or_else(|| "Missing x-image-hash header".to_string())?;
+    let agent = header("x-agent");
+
+    let hash = checked_name(&hash, "image hash")?;
+    let path = export_subdir("images", agent.as_deref())?.join(hash);
+    write_atomically(&path, bytes)
+}
+
+/// Hashes of the images already exported, so a run only adds new ones.
+#[tauri::command]
+pub fn list_export_images(agent: Option<String>) -> Result<Vec<String>, String> {
+    let dir = export_subdir("images", agent.as_deref())?;
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("Could not read {}: {e}", dir.display())),
+    };
+
+    Ok(entries
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| name != IMAGE_INDEX_FILE_NAME && !name.ends_with(".tmp"))
+        .collect())
+}
+
+/// Write the image index: what each exported image is, and which images were
+/// left out and why.
+#[tauri::command]
+pub fn write_image_index(contents: String, agent: Option<String>) -> Result<(), String> {
+    let path = export_subdir("images", agent.as_deref())?.join(IMAGE_INDEX_FILE_NAME);
+    write_atomically(&path, contents.as_bytes())
 }

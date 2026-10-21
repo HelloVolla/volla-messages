@@ -7,6 +7,7 @@ import type { RelayClient } from "$store/RelayClient";
 import type { ConversationStore } from "$store/ConversationStore";
 import { encodeCellIdToBase64 } from "$lib/utils";
 import { withArchivedCellEnabled } from "$lib/migrationExport";
+import { exportImages, type ExportedConversation } from "$lib/imageExport";
 
 /**
  * Export every conversation's message history for the next major release.
@@ -163,15 +164,26 @@ export async function exportHistory(
   let messages = 0;
   let failed = 0;
 
+  // What is on disk for every conversation after this run, for the image
+  // export: a conversation not re-read this time still has its images.
+  const onDisk: ExportedConversation[] = [];
+
   try {
     const conversations = Object.values(get(conversationStore).data) as ConversationExtended[];
     for (const conversation of conversations) {
       const cellIdB64 = encodeCellIdToBase64(conversation.cellInfo.cell_id);
       const seed = conversation.cellInfo.dna_modifiers.network_seed;
       const archived = !conversation.cellInfo.enabled;
-      if (archived && archivedReadThisLaunch.has(cellIdB64)) continue;
+      const keep = (history?: HistoryExport) => {
+        if (history) onDisk.push({ conversation, cellIdB64, seed, archived, messages: history.messages });
+      };
 
       try {
+        if (archived && archivedReadThisLaunch.has(cellIdB64)) {
+          keep(parse(await invoke<string | null>("read_history_export", { seed, agent: myPubKeyB64 })));
+          continue;
+        }
+
         const read = () => readHistory(relayClient, conversation);
         const history: HistoryExport = {
           version: HISTORY_EXPORT_VERSION,
@@ -198,9 +210,11 @@ export async function exportHistory(
         // a fault (a conversation that failed to load) than a real change.
         if (history.messages.length === 0 && (previous?.messages.length ?? 0) > 0) {
           console.warn(`${TAG} read no messages for ${seed}; keeping the previous export`);
+          keep(previous);
           continue;
         }
         messages += history.messages.length;
+        keep(history);
         if (previous && contentKey(previous) === contentKey(history)) {
           unchanged++;
           continue;
@@ -224,6 +238,8 @@ export async function exportHistory(
       `${TAG} done: ${messages} messages; ${written} file(s) written, ${unchanged} unchanged, ` +
         `${failed} failed, in ${((performance.now() - started) / 1000).toFixed(1)} s`,
     );
+
+    await exportImages(relayClient, onDisk, myPubKeyB64);
   } finally {
     running = false;
   }
