@@ -120,6 +120,13 @@ const IMPORT_STATE_KEY = "MIGRATION.IMPORT_STATE";
 
 interface ImportState {
   agentPubKeyB64: AgentPubKeyB64;
+  /**
+   * The provisioned cell's ID, unique to this 2.x install (its network seed is
+   * random). localStorage outlives a wiped conductor — they are separate
+   * directories on desktop — so a record from an earlier install must not make
+   * this one skip its restore.
+   */
+  installId: string;
   /** Network seeds whose localStorage state has been restored. */
   restoredSeeds: string[];
   /** Contacts (agent keys) that have been restored or found present. */
@@ -275,13 +282,20 @@ async function rebuildConversation(
   return cell;
 }
 
-function loadImportState(myPubKeyB64: AgentPubKeyB64): ImportState {
-  const fresh: ImportState = { agentPubKeyB64: myPubKeyB64, restoredSeeds: [], restoredContacts: [] };
+function loadImportState(myPubKeyB64: AgentPubKeyB64, installId: string): ImportState {
+  const fresh: ImportState = {
+    agentPubKeyB64: myPubKeyB64,
+    installId,
+    restoredSeeds: [],
+    restoredContacts: [],
+  };
   try {
     const raw = localStorage.getItem(IMPORT_STATE_KEY);
     const saved = raw ? (JSON.parse(raw) as ImportState) : undefined;
-    // Another agent's record says nothing about what this agent has.
-    return saved?.agentPubKeyB64 === myPubKeyB64 ? saved : fresh;
+    // A record from another agent or another install says nothing about this one.
+    return saved?.agentPubKeyB64 === myPubKeyB64 && saved.installId === installId
+      ? saved
+      : fresh;
   } catch {
     return fresh;
   }
@@ -405,14 +419,22 @@ function restoreLocalState(
     // its 1.x conversation. Such an entry is always stale (nobody can have set
     // it on 2.x), so it is replaced even for a conversation already handled. A
     // missing entry follows the apply-once rule like everything else.
+    //
+    // An entry pointing at a conversation that does not exist on this install
+    // (left by an earlier, wiped install) is stale in the same way.
     const current = readLocal<{ [agent: string]: CellId }>(CONTACT_CONVERSATION_KEY) ?? {};
+    const existingCells = new Set(newKeyOfSeed.values());
     for (const [agent, oldCellId] of Object.entries(oldContactCells)) {
+      const oldKey = encodeCellIdToBase64(oldCellId);
       const existing = current[agent] ? encodeCellIdToBase64(current[agent]) : undefined;
+      const stale =
+        existing !== undefined && (seedOfOldKey.has(existing) || !existingCells.has(existing));
+      const seed = seedOfOldKey.get(oldKey);
       const newKey =
         existing === undefined
-          ? translate(encodeCellIdToBase64(oldCellId))
-          : seedOfOldKey.has(existing)
-            ? newKeyOfSeed.get(seedOfOldKey.get(existing)!)
+          ? translate(oldKey)
+          : stale && seed !== undefined
+            ? newKeyOfSeed.get(seed)
             : undefined;
       if (newKey !== undefined) {
         current[agent] = decodeCellIdFromBase64(newKey);
@@ -511,7 +533,10 @@ export async function importMigrationExport(
     }
   }
 
-  const state = loadImportState(myPubKeyB64);
+  const state = loadImportState(
+    myPubKeyB64,
+    encodeCellIdToBase64(relayClient.provisionedRelayCellId),
+  );
   try {
     await restoreContacts(exported, relayClient, state, report);
   } catch (e) {
