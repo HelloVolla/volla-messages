@@ -327,3 +327,101 @@ pub fn write_image_index(contents: String, agent: Option<String>) -> Result<(), 
     let path = export_subdir("images", agent.as_deref())?.join(IMAGE_INDEX_FILE_NAME);
     write_atomically(&path, contents.as_bytes())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempdir::TempDir;
+
+    #[test]
+    fn accepts_network_seeds_and_image_hashes_as_file_names() {
+        for name in [
+            "218dcd9d-4c19-47fa-bdf6-8ee4ae1b8f14",
+            "uhCEk1NmHJ2MPm4gVelKbPcshrn3ZUl38EVprEb7FuoUuQI6Wrk1k",
+            "uhCEkfWwAdnPAhKW7HploXXvMC0ror3HxkXNiwlXsu3bkb6A_Gt4Z",
+        ] {
+            assert_eq!(checked_name(name, "test").unwrap(), name);
+        }
+    }
+
+    #[test]
+    fn refuses_names_that_could_form_a_path() {
+        let too_long = "a".repeat(129);
+        for name in [
+            "", ".", "..", "../x", "a/b", "a\\b", "/etc/passwd", "x y", "x\0y", "ü", &too_long,
+        ] {
+            assert!(checked_name(name, "test").is_err(), "accepted {name:?}");
+        }
+    }
+
+    #[test]
+    fn writes_and_replaces_a_file_atomically() {
+        let root = TempDir::new("export").unwrap();
+        let path = root.path().join("nested").join("history").join("seed.json");
+
+        write_atomically(&path, b"first").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+
+        write_atomically(&path, b"second").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+
+        // Nothing left over from the temporary-file step.
+        let names: Vec<_> = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec!["seed.json"]);
+    }
+
+    #[test]
+    fn a_failed_write_leaves_the_previous_file_intact() {
+        let root = TempDir::new("export").unwrap();
+        let path = root.path().join("migration-export.json");
+        write_atomically(&path, b"good export").unwrap();
+
+        // Make the temporary file impossible to create, as a full disk or a
+        // crash mid-write would.
+        fs::create_dir(root.path().join("migration-export.json.tmp")).unwrap();
+
+        assert!(write_atomically(&path, b"").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"good export");
+    }
+
+    #[test]
+    fn recovers_from_a_stale_temporary_file() {
+        let root = TempDir::new("export").unwrap();
+        let path = root.path().join("seed.json");
+        fs::write(root.path().join("seed.json.tmp"), b"half written by a crash").unwrap();
+
+        write_atomically(&path, b"complete").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"complete");
+        assert!(!root.path().join("seed.json.tmp").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn export_files_are_readable_by_their_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        let root = TempDir::new("export").unwrap();
+        let dir = root.path().join("history");
+        let path = dir.join("seed.json");
+
+        // As an earlier release left them: world-readable.
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(&path, b"old").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_atomically(&path, b"new").unwrap();
+        assert_eq!(mode(&dir), 0o700);
+        assert_eq!(mode(&path), 0o600);
+
+        // A newly created directory and file are private from the start.
+        let fresh = root.path().join("images").join("hash");
+        write_atomically(&fresh, b"bytes").unwrap();
+        assert_eq!(mode(fresh.parent().unwrap()), 0o700);
+        assert_eq!(mode(&fresh), 0o600);
+    }
+}
