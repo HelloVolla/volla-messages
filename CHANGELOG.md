@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.4] - 2026-09-25
+
+- Feat: Your message history and the images in your conversations, archived ones included, are now saved too, so they can come with you into the next major update. This happens automatically in the background and only adds new messages and images after the first run.
+- Fix: The saved copy of your account is now readable only by your own user on Linux and macOS.
+
 ## [1.0.3] - 2026-09-12
 
 - Fix: The app could hang forever on the "Starting up..." screen, most often on faster machines. Holochain had actually started correctly; the app just never noticed and kept waiting.

@@ -93,13 +93,54 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .and_then(|n| n.to_str())
         .ok_or_else(|| "Export path has no file name".to_string())?;
 
-    fs::create_dir_all(dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
+    ensure_private_dir(dir)?;
 
     let tmp_path = dir.join(format!("{file_name}.tmp"));
-    fs::write(&tmp_path, bytes)
-        .map_err(|e| format!("Could not write {}: {e}", tmp_path.display()))?;
+    write_private_file(&tmp_path, bytes)?;
     fs::rename(&tmp_path, path)
         .map_err(|e| format!("Could not replace {}: {e}", path.display()))?;
+    Ok(())
+}
+
+/// Create `dir` if needed and make it readable by this user only.
+///
+/// The export holds the user's identity, membership proofs, full message
+/// history and images. Other accounts on the same machine have no business
+/// reading it. Windows profile directories and Android app storage are already
+/// private to the user; Unix data directories are not necessarily.
+fn ensure_private_dir(dir: &Path) -> Result<(), String> {
+    fs::create_dir_all(dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("Could not restrict {}: {e}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Write a file readable by this user only, from the moment it is created.
+fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+    file.write_all(bytes)
+        .map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+    // `mode` only applies when the file is created; tighten a leftover one too.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Could not restrict {}: {e}", path.display()))?;
+    }
     Ok(())
 }
 
@@ -110,11 +151,17 @@ fn export_subdir(name: &str, agent: Option<&str>) -> Result<PathBuf, String> {
     let dir = export
         .parent()
         .ok_or_else(|| "Export path has no parent directory".to_string())?;
+    // Restricted on every lookup, not only when a file is written: a run that
+    // finds nothing changed writes nothing, and must not leave a directory
+    // created by an earlier release readable.
+    ensure_private_dir(dir)?;
     let name = match (tauri::is_dev(), agent) {
         (true, Some(agent)) => format!("{name}-{}", agent_fragment(agent)),
         _ => name.to_string(),
     };
-    Ok(dir.join(name))
+    let subdir = dir.join(name);
+    ensure_private_dir(&subdir)?;
+    Ok(subdir)
 }
 
 /// Network seeds and image hashes come from the frontend and become file
@@ -194,10 +241,8 @@ pub fn set_pending_enable(cell: Option<String>, agent: Option<String>) -> Result
             let dir = path
                 .parent()
                 .ok_or_else(|| "Pending-enable path has no parent directory".to_string())?;
-            fs::create_dir_all(dir)
-                .map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
-            fs::write(&path, cell.as_bytes())
-                .map_err(|e| format!("Could not write {}: {e}", path.display()))
+            ensure_private_dir(dir)?;
+            write_private_file(&path, cell.as_bytes())
         }
         None => match fs::remove_file(&path) {
             Ok(()) => Ok(()),

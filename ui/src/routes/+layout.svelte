@@ -313,16 +313,6 @@
 
     setTimeout(runHistoryExport, HISTORY_EXPORT_FIRST_DELAY_MS);
     historyExportInterval = setInterval(runHistoryExport, HISTORY_EXPORT_INTERVAL_MS);
-
-    // MEASUREMENT ONLY: size the 1.0.4 history export. Built in only with
-    // VITE_MEASURE_HISTORY=1; delayed so it does not compete with startup.
-    if (import.meta.env.VITE_MEASURE_HISTORY === "1") {
-      setTimeout(() => {
-        import("$lib/historyMeasure").then(({ measureHistory }) =>
-          measureHistory(relayClient, conversationStore),
-        );
-      }, 10_000);
-    }
   }
 
   onMount(async () => {
