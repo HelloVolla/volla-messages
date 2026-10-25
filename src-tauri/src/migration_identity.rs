@@ -71,20 +71,47 @@ fn try_carry_keystore_forward(holochain_dir: &Path) -> anyhow::Result<String> {
         return Ok("dev build; not carrying the 1.x keystore".into());
     }
 
-    if holochain_dir.exists() {
-        return Ok(format!("{} already exists; keystore left as is", holochain_dir.display()));
-    }
-
     let source = crate::migration_export::app_root_dir()
         .map_err(anyhow::Error::msg)?
         .join("holochain")
         .join(LEGACY_BUCKET)
         .join("keystore");
+
+    Ok(match carry_keystore(&source, holochain_dir)? {
+        CarryOutcome::AlreadyPresent => {
+            format!("{} already exists; keystore left as is", holochain_dir.display())
+        }
+        CarryOutcome::NoLegacyKeystore => {
+            format!("no 1.x keystore at {}; starting fresh", source.display())
+        }
+        CarryOutcome::Carried => format!(
+            "carried the 1.x keystore from {} into {}",
+            source.display(),
+            holochain_dir.display()
+        ),
+    })
+}
+
+#[derive(Debug, PartialEq)]
+enum CarryOutcome {
+    /// `destination` already exists: an existing 2.x install, left untouched.
+    AlreadyPresent,
+    /// No 1.x keystore to carry; the conductor starts fresh.
+    NoLegacyKeystore,
+    Carried,
+}
+
+/// Copy the lair keystore in `source` (a 1.x `keystore/` directory) to become
+/// `destination` (a 2.x data directory). Never writes to `source`.
+fn carry_keystore(source: &Path, destination: &Path) -> anyhow::Result<CarryOutcome> {
+    if destination.exists() {
+        return Ok(CarryOutcome::AlreadyPresent);
+    }
     if !source.join("store_file").exists() {
-        return Ok(format!("no 1.x keystore at {}; starting fresh", source.display()));
+        return Ok(CarryOutcome::NoLegacyKeystore);
     }
 
-    let staging = staging_dir(holochain_dir)?;
+    let staging = staging_dir(destination)?;
     if staging.exists() {
         // Left over from an interrupted attempt. It is our own copy, never the
         // source, so it is safe to discard.
@@ -94,17 +121,12 @@ fn try_carry_keystore_forward(holochain_dir: &Path) -> anyhow::Result<String> {
     // 0.6 ran lair from `<data>/keystore/`; the 0.7 plugin runs it from
     // `<data>/` directly. Copying into a `keystore/` subdirectory is silently
     // ignored and a fresh keystore is generated instead.
-    copy_dir(&source, &staging)?;
-    rewrite_lair_config(&source, &staging, holochain_dir)?;
+    copy_dir(source, &staging)?;
+    rewrite_lair_config(source, &staging, destination)?;
     fs::write(staging.join(CARRIED_MARKER), b"")?;
 
-    fs::rename(&staging, holochain_dir)?;
-
-    Ok(format!(
-        "carried the 1.x keystore from {} into {}",
-        source.display(),
-        holochain_dir.display()
-    ))
+    fs::rename(&staging, destination)?;
+    Ok(CarryOutcome::Carried)
 }
 
 /// The agent key to install the app under, or `None` for a new agent.
@@ -128,19 +150,24 @@ pub fn carried_agent_key(holochain_dir: &Path) -> Option<AgentPubKey> {
         }
     };
 
-    let encoded = serde_json::from_str::<serde_json::Value>(&contents)
-        .ok()?
-        .get("agentPubKeyB64")?
-        .as_str()?
-        .to_string();
-
-    match AgentPubKey::try_from(encoded.clone()) {
+    match agent_key_from_export(&contents) {
         Ok(key) => Some(key),
         Err(e) => {
-            log::error!("migration export has an invalid agent key {encoded}: {e:?}");
+            log::error!("migration export names no usable agent key: {e}");
             None
         }
     }
+}
+
+/// The agent key named by a migration export's JSON.
+fn agent_key_from_export(contents: &str) -> Result<AgentPubKey, String> {
+    let export: serde_json::Value =
+        serde_json::from_str(contents).map_err(|e| format!("not valid JSON: {e}"))?;
+    let encoded = export
+        .get("agentPubKeyB64")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "no agentPubKeyB64".to_string())?;
+    AgentPubKey::try_from(encoded.to_string()).map_err(|e| format!("invalid key {encoded}: {e:?}"))
 }
 
 /// Sibling of `holochain_dir`, so the final rename stays on one filesystem.
@@ -196,4 +223,154 @@ fn rewrite_lair_config(source: &Path, staging: &Path, final_dir: &Path) -> anyho
     fs::write(&config, rewritten)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use tempdir::TempDir;
+
+    /// A 1.x `keystore/` directory as lair 0.6 leaves it, including the runtime
+    /// files of a lair that is still running.
+    fn legacy_keystore(root: &Path) -> PathBuf {
+        let keystore = root.join("holochain").join("1").join("keystore");
+        fs::create_dir_all(&keystore).unwrap();
+        let k = keystore.display();
+        fs::write(keystore.join("store_file"), b"encrypted store").unwrap();
+        fs::write(keystore.join("store_file-wal"), b"write-ahead log").unwrap();
+        fs::write(
+            keystore.join("lair-keystore-config.yaml"),
+            format!(
+                "connectionUrl: unix://{k}/socket?k=abc\npidFile: {k}/pid_file\nstoreFile: {k}/store_file\n"
+            ),
+        )
+        .unwrap();
+        fs::write(keystore.join("socket"), b"").unwrap();
+        fs::write(keystore.join("pid_file"), b"4242").unwrap();
+        keystore
+    }
+
+    /// Every file under `dir` and its contents, to compare before and after.
+    fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        let mut files = BTreeMap::new();
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files.extend(snapshot(&path));
+            } else {
+                files.insert(path.clone(), fs::read(&path).unwrap());
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn carries_the_keystore_into_a_fresh_data_directory() {
+        let root = TempDir::new("carry").unwrap();
+        let source = legacy_keystore(root.path());
+        let before = snapshot(&source);
+        let destination = root.path().join("holochain").join("2");
+
+        assert_eq!(carry_keystore(&source, &destination).unwrap(), CarryOutcome::Carried);
+
+        // Lair 0.7 runs from the data directory root, not `keystore/`.
+        assert_eq!(fs::read(destination.join("store_file")).unwrap(), b"encrypted store");
+        assert_eq!(fs::read(destination.join("store_file-wal")).unwrap(), b"write-ahead log");
+        assert!(!destination.join("keystore").exists());
+        assert!(destination.join(CARRIED_MARKER).exists());
+
+        // A running lair's socket and pid file must not come along.
+        assert!(!destination.join("socket").exists());
+        assert!(!destination.join("pid_file").exists());
+
+        // Config paths point at the final directory, never the source or staging.
+        let config = fs::read_to_string(destination.join("lair-keystore-config.yaml")).unwrap();
+        let dest = destination.display().to_string();
+        assert!(config.contains(&format!("unix://{dest}/socket?k=abc")));
+        assert!(config.contains(&format!("pidFile: {dest}/pid_file")));
+        assert!(config.contains(&format!("storeFile: {dest}/store_file")));
+        assert!(!config.contains(&source.display().to_string()));
+        assert!(!config.contains("keystore-staging"));
+
+        // No staging directory left behind, and the 1.x keystore is untouched.
+        assert!(!staging_dir(&destination).unwrap().exists());
+        assert_eq!(snapshot(&source), before);
+    }
+
+    #[test]
+    fn never_touches_an_existing_data_directory() {
+        let root = TempDir::new("carry").unwrap();
+        let source = legacy_keystore(root.path());
+        let destination = root.path().join("holochain").join("2");
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(destination.join("store_file"), b"the 2.x keystore").unwrap();
+        let before = snapshot(&destination);
+
+        assert_eq!(
+            carry_keystore(&source, &destination).unwrap(),
+            CarryOutcome::AlreadyPresent
+        );
+        assert_eq!(snapshot(&destination), before);
+        assert!(!staging_dir(&destination).unwrap().exists());
+    }
+
+    #[test]
+    fn starts_fresh_without_a_legacy_keystore() {
+        let root = TempDir::new("carry").unwrap();
+        let source = root.path().join("holochain").join("1").join("keystore");
+        let destination = root.path().join("holochain").join("2");
+
+        assert_eq!(
+            carry_keystore(&source, &destination).unwrap(),
+            CarryOutcome::NoLegacyKeystore
+        );
+        // Nothing created, so the conductor sets up its own keystore.
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn retries_cleanly_after_an_interrupted_attempt() {
+        let root = TempDir::new("carry").unwrap();
+        let source = legacy_keystore(root.path());
+        let destination = root.path().join("holochain").join("2");
+
+        // A crash after staging began, before the rename.
+        let staging = staging_dir(&destination).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("store_file"), b"half copied").unwrap();
+        fs::write(staging.join("stray"), b"left over").unwrap();
+
+        assert_eq!(carry_keystore(&source, &destination).unwrap(), CarryOutcome::Carried);
+        assert_eq!(fs::read(destination.join("store_file")).unwrap(), b"encrypted store");
+        assert!(!destination.join("stray").exists());
+        assert!(!staging.exists());
+    }
+
+    #[test]
+    fn reads_the_agent_key_from_an_export() {
+        // From 32 bytes, so the library computes the location bytes a real key has.
+        let key = AgentPubKey::from_raw_32(vec![7; 32]);
+        let export = format!(r#"{{"version":1,"agentPubKeyB64":"{key}"}}"#);
+        assert_eq!(agent_key_from_export(&export).unwrap(), key);
+    }
+
+    #[test]
+    fn rejects_an_export_without_a_usable_agent_key() {
+        assert!(agent_key_from_export("not json").is_err());
+        assert!(agent_key_from_export(r#"{"version":1}"#).is_err());
+        assert!(agent_key_from_export(r#"{"agentPubKeyB64":42}"#).is_err());
+        assert!(agent_key_from_export(r#"{"agentPubKeyB64":"uhCAknotakey"}"#).is_err());
+        // A valid hash of the wrong kind is not an agent key.
+        let entry = holochain_types::prelude::EntryHash::from_raw_32(vec![7; 32]);
+        assert!(agent_key_from_export(&format!(r#"{{"agentPubKeyB64":"{entry}"}}"#)).is_err());
+    }
+
+    #[test]
+    fn installs_under_a_new_agent_unless_the_keystore_was_carried() {
+        let root = TempDir::new("carry").unwrap();
+        // No marker: the conductor's keystore was not carried over, so it
+        // cannot hold the exported agent's private key.
+        assert_eq!(carried_agent_key(root.path()), None);
+    }
 }
