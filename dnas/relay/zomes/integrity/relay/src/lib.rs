@@ -4,6 +4,8 @@ pub mod message;
 pub use message::*;
 pub mod config;
 pub use config::*;
+pub mod migration_info;
+pub use migration_info::*;
 use hdi::prelude::*;
 
 pub const MESSAGES_PATH_PREFIX: &str = "msg";
@@ -20,6 +22,9 @@ pub enum EntryTypes {
     Config(Config),
     Message(Message),
     Contact(Contact),
+    #[entry_type(visibility = "private")]
+    MigrationInfoPrivate(MigrationInfo),
+    MigrationInfoPublic(MigrationInfo),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,6 +36,7 @@ pub enum LinkTypes {
     ContactToContacts,
     ContactUpdates,
     AllContacts,
+    AgentToMigrationInfo,
 }
 
 #[derive(Serialize, Deserialize, Debug, SerializedBytes, Clone)]
@@ -139,6 +145,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Config(config) => validate_create_config(action, config),
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
+                    EntryTypes::MigrationInfoPrivate(info) | EntryTypes::MigrationInfoPublic(info) => {
+                        validate_create_migration_info(action, info)
+                    }
                 }
             }
             OpEntry::UpdateEntry { app_entry, action } => {
@@ -150,6 +159,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Config(config) => validate_create_config(action, config),
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
+                    EntryTypes::MigrationInfoPrivate(_) | EntryTypes::MigrationInfoPublic(_) => {
+                        validate_update_migration_info()
+                    }
                 }
             }
             _ => Ok(ValidateCallbackResult::Valid),
@@ -189,6 +201,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     }
                     EntryTypes::Message(message) => validate_update_message(action, message),
                     EntryTypes::Config(config) => validate_update_config(action, config),
+                    EntryTypes::MigrationInfoPrivate(_) | EntryTypes::MigrationInfoPublic(_) => {
+                        validate_update_migration_info()
+                    }
                 }
             }
             _ => Ok(ValidateCallbackResult::Valid),
@@ -214,6 +229,11 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
             };
             let entry = match original_record.entry().as_option() {
                 Some(entry) => entry,
+                // Validators cannot see a private entry's content; only who
+                // wrote it. Today the only private type is migration info.
+                None if !original_action.entry_type().visibility().is_public() => {
+                    return validate_delete_migration_info(action, original_action);
+                }
                 None => {
                     return Ok(ValidateCallbackResult::Invalid(
                         "Original record for a delete must contain an entry".to_string(),
@@ -243,6 +263,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 EntryTypes::Config(_original_config) => Ok(ValidateCallbackResult::Invalid(
                     "Cannot delete Config Entry".to_string(),
                 )),
+                EntryTypes::MigrationInfoPrivate(_) | EntryTypes::MigrationInfoPublic(_) => {
+                    validate_delete_migration_info(action, original_action)
+                }
             }
         }
         FlatOp::Link(OpLink::CreateLink { link_type, action }) => {
@@ -271,6 +294,11 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 LinkTypes::AllContacts => {
                     validate_create_link_all_contacts(action, base_address, target_address, tag)
                 }
+                LinkTypes::AgentToMigrationInfo => validate_create_link_agent_to_migration_info(
+                    action,
+                    base_address,
+                    target_address,
+                ),
             }
         }
         FlatOp::Link(OpLink::DeleteLink {
@@ -324,6 +352,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     target_address,
                     tag,
                 ),
+                LinkTypes::AgentToMigrationInfo => {
+                    validate_delete_link_agent_to_migration_info(action, original_action)
+                }
             }
         }
         FlatOp::CreateRecord(store_record) => match store_record {
@@ -336,6 +367,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Config(config) => validate_create_config(action, config),
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
+                    EntryTypes::MigrationInfoPrivate(info) | EntryTypes::MigrationInfoPublic(info) => {
+                        validate_create_migration_info(action, info)
+                    }
                 }
             }
             OpRecord::UpdateEntry { app_entry, action } => {
@@ -425,6 +459,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             Ok(result)
                         }
                     }
+                    EntryTypes::MigrationInfoPrivate(_) | EntryTypes::MigrationInfoPublic(_) => {
+                        validate_update_migration_info()
+                    }
                 }
             }
             OpRecord::DeleteEntry { action } => {
@@ -456,7 +493,10 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                                     .to_string(),
                             ));
                         } else {
-                            return Ok(ValidateCallbackResult::Valid);
+                            // Validators cannot see a private entry's content;
+                            // only who wrote it. Today the only private type
+                            // is migration info.
+                            return validate_delete_migration_info(action, original_action);
                         }
                     }
                 };
@@ -482,6 +522,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     }
                     EntryTypes::Contact(original_contact) => {
                         validate_delete_contact(action, original_action, original_contact)
+                    }
+                    EntryTypes::MigrationInfoPrivate(_) | EntryTypes::MigrationInfoPublic(_) => {
+                        validate_delete_migration_info(action, original_action)
                     }
                 }
             }
@@ -520,6 +563,11 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     LinkTypes::AllContacts => {
                         validate_create_link_all_contacts(action, base_address, target_address, tag)
                     }
+                    LinkTypes::AgentToMigrationInfo => validate_create_link_agent_to_migration_info(
+                        action,
+                        base_address,
+                        target_address,
+                    ),
                 }
             }
             OpRecord::DeleteLink { action } => {
@@ -590,10 +638,19 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         target_address,
                         tag,
                     ),
+                    LinkTypes::AgentToMigrationInfo => {
+                        validate_delete_link_agent_to_migration_info(action, create_link)
+                    }
                 }
             }
             OpRecord::CreatePrivateEntry { .. } => Ok(ValidateCallbackResult::Valid),
-            OpRecord::UpdatePrivateEntry { .. } => Ok(ValidateCallbackResult::Valid),
+            // Other validators never see a private entry's content, so the
+            // format check cannot run here (the author's own validation still
+            // enforces it). That it is an update is visible without content.
+            OpRecord::UpdatePrivateEntry { app_entry_type, .. } => match app_entry_type {
+                UnitEntryTypes::MigrationInfoPrivate => validate_update_migration_info(),
+                _ => Ok(ValidateCallbackResult::Valid),
+            },
             OpRecord::CreateCapClaim { .. } => Ok(ValidateCallbackResult::Valid),
             OpRecord::CreateCapGrant { .. } => Ok(ValidateCallbackResult::Valid),
             OpRecord::UpdateCapClaim { .. } => Ok(ValidateCallbackResult::Valid),

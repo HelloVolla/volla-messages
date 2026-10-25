@@ -6,6 +6,9 @@ mod migration_export;
 #[cfg(all(feature = "holochain_bundled", not(feature = "holochain_service")))]
 mod happ_update;
 
+#[cfg(all(feature = "holochain_bundled", not(feature = "holochain_service")))]
+mod migration_identity;
+
 #[cfg(all(mobile, target_os = "android"))]
 mod android_barcode_scanner;
 

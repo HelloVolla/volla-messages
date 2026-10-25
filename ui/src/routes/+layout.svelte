@@ -50,6 +50,7 @@
   import { createFileStore, type FileStore } from "$store/FileStore";
   import { createNetworkStatsStore, type NetworkStatsStore } from "$store/NetworkStatsStore";
   import Dialog from "$lib/Dialog.svelte";
+  import { importMigrationExport } from "$lib/migrationImport";
 
   // Holochain client
   let client: AppClient;
@@ -148,6 +149,12 @@
       // Setup stores
       relayClient = new RelayClient(client, provisionedRelayCellId);
       myPubKeyB64 = encodeHashToBase64(client.myPubKey);
+
+      // First launch after upgrading from 1.x: restore the account from the
+      // 1.0.3 export. Before any store exists, because stores read their
+      // localStorage state once at creation. Little to do on later launches.
+      await importMigrationExport(relayClient, myPubKeyB64);
+
       contactStore = createContactStore(relayClient);
       profileStore = createProfileStore(relayClient);
       provisionedRelayCellProfileStore = deriveCellProfileStore(
@@ -195,6 +202,7 @@
       // Initialize store data
       await contactStore.initialize();
       await profileStore.initialize();
+
       await conversationStore.initialize();
       await conversationMessageStore.initialize();
 
