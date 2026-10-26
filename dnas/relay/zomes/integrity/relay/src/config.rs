@@ -1,21 +1,25 @@
 use hdi::prelude::*;
+
+use crate::require_owner_or_moderator;
+
 #[hdk_entry_helper]
 #[derive(Clone, PartialEq)]
 pub struct Config {
     pub title: String,
     pub image: String,
+    pub role_evidence: Option<ActionHash>,
 }
 pub fn validate_create_config(
-    _action: TypedAction<EntryCreationData>,
-    _config: Config,
+    action: TypedAction<EntryCreationData>,
+    config: Config,
 ) -> ExternResult<ValidateCallbackResult> {
-    Ok(ValidateCallbackResult::Valid)
+    require_owner_or_moderator(action.author(), config.role_evidence)
 }
 pub fn validate_update_config(
-    _action: TypedAction<UpdateData>,
-    _config: Config,
+    action: TypedAction<UpdateData>,
+    config: Config,
 ) -> ExternResult<ValidateCallbackResult> {
-    Ok(ValidateCallbackResult::Valid)
+    require_owner_or_moderator(action.author(), config.role_evidence)
 }
 pub fn validate_delete_config(
     _action: TypedAction<DeleteData>,
