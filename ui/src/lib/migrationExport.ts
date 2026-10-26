@@ -7,6 +7,7 @@ import { Privacy, type ConversationExtended, type ProfileExtended } from "$lib/t
 import type { RelayClient } from "$store/RelayClient";
 import type { ConversationStore } from "$store/ConversationStore";
 import type { ContactStore } from "$store/ContactStore";
+import { encodeCellIdToBase64 } from "$lib/utils";
 
 /**
  * Snapshot of everything a future major release needs to rebuild this account.
@@ -190,6 +191,16 @@ export function withArchivedCellEnabled<T>(
   read: () => Promise<T>,
 ): Promise<T> {
   const run = async (): Promise<T> => {
+    // Never archive a conversation that is not archived right now: if a caller
+    // passes an active one, just read it. Checked here, inside the queue, so
+    // the state cannot change between the check and the enable.
+    const current = (await relayClient.getRelayClonedCellInfos()).find(
+      (c) => encodeCellIdToBase64(c.cell_id) === cellIdB64,
+    );
+    if (current?.enabled !== false) {
+      return read();
+    }
+
     await invoke("set_pending_enable", { cell: cellIdB64, agent: myPubKeyB64 });
     try {
       await relayClient.enableConversationCell(cellId);
@@ -299,7 +310,17 @@ async function collect(
 
       // Archived conversation with no cached proof: its cell is disabled and
       // cannot be zome-called, so enable it just long enough to read the proof.
-      if (membraneProofB64 === undefined && !attemptedProofRecovery.has(cellIdB64)) {
+      //
+      // Archived ones only. 1.0.3 lacked this check, and its released builds
+      // shipped a happ without get_raw_membrane_proof, so the read above
+      // failed for every active private conversation the user had not
+      // created, fell through to here, and the "re-archive afterwards" step
+      // archived conversations that had never been archived.
+      if (
+        membraneProofB64 === undefined &&
+        !conversation.cellInfo.enabled &&
+        !attemptedProofRecovery.has(cellIdB64)
+      ) {
         attemptedProofRecovery.add(cellIdB64);
         try {
           console.log(`[migration-export] recovering membrane proof for archived "${title}"`);
