@@ -52,6 +52,8 @@
   import Dialog from "$lib/Dialog.svelte";
   import { exportMigrationData } from "$lib/migrationExport";
   import { exportHistory } from "$lib/historyExport";
+  import UpdateBar from "$lib/UpdateBar.svelte";
+  import { checkForUpdate, notifyAboutUpdate, type AvailableUpdate } from "$lib/updateNotice";
 
   // Holochain client
   let client: AppClient;
@@ -294,6 +296,35 @@
     void exportHistory(relayClient, conversationStore, myPubKeyB64);
   }
 
+  // A newer major version: contacts who updated can no longer receive this
+  // user's messages. Checked on startup and every few hours; GitHub itself is
+  // asked at most once a day (see updateNotice.ts).
+  const UPDATE_RECHECK_MS = 6 * 60 * 60 * 1000;
+  let availableUpdate: AvailableUpdate | undefined;
+  let updateInterval: ReturnType<typeof setInterval> | undefined;
+
+  async function refreshUpdate() {
+    availableUpdate = await checkForUpdate();
+    if (availableUpdate) {
+      await notifyAboutUpdate(
+        $t("common.update_notification_title", { version: availableUpdate.version }),
+        $t("common.update_notification_body"),
+      );
+    }
+  }
+
+  /** Everything the next major release imports, written once more before it installs. */
+  async function flushExports() {
+    await exportMigrationData(
+      relayClient,
+      conversationStore,
+      contactStore,
+      myPubKeyB64,
+      get(provisionedRelayCellProfileStore).data[myPubKeyB64],
+    );
+    await exportHistory(relayClient, conversationStore, myPubKeyB64);
+  }
+
   async function setupApp() {
     initLightDarkModeSwitcher();
     await initHolochainClient();
@@ -313,6 +344,9 @@
 
     setTimeout(runHistoryExport, HISTORY_EXPORT_FIRST_DELAY_MS);
     historyExportInterval = setInterval(runHistoryExport, HISTORY_EXPORT_INTERVAL_MS);
+
+    void refreshUpdate();
+    updateInterval = setInterval(refreshUpdate, UPDATE_RECHECK_MS);
   }
 
   onMount(async () => {
@@ -324,6 +358,7 @@
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     if (migrationExportTimer !== undefined) clearTimeout(migrationExportTimer);
     if (historyExportInterval !== undefined) clearInterval(historyExportInterval);
+    if (updateInterval !== undefined) clearInterval(updateInterval);
     migrationExportUnsubscribers.forEach((unsubscribe) => unsubscribe());
   });
 
@@ -397,6 +432,9 @@
 
 <div class="mx-auto flex h-screen w-full max-w-screen-lg flex-col items-center">
   {#if isClientConnected && isStoresSetup && myProfileExists}
+    {#if availableUpdate}
+      <UpdateBar update={availableUpdate} {flushExports} />
+    {/if}
     <slot />
   {:else if isClientConnected && isStoresSetup && !myProfileExists && !isUserCreatingProfile}
     <AppLanding>

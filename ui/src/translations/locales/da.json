@@ -70,5 +70,11 @@
   "welcome_text_1": "Volla Messages deler data kun med de personer, du konverserer med.",
   "welcome_text_2": "Privat, krypteret og sikret med nøgler, som kun du kontrollerer.",
   "what_is_your_name": "Hvad hedder du?",
-  "you": "Du"
+  "you": "Du",
+  "update_bar_text": "Volla Messages {{version}} er her. Kontakter, der har opdateret, kan ikke længere modtage dine beskeder — opdater for at blive ved med at chatte.",
+  "update_now": "Opdater",
+  "updating": "Opdaterer…",
+  "update_failed": "Opdateringen kunne ikke installeres. Hent den fra udgivelsessiden.",
+  "update_notification_title": "Volla Messages {{version}} er tilgængelig",
+  "update_notification_body": "Opdater for at blive ved med at chatte med kontakter, der allerede har opdateret."
 }

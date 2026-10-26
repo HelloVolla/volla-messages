@@ -101,5 +101,11 @@
   "welcome_text_1": "On Volla Messages, your data is only shared with the people you message with.",
   "welcome_text_2": "Private, encrypted and secured by keys only you control.",
   "what_is_your_name": "What is your name?",
-  "you": "You"
+  "you": "You",
+  "update_bar_text": "Volla Messages {{version}} is here. Contacts who have updated can no longer receive your messages — update to keep chatting.",
+  "update_now": "Update",
+  "updating": "Updating…",
+  "update_failed": "The update could not be installed. Please download it from the release page.",
+  "update_notification_title": "Volla Messages {{version}} is available",
+  "update_notification_body": "Update to keep chatting with contacts who have already updated."
 }

@@ -101,5 +101,11 @@
   "welcome_text_1": "Auf Volla Messages werden Ihre Daten nur an die Personen weitergegeben, mit denen Sie Nachrichten teilen.",
   "welcome_text_2": "Privat, verschlüsselt und gesichert durch Schlüssel, die nur Sie kontrollieren.",
   "what_is_your_name": "Wie ist Ihr Name?",
-  "you": "Du"
+  "you": "Du",
+  "update_bar_text": "Volla Messages {{version}} ist da. Kontakte, die bereits aktualisiert haben, können deine Nachrichten nicht mehr empfangen — aktualisiere, um weiter zu chatten.",
+  "update_now": "Aktualisieren",
+  "updating": "Wird aktualisiert…",
+  "update_failed": "Das Update konnte nicht installiert werden. Bitte lade es von der Release-Seite herunter.",
+  "update_notification_title": "Volla Messages {{version}} ist verfügbar",
+  "update_notification_body": "Aktualisiere, um weiter mit Kontakten zu chatten, die bereits aktualisiert haben."
 }

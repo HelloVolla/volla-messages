@@ -48,9 +48,15 @@ url2 = "0.0.6"
 app_dirs2 = "2.5.5"
 tempdir = "0.3.7"
 anyhow = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1.12.0", features = ["v4", "fast-rng"] }
 base64ct = "=1.7.3"
+
+# In-app updates (app_update.rs). Desktop only; mobile updates through its store.
+# Pinned below 2.13, which requires tauri 2.12; this line ships on tauri 2.10.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "~2.12"
 
 [features]
 default = []

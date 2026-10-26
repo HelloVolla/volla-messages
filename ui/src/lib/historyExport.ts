@@ -142,22 +142,33 @@ function contentKey(history: HistoryExport): string {
 /** Archived conversations already read this launch; see `exportHistory`. */
 const archivedReadThisLaunch = new Set<string>();
 
-let running = false;
+/** The run in progress, which a second caller waits for instead of starting another. */
+let current: Promise<void> | undefined;
 
 /**
- * Export the history of every conversation. Never throws, and a second call
- * while one is running is skipped rather than queued.
+ * Export the history of every conversation. Never throws. A call while a run
+ * is in progress returns that run, so awaiting it — as the in-app update does
+ * before installing — always waits for a complete export.
  *
  * Archived conversations are disabled cells and have to be enabled briefly to
  * be read, which is visible, so each is read at most once per launch.
  */
-export async function exportHistory(
+export function exportHistory(
   relayClient: RelayClient,
   conversationStore: ConversationStore,
   myPubKeyB64: AgentPubKeyB64,
 ): Promise<void> {
-  if (running) return;
-  running = true;
+  current ??= runExportHistory(relayClient, conversationStore, myPubKeyB64).finally(() => {
+    current = undefined;
+  });
+  return current;
+}
+
+async function runExportHistory(
+  relayClient: RelayClient,
+  conversationStore: ConversationStore,
+  myPubKeyB64: AgentPubKeyB64,
+): Promise<void> {
   const started = performance.now();
   let written = 0;
   let unchanged = 0;
@@ -240,7 +251,8 @@ export async function exportHistory(
     );
 
     await exportImages(relayClient, onDisk, myPubKeyB64);
-  } finally {
-    running = false;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : JSON.stringify(e);
+    console.error(`${TAG} failed: ${message}`);
   }
 }

@@ -62,5 +62,11 @@
   "welcome_text_1": "Sur Volla Messages, vos données ne sont communiquées qu'aux personnes avec lesquelles vous partagez des messages..",
   "welcome_text_2": "Privé, crypté et sécurisé par des clés que vous seul contrôlez.",
   "what_is_your_name": "Quel est votre nom?",
-  "you": "Tu"
+  "you": "Tu",
+  "update_bar_text": "Volla Messages {{version}} est arrivé. Les contacts qui ont mis à jour ne peuvent plus recevoir vos messages — mettez à jour pour continuer à discuter.",
+  "update_now": "Mettre à jour",
+  "updating": "Mise à jour…",
+  "update_failed": "La mise à jour n'a pas pu être installée. Veuillez la télécharger depuis la page des versions.",
+  "update_notification_title": "Volla Messages {{version}} est disponible",
+  "update_notification_body": "Mettez à jour pour continuer à discuter avec les contacts qui ont déjà mis à jour."
 }

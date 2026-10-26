@@ -62,5 +62,11 @@
   "welcome_text_1": "Pe Volla Messages, datele dvs. sunt transmise numai persoanelor cu care partajați mesaje.",
   "welcome_text_2": "Privat, criptat și securizat prin chei pe care doar tu le controlezi.",
   "what_is_your_name": "Care este numele dvs.?",
-  "you": "Tu"
+  "you": "Tu",
+  "update_bar_text": "Volla Messages {{version}} este aici. Contactele care au actualizat nu îți mai pot primi mesajele — actualizează pentru a continua conversațiile.",
+  "update_now": "Actualizează",
+  "updating": "Se actualizează…",
+  "update_failed": "Actualizarea nu a putut fi instalată. Descarc-o de pe pagina de versiuni.",
+  "update_notification_title": "Volla Messages {{version}} este disponibil",
+  "update_notification_body": "Actualizează pentru a continua conversațiile cu contactele care au actualizat deja."
 }

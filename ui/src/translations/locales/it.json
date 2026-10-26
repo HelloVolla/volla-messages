@@ -102,5 +102,11 @@
   "welcome_text_1": "Su Volla Messages, i vostri dati vengono trasmessi solo alle persone con cui condividete i messaggi..",
   "welcome_text_2": "Privati, crittografati e protetti da chiavi che solo voi potete controllare.",
   "what_is_your_name": "Qual è il suo nome?",
-  "you": "Tu"
+  "you": "Tu",
+  "update_bar_text": "Volla Messages {{version}} è disponibile. I contatti che hanno aggiornato non possono più ricevere i tuoi messaggi: aggiorna per continuare a chattare.",
+  "update_now": "Aggiorna",
+  "updating": "Aggiornamento in corso…",
+  "update_failed": "Impossibile installare l'aggiornamento. Scaricalo dalla pagina delle release.",
+  "update_notification_title": "Volla Messages {{version}} è disponibile",
+  "update_notification_body": "Aggiorna per continuare a chattare con i contatti che hanno già aggiornato."
 }
