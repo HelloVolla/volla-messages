@@ -68,5 +68,8 @@
   "updating": "Mise à jour…",
   "update_failed": "La mise à jour n'a pas pu être installée. Veuillez la télécharger depuis la page des versions.",
   "update_notification_title": "Volla Messages {{version}} est disponible",
-  "update_notification_body": "Mettez à jour pour continuer à discuter avec les contacts qui ont déjà mis à jour."
+  "update_notification_body": "Mettez à jour pour continuer à discuter avec les contacts qui ont déjà mis à jour.",
+  "update_available_text": "Une nouvelle version de Volla Messages ({{version}}) est disponible.",
+  "update_later": "Plus tard",
+  "update_available_notification_body": "Mettez à jour pour profiter des derniers correctifs et améliorations."
 }

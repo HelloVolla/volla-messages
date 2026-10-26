@@ -76,5 +76,8 @@
   "updating": "Uppdaterar…",
   "update_failed": "Uppdateringen kunde inte installeras. Ladda ner den från versionssidan.",
   "update_notification_title": "Volla Messages {{version}} är tillgänglig",
-  "update_notification_body": "Uppdatera för att fortsätta chatta med kontakter som redan har uppdaterat."
+  "update_notification_body": "Uppdatera för att fortsätta chatta med kontakter som redan har uppdaterat.",
+  "update_available_text": "En ny version av Volla Messages ({{version}}) finns tillgänglig.",
+  "update_later": "Senare",
+  "update_available_notification_body": "Uppdatera för de senaste korrigeringarna och förbättringarna."
 }

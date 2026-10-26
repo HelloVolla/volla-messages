@@ -10,8 +10,6 @@
 //! Driven from Rust rather than the updater's JS API, so the app needs no extra
 //! capabilities, and mobile builds compile without the plugin.
 
-use serde::Serialize;
-
 /// How this copy of the app was installed, which decides how it can update.
 #[tauri::command]
 pub fn install_kind() -> &'static str {
@@ -38,40 +36,43 @@ pub fn install_kind() -> &'static str {
     "deb"
 }
 
-#[derive(Serialize)]
-pub struct DesktopUpdate {
-    version: String,
-}
+/// Where a release's updater manifest lives. Each release, pre-releases
+/// included, carries its own `latest.json`, so the app installs exactly the
+/// release it found — not whatever GitHub currently calls "latest".
+const RELEASE_MANIFEST_URL: &str =
+    "https://github.com/HelloVolla/volla-messages/releases/download/{tag}/latest.json";
 
-/// The update the updater would install, if any.
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn check_desktop_update(app: tauri::AppHandle) -> Result<Option<DesktopUpdate>, String> {
-    use tauri_plugin_updater::UpdaterExt;
-    let update = app
-        .updater()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(update.map(|u| DesktopUpdate { version: u.version }))
-}
-
-/// Download, verify and install the update, then restart into it.
+/// Download, verify and install the release `tag`, then restart into it.
 ///
 /// The caller must have flushed the migration export first: after the restart
 /// the new version runs, and a 2.x release can no longer write it.
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn install_desktop_update(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn install_desktop_update(app: tauri::AppHandle, tag: String) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
+
+    // The tag comes from the UI and becomes part of a URL: a plain version tag
+    // only, never something that could point the updater elsewhere.
+    let valid = tag.len() <= 64
+        && tag
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_');
+    if !valid {
+        return Err(format!("Refusing unexpected release tag {tag:?}"));
+    }
+    let endpoint = tauri::Url::parse(&RELEASE_MANIFEST_URL.replace("{tag}", &tag))
+        .map_err(|e| e.to_string())?;
+
     let update = app
-        .updater()
+        .updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|e| e.to_string())?
+        .build()
         .map_err(|e| e.to_string())?
         .check()
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "No update is available".to_string())?;
+        .ok_or_else(|| format!("Release {tag} offers no update for this installation"))?;
 
     log::info!("[update] installing {}", update.version);
     update
@@ -83,12 +84,7 @@ pub async fn install_desktop_update(app: tauri::AppHandle) -> Result<(), String>
 
 #[cfg(mobile)]
 #[tauri::command]
-pub async fn check_desktop_update() -> Result<Option<DesktopUpdate>, String> {
-    Ok(None)
-}
-
-#[cfg(mobile)]
-#[tauri::command]
-pub async fn install_desktop_update() -> Result<(), String> {
+pub async fn install_desktop_update(tag: String) -> Result<(), String> {
+    let _ = tag;
     Err("In-app installation is only available on desktop".to_string())
 }

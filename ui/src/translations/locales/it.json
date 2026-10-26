@@ -108,5 +108,8 @@
   "updating": "Aggiornamento in corso…",
   "update_failed": "Impossibile installare l'aggiornamento. Scaricalo dalla pagina delle release.",
   "update_notification_title": "Volla Messages {{version}} è disponibile",
-  "update_notification_body": "Aggiorna per continuare a chattare con i contatti che hanno già aggiornato."
+  "update_notification_body": "Aggiorna per continuare a chattare con i contatti che hanno già aggiornato.",
+  "update_available_text": "È disponibile una nuova versione di Volla Messages ({{version}}).",
+  "update_later": "Più tardi",
+  "update_available_notification_body": "Aggiorna per le ultime correzioni e i miglioramenti."
 }

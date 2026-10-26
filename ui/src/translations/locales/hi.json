@@ -107,5 +107,8 @@
   "updating": "अपडेट हो रहा है…",
   "update_failed": "अपडेट इंस्टॉल नहीं हो सका। कृपया इसे रिलीज़ पेज से डाउनलोड करें।",
   "update_notification_title": "Volla Messages {{version}} उपलब्ध है",
-  "update_notification_body": "पहले से अपडेट कर चुके संपर्कों से चैट जारी रखने के लिए अपडेट करें।"
+  "update_notification_body": "पहले से अपडेट कर चुके संपर्कों से चैट जारी रखने के लिए अपडेट करें।",
+  "update_available_text": "Volla Messages का नया संस्करण ({{version}}) उपलब्ध है।",
+  "update_later": "बाद में",
+  "update_available_notification_body": "नवीनतम सुधारों और बेहतरियों के लिए अपडेट करें।"
 }

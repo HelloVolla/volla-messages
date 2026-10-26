@@ -107,5 +107,8 @@
   "updating": "Wird aktualisiert…",
   "update_failed": "Das Update konnte nicht installiert werden. Bitte lade es von der Release-Seite herunter.",
   "update_notification_title": "Volla Messages {{version}} ist verfügbar",
-  "update_notification_body": "Aktualisiere, um weiter mit Kontakten zu chatten, die bereits aktualisiert haben."
+  "update_notification_body": "Aktualisiere, um weiter mit Kontakten zu chatten, die bereits aktualisiert haben.",
+  "update_available_text": "Eine neue Version von Volla Messages ({{version}}) ist verfügbar.",
+  "update_later": "Später",
+  "update_available_notification_body": "Aktualisiere für die neuesten Fehlerbehebungen und Verbesserungen."
 }

@@ -53,7 +53,13 @@
   import { exportMigrationData } from "$lib/migrationExport";
   import { exportHistory } from "$lib/historyExport";
   import UpdateBar from "$lib/UpdateBar.svelte";
-  import { checkForUpdate, notifyAboutUpdate, type AvailableUpdate } from "$lib/updateNotice";
+  import {
+    checkForUpdate,
+    dismiss,
+    isDismissed,
+    notifyAboutUpdate,
+    type AvailableUpdate,
+  } from "$lib/updateNotice";
 
   // Holochain client
   let client: AppClient;
@@ -296,21 +302,29 @@
     void exportHistory(relayClient, conversationStore, myPubKeyB64);
   }
 
-  // A newer major version: contacts who updated can no longer receive this
-  // user's messages. Checked on startup and every few hours; GitHub itself is
-  // asked at most once a day (see updateNotice.ts).
+  // A newer version, major or normal (see updateNotice.ts). Checked on
+  // startup and every few hours; GitHub itself is asked at most once a day.
   const UPDATE_RECHECK_MS = 6 * 60 * 60 * 1000;
   let availableUpdate: AvailableUpdate | undefined;
   let updateInterval: ReturnType<typeof setInterval> | undefined;
 
   async function refreshUpdate() {
-    availableUpdate = await checkForUpdate();
+    const update = await checkForUpdate();
+    availableUpdate = update && !isDismissed(update) ? update : undefined;
     if (availableUpdate) {
       await notifyAboutUpdate(
+        availableUpdate,
         $t("common.update_notification_title", { version: availableUpdate.version }),
-        $t("common.update_notification_body"),
+        availableUpdate.major
+          ? $t("common.update_notification_body")
+          : $t("common.update_available_notification_body"),
       );
     }
+  }
+
+  function dismissUpdate() {
+    if (availableUpdate) dismiss(availableUpdate);
+    availableUpdate = undefined;
   }
 
   /** Everything the next major release imports, written once more before it installs. */
@@ -433,7 +447,7 @@
 <div class="mx-auto flex h-screen w-full max-w-screen-lg flex-col items-center">
   {#if isClientConnected && isStoresSetup && myProfileExists}
     {#if availableUpdate}
-      <UpdateBar update={availableUpdate} {flushExports} />
+      <UpdateBar update={availableUpdate} {flushExports} on:dismiss={dismissUpdate} />
     {/if}
     <slot />
   {:else if isClientConnected && isStoresSetup && !myProfileExists && !isUserCreatingProfile}

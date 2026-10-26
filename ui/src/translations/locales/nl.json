@@ -79,5 +79,8 @@
   "updating": "Bijwerken…",
   "update_failed": "De update kon niet worden geïnstalleerd. Download hem van de releasepagina.",
   "update_notification_title": "Volla Messages {{version}} is beschikbaar",
-  "update_notification_body": "Werk bij om te blijven chatten met contacten die al hebben bijgewerkt."
+  "update_notification_body": "Werk bij om te blijven chatten met contacten die al hebben bijgewerkt.",
+  "update_available_text": "Er is een nieuwe versie van Volla Messages ({{version}}) beschikbaar.",
+  "update_later": "Later",
+  "update_available_notification_body": "Werk bij voor de nieuwste oplossingen en verbeteringen."
 }

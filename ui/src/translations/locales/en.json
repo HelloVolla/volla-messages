@@ -107,5 +107,8 @@
   "updating": "Updating…",
   "update_failed": "The update could not be installed. Please download it from the release page.",
   "update_notification_title": "Volla Messages {{version}} is available",
-  "update_notification_body": "Update to keep chatting with contacts who have already updated."
+  "update_notification_body": "Update to keep chatting with contacts who have already updated.",
+  "update_available_text": "A new version of Volla Messages ({{version}}) is available.",
+  "update_later": "Later",
+  "update_available_notification_body": "Update for the latest fixes and improvements."
 }

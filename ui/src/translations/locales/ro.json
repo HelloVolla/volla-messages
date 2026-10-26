@@ -68,5 +68,8 @@
   "updating": "Se actualizează…",
   "update_failed": "Actualizarea nu a putut fi instalată. Descarc-o de pe pagina de versiuni.",
   "update_notification_title": "Volla Messages {{version}} este disponibil",
-  "update_notification_body": "Actualizează pentru a continua conversațiile cu contactele care au actualizat deja."
+  "update_notification_body": "Actualizează pentru a continua conversațiile cu contactele care au actualizat deja.",
+  "update_available_text": "Este disponibilă o versiune nouă a Volla Messages ({{version}}).",
+  "update_later": "Mai târziu",
+  "update_available_notification_body": "Actualizează pentru cele mai noi remedieri și îmbunătățiri."
 }

@@ -22,7 +22,6 @@ pub fn run() {
             migration_export::list_export_images,
             migration_export::write_image_index,
             app_update::install_kind,
-            app_update::check_desktop_update,
             app_update::install_desktop_update
         ])
         .plugin(tauri_plugin_shell::init())

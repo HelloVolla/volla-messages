@@ -48,7 +48,6 @@ url2 = "0.0.6"
 app_dirs2 = "2.5.5"
 tempdir = "0.3.7"
 anyhow = "1"
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1.12.0", features = ["v4", "fast-rng"] }
 base64ct = "=1.7.3"

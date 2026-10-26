@@ -68,5 +68,8 @@
   "updating": "Aktualizuje sa…",
   "update_failed": "Aktualizáciu sa nepodarilo nainštalovať. Stiahnite si ju zo stránky s vydaniami.",
   "update_notification_title": "Volla Messages {{version}} je k dispozícii",
-  "update_notification_body": "Aktualizujte, aby ste mohli ďalej četovať s kontaktmi, ktoré už aktualizovali."
+  "update_notification_body": "Aktualizujte, aby ste mohli ďalej četovať s kontaktmi, ktoré už aktualizovali.",
+  "update_available_text": "Je k dispozícii nová verzia Volla Messages ({{version}}).",
+  "update_later": "Neskôr",
+  "update_available_notification_body": "Aktualizujte pre najnovšie opravy a vylepšenia."
 }

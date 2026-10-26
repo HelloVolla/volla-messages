@@ -11353,7 +11353,6 @@ dependencies = [
  "holochain_types",
  "lair_keystore",
  "log",
- "serde",
  "serde_json",
  "tauri",
  "tauri-build",
