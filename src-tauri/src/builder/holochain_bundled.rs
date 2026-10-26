@@ -52,7 +52,17 @@ pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             // So also check whether the runtime is already up. Whichever path
             // fires first wins; `open_main_window_once` makes sure the work
             // happens exactly once.
-            if handle.holochain().is_ok() {
+            //
+            // Ask for the runtime itself: with the 0.7 plugin `holochain()`
+            // succeeds as soon as the plugin is registered, before the
+            // conductor has started, and `runtime()` then panics — killing the
+            // startup task and leaving the splashscreen up. When it is not
+            // ready yet, the EVENT_READY listener above covers it.
+            let runtime_ready = handle
+                .holochain()
+                .map(|holochain| holochain.try_runtime().is_ok())
+                .unwrap_or(false);
+            if runtime_ready {
                 log::info!(
                     "holochain runtime was already running when the setup hook ran; \
                      starting the main window without waiting for the event"
@@ -125,7 +135,9 @@ fn open_main_window_once<R: Runtime>(handle: AppHandle<R>) {
 //   - If our hApp **is** installed, check whether the bundled hApp changed since the
 //     last run and update the coordinator zomes if it did
 async fn setup<R: Runtime>(handle: AppHandle<R>) -> anyhow::Result<()> {
-    let runtime = handle.holochain()?.runtime();
+    // `try_runtime` rather than `runtime`: an error is reported, a panic in
+    // this spawned task would silently leave the app on the splashscreen.
+    let runtime = handle.holochain()?.try_runtime()?;
 
     if !runtime.is_app_installed(APP_ID.into()).await? {
         let install_payload = |agent_key| InstallAppPayload {
