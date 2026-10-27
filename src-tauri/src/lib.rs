@@ -1,5 +1,6 @@
 mod builder;
 use builder::setup_builder;
+mod app_update;
 mod config;
 mod migration_export;
 
@@ -14,7 +15,14 @@ pub fn run() {
             migration_export::write_migration_export,
             migration_export::read_migration_export,
             migration_export::set_pending_enable,
-            migration_export::get_pending_enable
+            migration_export::get_pending_enable,
+            migration_export::write_history_export,
+            migration_export::read_history_export,
+            migration_export::write_export_image,
+            migration_export::list_export_images,
+            migration_export::write_image_index,
+            app_update::install_kind,
+            app_update::install_desktop_update
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
@@ -42,6 +50,10 @@ pub fn run() {
                 .level_for("iroh", log::LevelFilter::Warn)
                 .build(),
         );
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
     #[cfg(mobile)]
     {
         builder = builder.plugin(tauri_plugin_sharesheet::init());

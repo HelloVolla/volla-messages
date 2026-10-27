@@ -62,5 +62,14 @@
   "welcome_text_1": "V službe Volla Messages sa vaše údaje odovzdávajú len ľuďom, s ktorými zdieľate správy..",
   "welcome_text_2": "Súkromné, zašifrované a zabezpečené kľúčmi, ktoré máte pod kontrolou len vy..",
   "what_is_your_name": "Ako sa voláte?",
-  "you": "Vy"
+  "you": "Vy",
+  "update_bar_text": "Volla Messages {{version}} je tu. Kontakty, ktoré aktualizovali, už nemôžu prijímať vaše správy — aktualizujte, aby ste mohli ďalej četovať.",
+  "update_now": "Aktualizovať",
+  "updating": "Aktualizuje sa…",
+  "update_failed": "Aktualizáciu sa nepodarilo nainštalovať. Stiahnite si ju zo stránky s vydaniami.",
+  "update_notification_title": "Volla Messages {{version}} je k dispozícii",
+  "update_notification_body": "Aktualizujte, aby ste mohli ďalej četovať s kontaktmi, ktoré už aktualizovali.",
+  "update_available_text": "Je k dispozícii nová verzia Volla Messages ({{version}}).",
+  "update_later": "Neskôr",
+  "update_available_notification_body": "Aktualizujte pre najnovšie opravy a vylepšenia."
 }

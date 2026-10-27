@@ -22,7 +22,8 @@ type Params =
   | { count: number }
   | { date: number }
   | { public: boolean }
-  | { existingConversation: boolean };
+  | { existingConversation: boolean }
+  | { version: string };
 
 const config: Config<Params> = {
   fallbackLocale: "en",

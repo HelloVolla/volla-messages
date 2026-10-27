@@ -70,5 +70,14 @@
   "welcome_text_1": "I Volla Messages delas dina uppgifter endast med de personer som du skickar meddelanden till.",
   "welcome_text_2": "Privat, krypterat och säkrat med nycklar som bara du kontrollerar.",
   "what_is_your_name": "Vad heter du?",
-  "you": "Du"
+  "you": "Du",
+  "update_bar_text": "Volla Messages {{version}} är här. Kontakter som har uppdaterat kan inte längre ta emot dina meddelanden — uppdatera för att fortsätta chatta.",
+  "update_now": "Uppdatera",
+  "updating": "Uppdaterar…",
+  "update_failed": "Uppdateringen kunde inte installeras. Ladda ner den från versionssidan.",
+  "update_notification_title": "Volla Messages {{version}} är tillgänglig",
+  "update_notification_body": "Uppdatera för att fortsätta chatta med kontakter som redan har uppdaterat.",
+  "update_available_text": "En ny version av Volla Messages ({{version}}) finns tillgänglig.",
+  "update_later": "Senare",
+  "update_available_notification_body": "Uppdatera för de senaste korrigeringarna och förbättringarna."
 }

@@ -51,6 +51,15 @@
   import { createNetworkStatsStore, type NetworkStatsStore } from "$store/NetworkStatsStore";
   import Dialog from "$lib/Dialog.svelte";
   import { exportMigrationData } from "$lib/migrationExport";
+  import { exportHistory } from "$lib/historyExport";
+  import UpdateBar from "$lib/UpdateBar.svelte";
+  import {
+    checkForUpdate,
+    dismiss,
+    isDismissed,
+    notifyAboutUpdate,
+    type AvailableUpdate,
+  } from "$lib/updateNotice";
 
   // Holochain client
   let client: AppClient;
@@ -225,6 +234,9 @@
         migrationExportTimer = undefined;
         runMigrationExport();
       }
+      if (isStoresSetup && Date.now() - lastHistoryExport > HISTORY_EXPORT_MIN_GAP_MS) {
+        runHistoryExport();
+      }
       return;
     }
 
@@ -275,6 +287,58 @@
     }, MIGRATION_EXPORT_COALESCE_MS);
   }
 
+  // Message history for the next major release. It changes with every message,
+  // so it is exported on a timer and when the app is backgrounded rather than
+  // on store changes. A full run on a real account took a few seconds.
+  const HISTORY_EXPORT_FIRST_DELAY_MS = 15_000;
+  const HISTORY_EXPORT_INTERVAL_MS = 30 * 60 * 1000;
+  const HISTORY_EXPORT_MIN_GAP_MS = 5 * 60 * 1000;
+  let historyExportInterval: ReturnType<typeof setInterval> | undefined;
+  let lastHistoryExport = 0;
+
+  function runHistoryExport() {
+    lastHistoryExport = Date.now();
+    // Not awaited and never fatal, like the main export.
+    void exportHistory(relayClient, conversationStore, myPubKeyB64);
+  }
+
+  // A newer version, major or normal (see updateNotice.ts). Checked on
+  // startup and every few hours; GitHub itself is asked at most once a day.
+  const UPDATE_RECHECK_MS = 6 * 60 * 60 * 1000;
+  let availableUpdate: AvailableUpdate | undefined;
+  let updateInterval: ReturnType<typeof setInterval> | undefined;
+
+  async function refreshUpdate() {
+    const update = await checkForUpdate();
+    availableUpdate = update && !isDismissed(update) ? update : undefined;
+    if (availableUpdate) {
+      await notifyAboutUpdate(
+        availableUpdate,
+        $t("common.update_notification_title", { version: availableUpdate.version }),
+        availableUpdate.major
+          ? $t("common.update_notification_body")
+          : $t("common.update_available_notification_body"),
+      );
+    }
+  }
+
+  function dismissUpdate() {
+    if (availableUpdate) dismiss(availableUpdate);
+    availableUpdate = undefined;
+  }
+
+  /** Everything the next major release imports, written once more before it installs. */
+  async function flushExports() {
+    await exportMigrationData(
+      relayClient,
+      conversationStore,
+      contactStore,
+      myPubKeyB64,
+      get(provisionedRelayCellProfileStore).data[myPubKeyB64],
+    );
+    await exportHistory(relayClient, conversationStore, myPubKeyB64);
+  }
+
   async function setupApp() {
     initLightDarkModeSwitcher();
     await initHolochainClient();
@@ -291,6 +355,12 @@
       conversationStore.subscribe(scheduleMigrationExport),
       contactStore.subscribe(scheduleMigrationExport),
     ];
+
+    setTimeout(runHistoryExport, HISTORY_EXPORT_FIRST_DELAY_MS);
+    historyExportInterval = setInterval(runHistoryExport, HISTORY_EXPORT_INTERVAL_MS);
+
+    void refreshUpdate();
+    updateInterval = setInterval(refreshUpdate, UPDATE_RECHECK_MS);
   }
 
   onMount(async () => {
@@ -301,6 +371,8 @@
   onDestroy(() => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     if (migrationExportTimer !== undefined) clearTimeout(migrationExportTimer);
+    if (historyExportInterval !== undefined) clearInterval(historyExportInterval);
+    if (updateInterval !== undefined) clearInterval(updateInterval);
     migrationExportUnsubscribers.forEach((unsubscribe) => unsubscribe());
   });
 
@@ -374,6 +446,9 @@
 
 <div class="mx-auto flex h-screen w-full max-w-screen-lg flex-col items-center">
   {#if isClientConnected && isStoresSetup && myProfileExists}
+    {#if availableUpdate}
+      <UpdateBar update={availableUpdate} {flushExports} on:dismiss={dismissUpdate} />
+    {/if}
     <slot />
   {:else if isClientConnected && isStoresSetup && !myProfileExists && !isUserCreatingProfile}
     <AppLanding>

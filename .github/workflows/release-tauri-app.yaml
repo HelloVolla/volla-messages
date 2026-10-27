@@ -188,6 +188,9 @@ jobs:
         run: |
           cp -f src-tauri/tauri.desktop.conf.json src-tauri/tauri.conf.json
 
+      - name: Enable signed update files
+        run: node .github/scripts/enable-updater-artifacts.mjs
+
       - name: Set up cross-compilation environment for armv7
         if: matrix.arch == 'armv7'
         run: |
@@ -203,9 +206,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.create-release.outputs.releaseId }}
           args: --verbose --features holochain_bundled --target ${{ matrix.target }}
+          # latest.json is written once, by publish-updater-manifest, after all builds.
+          includeUpdaterJson: false
 
       - name: Upload aarch64 AppImage for Ubuntu Touch job
         if: matrix.arch == 'aarch64'
@@ -381,13 +388,22 @@ jobs:
         run: |
           Copy-Item -Path src-tauri\tauri.desktop.conf.json -Destination src-tauri\tauri.conf.json
 
+      - name: Enable signed update files
+        run: node .github/scripts/enable-updater-artifacts.mjs
+
       - name: Build the App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: --verbose --features holochain_bundled
+          includeUpdaterJson: false
 
+      # Code signing changes the installer bytes, so the updater signatures
+      # (.sig) the build wrote no longer match. If this step is turned back on,
+      # "Re-sign update files" below must run after it, before the upload.
       - name: Sign the App
         if: false
         run: |
@@ -423,6 +439,26 @@ jobs:
           # log hashes after code signing
           CertUtil -hashfile $BUNDLE_OUT_PATH_1 SHA256
           CertUtil -hashfile $BUNDLE_OUT_PATH_2 SHA256
+
+      # Sign the final installers for the in-app updater. Runs always: without
+      # code signing it reproduces what the build wrote; with it, it replaces
+      # signatures that no longer match. The installers must not change after this.
+      - name: Re-sign update files
+        shell: powershell
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $nsis = @(Get-ChildItem src-tauri\target\release\bundle\nsis\*-setup.exe)
+          $msi = @(Get-ChildItem src-tauri\target\release\bundle\msi\*.msi)
+          if ($nsis.Count -eq 0 -or $msi.Count -eq 0) { throw "Expected both an NSIS and an MSI installer to sign" }
+          $installers = $nsis + $msi
+          foreach ($installer in $installers) {
+            npx tauri signer sign --private-key "$env:TAURI_SIGNING_PRIVATE_KEY" --password "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$($installer.FullName)"
+            if ($LASTEXITCODE -ne 0) { throw "Signing $($installer.Name) failed" }
+            if (-not (Test-Path "$($installer.FullName).sig")) { throw "No signature written for $($installer.Name)" }
+          }
 
       - name: Upload the Signed App
         uses: AButler/upload-release-assets@v3.0
@@ -485,10 +521,15 @@ jobs:
           ls -la
           ls -la src-tauri
 
+      - name: Enable signed update files
+        run: node .github/scripts/enable-updater-artifacts.mjs
+
       - name: Build the App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -499,6 +540,7 @@ jobs:
         with:
           releaseId: ${{ needs.create-release.outputs.releaseId }}
           args: --verbose --features holochain_bundled --target ${{ matrix.target }}
+          includeUpdaterJson: false
 
   release-tauri-app-ubuntu-touch:
     name: Build Ubuntu Touch click
@@ -559,3 +601,80 @@ jobs:
           files: "ut/build/aarch64-linux-gnu/app/*.click"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-id: ${{ needs.create-release.outputs.releaseId }}
+  # The in-app updater (desktop only) reads releases/download/<tag>/latest.json.
+  # Written once, after every desktop build has uploaded its installer and
+  # updater signature, so parallel jobs cannot overwrite each other's entries.
+  publish-updater-manifest:
+    needs:
+      - create-release
+      - release-tauri-app-linux
+      - release-tauri-app-windows
+      - release-tauri-app-macos
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write latest.json to the release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ needs.create-release.outputs.releaseId }}
+        with:
+          script: |
+            const fs = require("node:fs");
+            const { buildManifest, verifySignature } = await import(
+              `${process.env.GITHUB_WORKSPACE}/.github/scripts/updater-manifest.mjs`
+            );
+            const { owner, repo } = context.repo;
+            const release_id = Number(process.env.RELEASE_ID);
+            const tag = context.ref.replace("refs/tags/", "");
+            // The key the shipped app trusts, not whatever the secret holds.
+            const pubkey = JSON.parse(
+              fs.readFileSync("src-tauri/tauri.desktop.conf.json", "utf8"),
+            ).plugins.updater.pubkey;
+
+            const listed = await github.paginate(github.rest.repos.listReleaseAssets, {
+              owner, repo, release_id, per_page: 100,
+            });
+            const download = async (asset) => {
+              const { data } = await github.request(
+                "GET /repos/{owner}/{repo}/releases/assets/{asset_id}",
+                { owner, repo, asset_id: asset.id, headers: { accept: "application/octet-stream" } },
+              );
+              return Buffer.from(data);
+            };
+
+            const assets = [];
+            for (const asset of listed) {
+              if (asset.name === "latest.json") continue;
+              let signature;
+              if (asset.name.endsWith(".sig")) {
+                signature = (await download(asset)).toString("utf8");
+                const target = listed.find((a) => `${a.name}.sig` === asset.name);
+                if (target) {
+                  verifySignature({ pubkey, signature, data: await download(target) });
+                  core.info(`${target.name}: updater signature valid`);
+                }
+              }
+              assets.push({ name: asset.name, signature });
+            }
+
+            const manifest = buildManifest({
+              repo: `${owner}/${repo}`,
+              tag,
+              notes: `See https://github.com/${owner}/${repo}/releases/tag/${tag}`,
+              pubDate: new Date().toISOString(),
+              assets,
+            });
+            core.info(JSON.stringify(manifest, null, 2));
+
+            for (const old of listed.filter((a) => a.name === "latest.json")) {
+              await github.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: old.id });
+            }
+            await github.rest.repos.uploadReleaseAsset({
+              owner, repo, release_id,
+              name: "latest.json",
+              data: JSON.stringify(manifest, null, 2),
+              headers: { "content-type": "application/json" },
+            });

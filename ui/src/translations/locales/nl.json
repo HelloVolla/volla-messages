@@ -73,5 +73,14 @@
   "welcome_text_1": "Volla Berichten worden je gegevens alleen gedeeld met de mensen met wie je een bericht stuurt.",
   "welcome_text_2": "Privé, versleuteld en beveiligd met sleutels die alleen jij beheert.",
   "what_is_your_name": "Wat is je naam?",
-  "you": "Jij"
+  "you": "Jij",
+  "update_bar_text": "Volla Messages {{version}} is er. Contacten die al hebben bijgewerkt, kunnen je berichten niet meer ontvangen — werk bij om te blijven chatten.",
+  "update_now": "Bijwerken",
+  "updating": "Bijwerken…",
+  "update_failed": "De update kon niet worden geïnstalleerd. Download hem van de releasepagina.",
+  "update_notification_title": "Volla Messages {{version}} is beschikbaar",
+  "update_notification_body": "Werk bij om te blijven chatten met contacten die al hebben bijgewerkt.",
+  "update_available_text": "Er is een nieuwe versie van Volla Messages ({{version}}) beschikbaar.",
+  "update_later": "Later",
+  "update_available_notification_body": "Werk bij voor de nieuwste oplossingen en verbeteringen."
 }
