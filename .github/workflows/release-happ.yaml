@@ -57,7 +57,13 @@ jobs:
           nix develop --no-update-lock-file --accept-flake-config --impure --command bash -c "npm install && npm run build:happ"
         env:
           CARGO_REGISTRIES_CARGO_HOSTED_TOKEN: ${{ secrets.VOLLA_NEXUS_TOKEN }}
-          
+
+      # Without this, a compiler change alone gives 1.x a new DNA hash. Fails
+      # the release unless the happ keeps the hash every 1.x install has.
+      - name: Keep the integrity zomes 1.0.3 shipped
+        run: |
+          nix develop --no-update-lock-file --accept-flake-config --impure --command bash .github/scripts/freeze-integrity.sh workdir/relay.happ
+
       - name: Retrieve version
         run: |
           echo "APP_VERSION=$(cat src-tauri/tauri.desktop.conf.json | grep -oP '(?<="version": ")[^"]*')" >> $GITHUB_OUTPUT
