@@ -160,5 +160,14 @@
   "conference_audioWorking": "Audio working",
   "conference_noAudio": "No audio detected",
   "conference_cameraOff": "Camera off",
-  "conference_cameraOn": "Camera on"
+  "conference_cameraOn": "Camera on",
+  "device_admission_pending_title": "Waiting for approval",
+  "device_admission_pending_description": "This device has asked to join the Volla network. Messages and calls connect once it is approved. If you were asked to, send the device code below to the Volla team.",
+  "device_admission_denied_title": "This device isn't approved",
+  "device_admission_denied_description": "This device can't connect to the Volla network. Contact Volla support and include the device code below.",
+  "device_admission_unavailable_title": "Can't reach the Volla network",
+  "device_admission_unavailable_description": "The approval service isn't responding. Volla Messages keeps trying in the background.",
+  "device_admission_copy_code": "Copy device code",
+  "device_admission_check_again": "Check again",
+  "device_admission_checking": "Checking…"
 }

@@ -12176,6 +12176,8 @@ dependencies = [
  "holochain_types 0.7.0",
  "log",
  "mr_bundle 0.7.0",
+ "reqwest 0.12.28",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "tauri",
@@ -12193,6 +12195,7 @@ dependencies = [
  "tauri-plugin-sharesheet",
  "tauri-plugin-shell",
  "tempdir",
+ "tokio",
  "url2",
  "uuid 1.18.1",
 ]

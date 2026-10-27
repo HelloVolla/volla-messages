@@ -13,15 +13,19 @@ use tauri_plugin_holochain::{
 };
 use uuid::Uuid;
 
+mod admission;
+
 pub const BOOTSTRAP_URL: &'static str = "https://relay2.volla.tech/";
 
 pub const IROH_RELAY_URL: &'static str = "https://iroh-relay.volla.tech/";
+
+pub const AUTHENTICATED_RELAY_URL: &'static str = "https://relay2.volla.tech/relay";
 
 pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
         .plugin(tauri_plugin_holochain::init(
             vec_to_locked(vec![]),
-            HolochainPluginConfig::new(holochain_dir(), network_config()),
+            plugin_config(),
         ))
         .setup(|app| {
             let handle = app.handle().clone();
@@ -69,6 +73,10 @@ fn open_main_window_once<R: Runtime>(handle: AppHandle<R>) {
 
     tauri::async_runtime::spawn(async move {
         setup(handle.clone()).await.expect("Failed to setup");
+
+        if let Some(auth_server_url) = device_auth_url() {
+            tauri::async_runtime::spawn(admission::run(handle.clone(), auth_server_url));
+        }
 
         let mut window_options = WindowOptions::default();
         #[cfg(desktop)]
@@ -145,10 +153,26 @@ async fn setup<R: Runtime>(handle: AppHandle<R>) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn device_auth_url() -> Option<&'static str> {
+    option_env!("VOLLA_DEVICE_AUTH_URL").filter(|url| !url.is_empty())
+}
+
+fn plugin_config() -> HolochainPluginConfig {
+    let config = HolochainPluginConfig::new(holochain_dir(), network_config());
+    match device_auth_url() {
+        Some(auth_server_url) => config.with_hc_auth(admission::auth_config(auth_server_url)),
+        None => config,
+    }
+}
+
 fn network_config() -> NetworkConfig {
+    let relay_url = match device_auth_url() {
+        Some(_) => AUTHENTICATED_RELAY_URL,
+        None => IROH_RELAY_URL,
+    };
     let mut config = NetworkConfig::default();
     config.bootstrap_url = url2::url2!("{}", BOOTSTRAP_URL);
-    config.relay_url = url2::url2!("{}", IROH_RELAY_URL);
+    config.relay_url = url2::url2!("{}", relay_url);
     config
 }
 
