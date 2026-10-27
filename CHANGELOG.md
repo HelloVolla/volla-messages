@@ -6,8 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## [1.0.4] - 2026-10-25
+## [1.0.4] - 2026-10-27
 
+- Fix: Version 1.0.3 could archive active one-to-one and private conversations on its own. This no longer happens. If 1.0.3 archived some of your chats, open your archived conversations and un-archive them; nothing in them was lost.
+- Feat: The app now tells you when a new version is available. On Windows, macOS and the Linux AppImage you can install it from inside the app; on Android it opens F-Droid, and on Ubuntu Touch the OpenStore.
 - Feat: Your message history and the images in your conversations, archived ones included, are now saved too, so they can come with you into the next major update. This happens automatically in the background and only adds new messages and images after the first run.
 - Fix: The saved copy of your account is now readable only by your own user on Linux and macOS.
 

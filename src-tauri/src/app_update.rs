@@ -63,10 +63,14 @@ pub async fn install_desktop_update(app: tauri::AppHandle, tag: String) -> Resul
     let endpoint = tauri::Url::parse(&RELEASE_MANIFEST_URL.replace("{tag}", &tag))
         .map_err(|e| e.to_string())?;
 
-    let update = app
+    let mut builder = app
         .updater_builder()
         .endpoints(vec![endpoint])
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    if let Some(target) = windows_update_target() {
+        builder = builder.target(target);
+    }
+    let update = builder
         .build()
         .map_err(|e| e.to_string())?
         .check()
@@ -80,6 +84,32 @@ pub async fn install_desktop_update(app: tauri::AppHandle, tag: String) -> Resul
         .await
         .map_err(|e| e.to_string())?;
     app.restart()
+}
+
+/// Which Windows installer to update with: the one this copy came from.
+///
+/// The updater would pick it itself if the bundler had stamped the bundle type
+/// into the binary, but the CLI we build with (2.5) does not, so it falls back
+/// to `windows-x86_64` (the NSIS installer). Running the NSIS installer over an
+/// MSI install leaves two copies side by side. The MSI installs per machine
+/// under Program Files; our NSIS installer installs per user, never there.
+#[cfg(desktop)]
+fn windows_update_target() -> Option<&'static str> {
+    if !cfg!(target_os = "windows") {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let exe = exe.to_string_lossy().to_lowercase();
+    let per_machine = ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|dir| dir.to_string_lossy().to_lowercase())
+        .any(|dir| !dir.is_empty() && exe.starts_with(&dir));
+    Some(if per_machine {
+        "windows-x86_64-msi"
+    } else {
+        "windows-x86_64-nsis"
+    })
 }
 
 #[cfg(mobile)]
