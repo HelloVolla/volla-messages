@@ -547,7 +547,9 @@ jobs:
     needs: [create-release, release-tauri-app-linux]
     permissions: write-all
     environment: Relay Release
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-latest (26.04) `qemu-user-static` is only a virtual
+    # package and apt refuses to install it.
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v3
