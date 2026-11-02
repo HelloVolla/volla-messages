@@ -71,6 +71,7 @@
   "welcome_text_2": "Privat, krypterat och säkrat med nycklar som bara du kontrollerar.",
   "what_is_your_name": "Vad heter du?",
   "you": "Du",
+  "unknown_member": "Okänd medlem",
   "update_bar_text": "Volla Messages {{version}} är här. Kontakter som har uppdaterat kan inte längre ta emot dina meddelanden — uppdatera för att fortsätta chatta.",
   "update_now": "Uppdatera",
   "updating": "Uppdaterar…",

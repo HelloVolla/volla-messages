@@ -99,35 +99,16 @@ export function createConversationMessageStore(
 const messages = createGenericKeyValueStore<Record<ActionHashB64, MessageExtended>>();
 const paginationState = writable<Record<string, PaginationState>>({});
 
-  const { subscribe } = derived(
-    [messages, mergedProfileContactInviteStore],
-    ([$messages, $mergedProfileContactInviteStore]) => {
-      const filteredMessages = Object.fromEntries(
-        $messages.list.map(([cellIdB64, messagesData]) => {
-          const profilesLoaded =
-            $mergedProfileContactInviteStore.data[cellIdB64] !== undefined;
-
-          const filtered = Object.entries(messagesData).filter(([, msg]) => {
-            if (!profilesLoaded) return true;
-            if (msg.message.message_type === MessageType.System) return true;
-
-            return (
-              $mergedProfileContactInviteStore.data[cellIdB64]?.[msg.authorAgentPubKeyB64] !==
-              undefined
-            );
-          });
-
-          return [cellIdB64, Object.fromEntries(filtered)];
-        }),
-      );
-
-      return {
-        data: filteredMessages,
-        list: Object.entries(filteredMessages),
-        count: Object.keys(filteredMessages).length,
-      };
-    },
-  );
+  // Every stored message is shown, whether or not its author has a profile in
+  // the conversation. Hiding unknown authors silenced members whose profile
+  // was never written into a conversation (a join can fail after the cell
+  // exists): their messages were delivered but invisible to everyone,
+  // themselves included. Unknown authors render as "Unknown member".
+  const { subscribe } = derived(messages, ($messages) => ({
+    data: Object.fromEntries($messages.list),
+    list: $messages.list,
+    count: $messages.list.length,
+  }));
 
   async function initialize(): Promise<void> {
     _log("initialize:start");

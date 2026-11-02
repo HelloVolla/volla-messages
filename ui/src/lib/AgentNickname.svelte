@@ -36,4 +36,7 @@
   <span class="font-bold">{$t("common.you")}</span>
 {:else if nickname !== undefined}
   <span class="font-bold">{nickname}</span>
+{:else}
+  <!-- A member whose profile this conversation does not hold (yet). -->
+  <span class="font-bold">{$t("common.unknown_member")}</span>
 {/if}

@@ -102,6 +102,7 @@
   "welcome_text_2": "Private, encrypted and secured by keys only you control.",
   "what_is_your_name": "What is your name?",
   "you": "You",
+  "unknown_member": "Unknown member",
   "update_bar_text": "Volla Messages {{version}} is here. Contacts who have updated can no longer receive your messages — update to keep chatting.",
   "update_now": "Update",
   "updating": "Updating…",
