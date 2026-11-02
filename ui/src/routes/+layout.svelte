@@ -210,6 +210,11 @@
       // Initialize signal handler
       createSignalHandler(relayClient, conversationStore, conversationMessageStore, onlinePeers);
 
+      // Background, never fatal: fill in your profile where a join left it out.
+      void profileStore.repairMyConversationProfiles().catch((e) => {
+        console.warn("[profile] repair failed", e);
+      });
+
       isStoresSetup = true;
     } catch (e) {
       console.error("Failed to init stores", e);

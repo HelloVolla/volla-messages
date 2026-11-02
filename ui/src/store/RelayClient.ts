@@ -311,6 +311,31 @@ export class RelayClient {
     });
   }
 
+  /** Profile writes in progress, per conversation, shared by all callers. */
+  private profileWrites = new Map<string, Promise<Record>>();
+
+  /**
+   * Make sure a conversation holds your profile, writing it only if a
+   * local-only lookup finds none. Use this rather than
+   * `setMyProfileForConversation`: create_profile accepts a second profile for
+   * the same agent, and joining and the start-up repair can both reach the
+   * same conversation. Concurrent calls for one conversation share one write,
+   * and later calls find the written profile locally.
+   */
+  ensureMyProfileForConversation(cell_id: CellId): Promise<Record> {
+    const key = encodeCellIdToBase64(cell_id);
+    const pending = this.profileWrites.get(key);
+    if (pending) return pending;
+
+    const write = (async () => {
+      const existing = await this.getAgentProfile(cell_id, this.client.myPubKey, true);
+      return existing ?? (await this.setMyProfileForConversation(cell_id));
+    })().finally(() => this.profileWrites.delete(key));
+
+    this.profileWrites.set(key, write);
+    return write;
+  }
+
   async setMyProfileForConversation(cell_id: CellId): Promise<Record> {
     const record = await this.getAgentProfile(this.provisionedRelayCellId, this.client.myPubKey);
     if (!record)
