@@ -214,12 +214,11 @@ jobs:
           # latest.json is written once, by publish-updater-manifest, after all builds.
           includeUpdaterJson: false
 
-      - name: Upload aarch64 AppImage for Ubuntu Touch job
-        if: matrix.arch == 'aarch64'
+      - name: Upload ${{ matrix.arch }} deb for Ubuntu Touch job
         uses: actions/upload-artifact@v4
         with:
-          name: volla-messages-appimage-aarch64
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/appimage/Volla Messages_*.AppImage
+          name: volla-messages-deb-${{ matrix.arch }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/deb/Volla Messages_*.deb
           retention-days: 1
 
   release-tauri-app-android:
@@ -543,66 +542,52 @@ jobs:
           includeUpdaterJson: false
 
   release-tauri-app-ubuntu-touch:
-    name: Build Ubuntu Touch click
     needs: [create-release, release-tauri-app-linux]
     permissions: write-all
     environment: Relay Release
-    # Pinned: on ubuntu-latest (26.04) `qemu-user-static` is only a virtual
-    # package and apt refuses to install it.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: [self-hosted, yolo]
+            target: x86_64-unknown-linux-gnu
+            container: ubuntu:24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            container: ubuntu:24.04
 
     steps:
       - uses: actions/checkout@v3
 
-      - name: Resolve version
-        id: version
+      - name: Install packages
         run: |
-          VERSION="${{ github.ref_name }}"
-          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            qemu-user-static \
-            wget \
-            dpkg-dev \
-            gtk-doc-tools \
-            libtool \
-            pipx
+          apt-get update -q
+          apt-get install -y pipx
           pipx install clickable-ut
 
-      - name: Stamp version into source files
-        working-directory: ut
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" build.sh
-
-      - name: Download aarch64 AppImage
+      - name: Download ${{ matrix.arch }} deb file
         uses: actions/download-artifact@v4
         with:
-          name: volla-messages-appimage-aarch64
+          name: volla-messages-deb-${{ matrix.arch }}
           path: ut/
-
-      - name: Make build dir and move the AppImage there
-        working-directory: ut
-        run: |
-          mkdir -p build/aarch64-linux-gnu/app
-          mv Volla\ Messages_*.AppImage \
-            build/aarch64-linux-gnu/app/Volla.Messages_${{ steps.version.outputs.version }}_aarch64.AppImage
 
       - name: Build click package
         working-directory: ut
         run: |
-          clickable build --arch arm64 --skip-review
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${GITHUB_REF_NAME#v}\"/" manifest.json
+          $HOME/.local/bin/clickable build --container-mode
 
       - name: Upload click to release
         uses: AButler/upload-release-assets@v3.0
         with:
-          files: "ut/build/aarch64-linux-gnu/app/*.click"
+          files: "ut/build/*/app/volla-messages.volla_*.click"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-id: ${{ needs.create-release.outputs.releaseId }}
+
   # The in-app updater (desktop only) reads releases/download/<tag>/latest.json.
   # Written once, after every desktop build has uploaded its installer and
   # updater signature, so parallel jobs cannot overwrite each other's entries.
