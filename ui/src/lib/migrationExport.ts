@@ -141,6 +141,14 @@ function needsMembraneProof(
  */
 const attemptedProofRecovery = new Set<string>();
 
+/**
+ * Cells whose failed proof read has been logged this session. The read is
+ * retried on every export — it starts working once the happ code is updated,
+ * e.g. by a Volla Cloud Services update under Lite — but logging every retry
+ * flooded the console.
+ */
+const reportedProofReadFailures = new Set<string>();
+
 /** Has this session already checked for an interrupted proof read? */
 let repairedPendingEnable = false;
 
@@ -304,7 +312,10 @@ async function collect(
           const proof = await relayClient.getRawMembraneProof(conversation.cellInfo.cell_id);
           if (proof) membraneProofB64 = Base64.fromUint8Array(new Uint8Array(proof));
         } catch (e) {
-          console.warn(`[migration-export] could not read membrane proof for ${title}`, e);
+          if (!reportedProofReadFailures.has(cellIdB64)) {
+            reportedProofReadFailures.add(cellIdB64);
+            console.warn(`[migration-export] could not read membrane proof for ${title}`, e);
+          }
         }
       }
 

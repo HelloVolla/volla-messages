@@ -32,7 +32,7 @@ import {
 } from "./MergedProfileContactInviteStore";
 import type { RelayClient } from "./RelayClient";
 import { derived, get, writable } from "svelte/store";
-import { TARGET_MESSAGES_COUNT, MESSAGES_PER_PAGE } from "$config";
+import { TARGET_MESSAGES_COUNT, MESSAGES_PER_PAGE, HISTORY_SCAN_DAYS_PER_STEP } from "$config";
 import type { FileStore } from "./FileStore";
 import { messageDB } from "./db/MessageDatabase";
 
@@ -277,12 +277,16 @@ const paginationState = writable<Record<string, PaginationState>>({});
 
     console.log("IndexedDB returned 0 older rows. Trying LOCAL previous-bucket pipeline...");
 
+    // Scan this device's own copy (local only) back day by day until a page
+    // of older messages turns up or the conversation's first day is reached.
+    // This used to stop after 3 days: any quiet stretch of 3+ days ended the
+    // history, though older messages were stored. A day without messages is
+    // a cheap local lookup, and the scan stops as soon as a page is found.
     const loadedViaLocalPipeline = await loadMessagesInPreviousBucketTargetCount(
       true,
       cellIdB64,
       TARGET_MESSAGES_COUNT,
-      3,
-      3,
+      HISTORY_SCAN_DAYS_PER_STEP,
     );
 
     console.log("loadedViaLocalPipeline:", loadedViaLocalPipeline);

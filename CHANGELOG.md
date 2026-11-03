@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- Fix: Scrolling up in a conversation now loads its whole history. It used to stop at the first stretch of three or more days without messages, even though older messages were stored on the device.
+- Fix: The Lite app no longer repeats the same warning about invitation proofs in its log every few seconds.
+
 ## [1.0.4] - 2026-10-27
 
 - Fix: Version 1.0.3 could archive active one-to-one and private conversations on its own. This no longer happens. If 1.0.3 archived some of your chats, open your archived conversations and un-archive them; nothing in them was lost.

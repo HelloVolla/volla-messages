@@ -7,6 +7,10 @@ export const BUCKET_RANGE_MS = 1000 * 60 * 60 * 24; // 1 day
 // Target number of messages to load in a single request for additional message history
 export const TARGET_MESSAGES_COUNT = 20;
 
+// Days scanned at once (in parallel) when scrolling back through quiet
+// stretches of a conversation's history; see loadMoreMessages.
+export const HISTORY_SCAN_DAYS_PER_STEP = 7;
+
 // Minimum length of profile first name
 // This is not enforced by DNA validation, so is only softly required in the frontend.
 export const MIN_FIRST_NAME_LENGTH = 3;
