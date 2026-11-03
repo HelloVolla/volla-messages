@@ -6,8 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.5] - 2026-11-03
+
 - Fix: Scrolling up in a conversation now loads its whole history. It used to stop at the first stretch of three or more days without messages, even though older messages were stored on the device.
 - Fix: The Lite app no longer repeats the same warning about invitation proofs in its log every few seconds.
+- Feat: Ubuntu Touch: the app now runs confined and is also available for x86_64 devices.
 
 ## [1.0.4] - 2026-10-27
 
