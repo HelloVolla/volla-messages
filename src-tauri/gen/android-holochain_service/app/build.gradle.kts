@@ -33,8 +33,8 @@ android {
         applicationId = "com.volla.messages"
         minSdk = 27
         targetSdk = 34
-        versionCode = 1000004
-        versionName = "1.0.4"
+        versionCode = 1000005
+        versionName = "1.0.5"
         // versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         // versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
