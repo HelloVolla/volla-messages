@@ -107,6 +107,7 @@ test('create and update Message', async () => {
       original_message_hash: originalActionHash,
       previous_message_hash: originalActionHash,
       updated_message: contentUpdate,
+      agents: [],
     };
 
     let updatedRecord: Record = await alice.cells[0].callZome({
@@ -133,6 +134,7 @@ test('create and update Message', async () => {
       original_message_hash: originalActionHash,
       previous_message_hash: updatedRecord.signed_action.hashed.hash,
       updated_message: contentUpdate,
+      agents: [],
     };
 
     updatedRecord = await alice.cells[0].callZome({
