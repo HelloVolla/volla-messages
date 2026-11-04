@@ -39,6 +39,9 @@ int main(int argc, char **argv)
 
 	setenv("LD_PRELOAD", buf, 1);
 
+	/* sends users to OpenStore for updates */
+	setenv("VOLLA_LAUNCHED", "1", 1);
+	
 	/* confinement only allows the app-scoped XDG subdirs */
 	const char *home = getenv("HOME");
 	if (home) {
