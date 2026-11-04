@@ -8,6 +8,7 @@ export async function sampleConfig(cell: CallableCell, partialConfig = {}) {
         ...{
 	  title: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
 	  image: "",
+	  description: null,
         },
         ...partialConfig
     };
@@ -30,6 +31,7 @@ export async function sampleMessage(cell: CallableCell, partialMessage = {}) {
 	  bucket: 0,
 	  images: [],
 	  message_type: "User",
+	  forwarded: null,
         },
         ...partialMessage
     };

@@ -62,10 +62,22 @@ export interface ConversationMessageStore
     maxBucketsToFetch?: number,
   ) => Promise<number>;
   loadMoreMessages: (key1: CellIdB64) => Promise<number>;
-  sendMessage: (key1: CellIdB64, content: string, files: LocalFile[]) => Promise<void>;
+  sendMessage: (
+    key1: CellIdB64,
+    content: string,
+    files: LocalFile[],
+    forwarded?: boolean,
+  ) => Promise<void>;
   sendJoinNotice: (key1: CellIdB64) => Promise<void>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
+  updateMessage: (key1: CellIdB64, actionHashB64: ActionHashB64, content: string) => Promise<void>;
   handleMessageSignalReceived: (key1: CellIdB64, signal: MessageSignal) => Promise<void>;
+  handleMessageUpdatedSignalReceived: (
+    key1: CellIdB64,
+    originalActionHashB64: ActionHashB64,
+    message: Message,
+    latestUpdateActionHashB64: ActionHashB64,
+  ) => Promise<void>;
   handleMessageDeletedSignalReceived: (
     key1: CellIdB64,
     actionHashB64: ActionHashB64,
@@ -772,7 +784,12 @@ const paginationState = writable<Record<string, PaginationState>>({});
     return valid.length;
   }
 
-  async function sendMessage(key1: CellIdB64, content: string, files: LocalFile[]): Promise<void> {
+  async function sendMessage(
+    key1: CellIdB64,
+    content: string,
+    files: LocalFile[],
+    forwarded?: boolean,
+  ): Promise<void> {
     const cellId = decodeCellIdFromBase64(key1);
     const myPubKeyB64 = encodeHashToBase64(client.client.myPubKey);
 
@@ -803,6 +820,7 @@ const paginationState = writable<Record<string, PaginationState>>({});
         bucket: conversationStore.getBucket(key1, Date.now()),
         images: messageFiles,
         message_type: MessageType.User,
+        forwarded: forwarded || undefined,
       },
       agents: agentPubKeys,
     });
@@ -989,6 +1007,70 @@ const paginationState = writable<Record<string, PaginationState>>({});
     _removeFromMemory(key1, actionHashB64);
   }
 
+  async function handleMessageUpdatedSignalReceived(
+    key1: CellIdB64,
+    originalActionHashB64: ActionHashB64,
+    message: Message,
+    latestUpdateActionHashB64: ActionHashB64,
+  ): Promise<void> {
+    const existing = get(messages).data[key1]?.[originalActionHashB64];
+    if (existing === undefined) return;
+
+    const updated: MessageExtended = {
+      ...existing,
+      message,
+      edited: true,
+      latestUpdateActionHashB64,
+    };
+
+    messages.update((m) => ({
+      ...m,
+      [key1]: { ...(m[key1] || {}), [originalActionHashB64]: updated },
+    }));
+    await messageDB.storeMessage(key1, originalActionHashB64, updated);
+  }
+
+  async function updateMessage(
+    key1: CellIdB64,
+    actionHashB64: ActionHashB64,
+    content: string,
+  ): Promise<void> {
+    const existing = get(messages).data[key1]?.[actionHashB64];
+    if (existing === undefined) throw new Error("Cannot edit a message that is not loaded");
+
+    // Holochain updates chain off the latest action, so edit from the head of
+    // the chain (a previous edit) rather than the original each time.
+    const previousActionHashB64 = existing.latestUpdateActionHashB64 ?? actionHashB64;
+    const updatedMessage = { ...existing.message, content };
+
+    const mergedProfileContact = deriveCellMergedProfileContactInviteStore(
+      mergedProfileContactInviteStore,
+      key1,
+      encodeHashToBase64(client.client.myPubKey),
+    );
+    const agents = get(mergedProfileContact).list.map(([a]) => decodeHashFromBase64(a));
+
+    const record = await client.updateMessage(decodeCellIdFromBase64(key1), {
+      original_message_hash: decodeHashFromBase64(actionHashB64),
+      previous_message_hash: decodeHashFromBase64(previousActionHashB64),
+      updated_message: updatedMessage,
+      agents,
+    });
+
+    const updated: MessageExtended = {
+      ...existing,
+      message: updatedMessage,
+      edited: true,
+      latestUpdateActionHashB64: encodeHashToBase64(record.signed_action.hashed.hash),
+    };
+
+    messages.update((m) => ({
+      ...m,
+      [key1]: { ...(m[key1] || {}), [actionHashB64]: updated },
+    }));
+    await messageDB.storeMessage(key1, actionHashB64, updated);
+  }
+
   function _removeFromMemory(cellIdB64: CellIdB64, actionHashB64: ActionHashB64): void {
     messages.update((m) => {
       const copy = { ...(m[cellIdB64] || {}) };
@@ -1069,7 +1151,9 @@ const paginationState = writable<Record<string, PaginationState>>({});
     handleMessageSignalReceived,
     subscribe,
     deleteMessage,
+    updateMessage,
     handleMessageDeletedSignalReceived,
+    handleMessageUpdatedSignalReceived,
     debugGetAllMessages,
   };
 }
@@ -1090,10 +1174,11 @@ export interface CellConversationMessageStore
     maxBucketsToFetch?: number,
   ) => Promise<number>;
   loadMoreMessages: () => Promise<number>;
-  sendMessage: (content: string, files: LocalFile[]) => Promise<void>;
+  sendMessage: (content: string, files: LocalFile[], forwarded?: boolean) => Promise<void>;
   sendJoinNotice: () => Promise<void>;
   handleMessageSignalReceived: (signal: MessageSignal) => Promise<void>;
   deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) => Promise<void>;
+  updateMessage: (actionHashB64: ActionHashB64, content: string) => Promise<void>;
   debugGetAllMessages: () => Promise<MessageRecord[]>;
 }
 
@@ -1142,13 +1227,15 @@ export function deriveCellConversationMessageStore(
         maxBucketsToFetch,
       ),
     loadMoreMessages: () => conversationMessageStore.loadMoreMessages(key),
-    sendMessage: (content: string, files: LocalFile[]) =>
-      conversationMessageStore.sendMessage(key, content, files),
+    sendMessage: (content: string, files: LocalFile[], forwarded?: boolean) =>
+      conversationMessageStore.sendMessage(key, content, files, forwarded),
     sendJoinNotice: () => conversationMessageStore.sendJoinNotice(key),
     handleMessageSignalReceived: (signal: MessageSignal) =>
       conversationMessageStore.handleMessageSignalReceived(key, signal),
     deleteMessage: (key1: CellIdB64, actionHashB64: ActionHashB64) =>
       conversationMessageStore.deleteMessage(key1, actionHashB64),
+    updateMessage: (actionHashB64: ActionHashB64, content: string) =>
+      conversationMessageStore.updateMessage(key, actionHashB64, content),
     debugGetAllMessages: () => conversationMessageStore.debugGetAllMessages(key),
   };
 }

@@ -11,6 +11,9 @@
   import MessageFilePreview from "./MessageFilePreview.svelte";
   import { encodeHashToBase64, type ActionHashB64, type AgentPubKeyB64 } from "@holochain/client";
   import AgentNickname from "$lib/AgentNickname.svelte";
+  import SvgIcon from "$lib/SvgIcon.svelte";
+  import { t } from "$translations";
+  import { starredMessages } from "$store/StarStore";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import DeliveryStatusIndicator from "./DeliveryStatusIndicator.svelte";
   import { computeDeliveryStatus } from "$lib/utils";
@@ -76,6 +79,16 @@
         </span>
       {/if}
 
+      {#if message.message.forwarded}
+        <span
+          class="text-secondary-400 text-xxs mb-0.5 flex items-center gap-1 italic {fromMe &&
+            'justify-end'}"
+        >
+          <SvgIcon icon="arrowRight" size="h-[10px] w-[10px]" />
+          {$t("common.forwarded")}
+        </span>
+      {/if}
+
       {#each message.message.images as file}
         <div class="flex {fromMe ? 'justify-end' : 'justify-start'} w-full p-2">
           <MessageFilePreview
@@ -112,11 +125,23 @@
             recipientCount={recipientPubKeyB64s.length}
           />{/if}
       </div>
+
+      {#if message.edited}
+        <span class="text-secondary-400 text-xxs block {fromMe && 'text-end'}"
+          >{$t("common.edited")}</span
+        >
+      {/if}
+
+      {#if $starredMessages[actionHashB64]}
+        <span class="text-secondary-400 mt-0.5 flex items-center {fromMe && 'justify-end'}">
+          <SvgIcon icon="starFilled" size="h-[10px] w-[10px]" />
+        </span>
+      {/if}
     </div>
   </div>
 
   {#if isSelected}
-    <MessageActions {message} {actionHashB64} on:unselect on:delete />
+    <MessageActions {message} {actionHashB64} on:unselect on:delete on:forward on:edit />
   {/if}
 </button>
 

@@ -83,7 +83,9 @@
   // used for editing Group conversation details
   let image = $conversation.config?.image || "";
   let title = $conversationTitle || "";
+  let description = $conversation.config?.description || "";
   let editingTitle = false;
+  let editingDescription = false;
 
   $: iAmProgenitor = myPubKeyB64 === $conversation.dnaProperties.progenitor;
 
@@ -111,15 +113,22 @@
   });
 
   const saveTitle = async (newTitle: string) => {
-    conversation.updateConfig({ title: newTitle.trim(), image });
+    conversation.updateConfig({ title: newTitle.trim(), image, description });
     title = newTitle.trim();
     editingTitle = false;
+  };
+
+  const saveDescription = async () => {
+    description = description.trim();
+    conversation.updateConfig({ title: $conversationTitle || "", image, description });
+    editingDescription = false;
   };
 
   const saveImage = async (newImage: string) => {
     conversation.updateConfig({
       title: $conversationTitle || "",
       image: newImage,
+      description,
     });
     image = newImage;
   };
@@ -178,6 +187,46 @@
   <p class="text-sm">
     {$t("common.num_members", { count: $joined.count })}
   </p>
+
+  {#if $conversation.dnaProperties.privacy === Privacy.Public}
+    <div class="mt-3 w-full px-6">
+      {#if editingDescription}
+        <textarea
+          bind:value={description}
+          rows="2"
+          placeholder={$t("common.group_description_placeholder")}
+          class="bg-tertiary-500 dark:bg-secondary-500 w-full resize-none rounded-lg border-0 p-2 text-sm focus:ring-0"
+        />
+        <div class="mt-1 flex justify-end gap-3 text-sm">
+          <button
+            on:click={() => {
+              description = $conversation.config?.description || "";
+              editingDescription = false;
+            }}
+            class="text-secondary-300"
+          >
+            {$t("common.cancel")}
+          </button>
+          <button on:click={saveDescription} class="text-primary-500 font-medium">
+            {$t("common.save")}
+          </button>
+        </div>
+      {:else}
+        <div class="flex items-start justify-center gap-2">
+          <p class="text-secondary-300 max-w-md whitespace-pre-wrap text-center text-sm">
+            {description || $t("common.group_description_placeholder")}
+          </p>
+          {#if $conversation.config !== undefined}
+            <ButtonIconBare
+              on:click={() => (editingDescription = true)}
+              icon="write"
+              moreClasses="text-gray-500 shrink-0"
+            />
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <div class="mx-auto flex w-full flex-col overflow-y-auto px-4">
     <ul class="mt-10 flex-1">
