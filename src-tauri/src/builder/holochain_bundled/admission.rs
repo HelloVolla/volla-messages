@@ -49,9 +49,7 @@ pub async fn run<R: Runtime>(app: AppHandle<R>, auth_server_url: &'static str) {
                 match register(&client, auth_server_url, current.device_code.as_deref()).await {
                     Ok(()) => {
                         registered = true;
-                        admission.publish(&app, current.clone());
-                        restart(&app, &runtime, &admission, &current).await;
-                        continue;
+                        AdmissionStatus::Pending
                     }
                     Err(e) => {
                         log::warn!("device admission: registration failed: {e}");
@@ -71,20 +69,9 @@ pub async fn run<R: Runtime>(app: AppHandle<R>, auth_server_url: &'static str) {
             return;
         }
 
-        tokio::select! {
-            _ = tokio::time::sleep(recheck_interval(status)) => {}
-            _ = admission.recheck_requested() => {}
-        }
+        admission.recheck_requested().await;
         admission.publish(&app, current.clone());
         restart(&app, &runtime, &admission, &current).await;
-    }
-}
-
-fn recheck_interval(status: AdmissionStatus) -> Duration {
-    match status {
-        AdmissionStatus::Pending => Duration::from_secs(120),
-        AdmissionStatus::Denied => Duration::from_secs(600),
-        _ => Duration::from_secs(60),
     }
 }
 

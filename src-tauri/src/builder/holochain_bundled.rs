@@ -50,7 +50,10 @@ pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             // So also check whether the runtime is already up. Whichever path
             // fires first wins; `open_main_window_once` makes sure the work
             // happens exactly once.
-            if handle.holochain().is_ok() {
+            if handle
+                .holochain()
+                .is_ok_and(|holochain| holochain.try_runtime().is_ok())
+            {
                 log::info!(
                     "holochain runtime was already running when the setup hook ran; \
                      starting the main window without waiting for the event"
