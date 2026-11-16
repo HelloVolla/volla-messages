@@ -102,5 +102,6 @@
   "welcome_text_1": "En Volla Messages, tus datos sólo se transmiten a las personas con las que compartes mensajes.",
   "welcome_text_2": "Privado, encriptado y protegido por claves que sólo usted controla.",
   "what_is_your_name": "¿Cuál es su nombre?",
-  "you": "Usted"
+  "you": "Usted",
+  "unknown_member": "Miembro desconocido"
 }
