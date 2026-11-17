@@ -2,11 +2,12 @@ use crate::config::{APP_ID, HAPP_BUNDLE_BYTES};
 #[cfg(target_os = "android")]
 use crate::android_barcode_scanner;
 use crate::happ_update;
-use holochain_types::prelude::{AppBundleSource, InstallAppPayload};
+use holochain_types::prelude::{AppBundleSource, AppStatus, InstallAppPayload};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Builder, Listener, Manager, Runtime};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_holochain::{
     vec_to_locked, HolochainExt, HolochainPluginConfig, NetworkConfig, WindowOptions, EVENT_READY,
     EVENT_SETUP_FAILED,
@@ -19,8 +20,15 @@ pub const IROH_RELAY_URL: &'static str = "https://iroh-relay.volla.tech/";
 
 pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     // Before the plugin starts lair, so the conductor opens the carried 1.x
-    // keystore instead of creating an empty one.
-    crate::migration_identity::carry_keystore_forward(&holochain_dir());
+    // keystore instead of creating an empty one. If carrying fails, the
+    // conductor must not start at all: it would create that empty keystore,
+    // and the carry would never be tried again.
+    if let Err(e) = crate::migration_identity::carry_keystore_forward(&holochain_dir()) {
+        return builder.setup(move |app| {
+            report_setup_failure(app.handle().clone(), &e);
+            Ok(())
+        });
+    }
 
     builder
         .plugin(tauri_plugin_holochain::init(
@@ -33,8 +41,8 @@ pub fn setup_builder<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             let handle = app.handle().clone();
             let handle_fail = app.handle().clone();
             app.handle().listen(EVENT_SETUP_FAILED, move |event| {
-                log::error!("holochain setup failed: {}", event.payload());
-                handle_fail.exit(1);
+                let error = anyhow::anyhow!("holochain setup failed: {}", event.payload());
+                report_setup_failure(handle_fail.clone(), &error);
             });
 
             let handle_event = handle.clone();
@@ -84,7 +92,10 @@ fn open_main_window_once<R: Runtime>(handle: AppHandle<R>) {
     }
 
     tauri::async_runtime::spawn(async move {
-        setup(handle.clone()).await.expect("Failed to setup");
+        if let Err(e) = setup(handle.clone()).await {
+            report_setup_failure(handle, &e);
+            return;
+        }
 
         let mut window_options = WindowOptions::default();
         #[cfg(desktop)]
@@ -153,33 +164,63 @@ async fn setup<R: Runtime>(handle: AppHandle<R>) -> anyhow::Result<()> {
 
         // Install under the 1.x agent when its keystore was carried over, so
         // membrane proofs naming that agent still admit it to its private
-        // conversations.
-        match crate::migration_identity::carried_agent_key(&holochain_dir()) {
-            Some(agent_key) => {
-                log::info!("installing under the carried 1.x agent {agent_key}");
-                if let Err(e) = runtime
-                    .setup_app(install_payload(Some(agent_key)), true)
-                    .await
-                {
-                    // Falling back costs the user their old identity, but
-                    // failing here would leave the app unable to start at all,
-                    // on every launch.
-                    log::error!(
-                        "installing under the carried agent failed, starting with a new agent: {e:?}"
-                    );
-                    runtime.setup_app(install_payload(None), true).await?;
-                }
-            }
-            None => {
-                runtime.setup_app(install_payload(None), true).await?;
-            }
-        }
+        // conversations. A failure here is never answered with a new agent:
+        // that would lose the old identity for good, so the next launch tries
+        // again instead.
+        let agent_key =
+            crate::migration_identity::agent_to_install_under(&runtime, &holochain_dir()).await?;
+        runtime.setup_app(install_payload(agent_key), true).await?;
         happ_update::record_installed_bundle_hash(&holochain_dir(), APP_ID, HAPP_BUNDLE_BYTES)?;
     } else {
         happ_update::update_app_if_necessary(&runtime, &holochain_dir(), APP_ID, HAPP_BUNDLE_BYTES)
             .await?;
     }
+
+    ensure_app_enabled(&runtime).await
+}
+
+/// Enable the app if an earlier launch left it disabled.
+///
+/// `setup_app` installs and then enables in two steps, and only enables an app
+/// it has just installed; a coordinator update disables and re-enables it. A
+/// launch cut short between either pair leaves the app disabled, and nothing
+/// else would ever enable it again. This app has no way for the user to
+/// disable it, so a disabled app is always one of those.
+async fn ensure_app_enabled(runtime: &tauri_plugin_holochain::Runtime) -> anyhow::Result<()> {
+    let app = runtime
+        .list_apps()
+        .await?
+        .into_iter()
+        .find(|app| app.installed_app_id == APP_ID)
+        .ok_or_else(|| anyhow::anyhow!("{APP_ID} is not installed"))?;
+
+    if let AppStatus::Disabled(reason) = app.status {
+        log::warn!("{APP_ID} was left disabled ({reason:?}); enabling it");
+        // Not fatal: refusing to start would gain nothing, while an open app
+        // still shows the user what they have, and the next launch tries again.
+        if let Err(e) = runtime.enable_app(APP_ID.into()).await {
+            log::error!("could not enable {APP_ID}: {e:?}");
+        }
+    }
     Ok(())
+}
+
+/// Tell the user startup failed, then quit. Without this a failed setup
+/// leaves the splashscreen up forever with no explanation.
+fn report_setup_failure<R: Runtime>(handle: AppHandle<R>, error: &anyhow::Error) {
+    log::error!("setup failed: {error:?}");
+
+    let message = format!(
+        "Volla Messages could not finish starting. Your account and messages are kept \
+         as they are.\n\nPlease open the app again. If this keeps happening, please \
+         contact support.\n\nDetails: {error:#}"
+    );
+    handle
+        .dialog()
+        .message(message)
+        .title("Volla Messages")
+        .kind(MessageDialogKind::Error)
+        .show(move |_| handle.exit(1));
 }
 
 fn network_config() -> NetworkConfig {

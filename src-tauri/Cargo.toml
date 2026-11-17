@@ -26,6 +26,7 @@ tauri-plugin-holochain-service-client = { git = "https://github.com/HelloVolla/v
 
 holochain_types = "0.7.0"
 holochain_conductor_api = "0.7.0"
+lair_keystore_api = { version = "0.7.1", optional = true }
 holochain_client = "0.9.0"
 mr_bundle = "0.7.0"
 sha2 = "0.10"
@@ -50,8 +51,15 @@ serde_json = "1"
 uuid = { version = "1.12.0", features = ["v4", "fast-rng"] }
 base64ct = "=1.7.3"
 
+[dev-dependencies]
+# A real lair, to pin the keystore behaviour the identity carry-over relies on.
+holochain_keystore = "0.7.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# The lair 1.x ran, to write a keystore exactly as 1.x left it.
+lair_keystore_06 = { package = "lair_keystore", version = "=0.6.3" }
+
 [features]
 default = []
 
-holochain_bundled = ["dep:tauri-plugin-holochain"]
+holochain_bundled = ["dep:tauri-plugin-holochain", "dep:lair_keystore_api"]
 holochain_service = ["dep:tauri-plugin-holochain-service-client"]

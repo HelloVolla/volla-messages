@@ -12173,7 +12173,10 @@ dependencies = [
  "hex",
  "holochain_client",
  "holochain_conductor_api 0.7.0",
+ "holochain_keystore 0.7.0",
  "holochain_types 0.7.0",
+ "lair_keystore 0.6.3",
+ "lair_keystore_api 0.7.1",
  "log",
  "mr_bundle 0.7.0",
  "serde_json",
@@ -12193,6 +12196,7 @@ dependencies = [
  "tauri-plugin-sharesheet",
  "tauri-plugin-shell",
  "tempdir",
+ "tokio",
  "url2",
  "uuid 1.18.1",
 ]
