@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dev: Integration tests now use `@holochain-open-dev/tryorama` 0.20.0 (the holochain-0.7-compatible tryorama line) and run test files sequentially — each file boots multiple conductors and concurrent files starve each other into flaky timeouts.
 - Fix: In some group chats, every message from a particular member was invisible to everyone, that member included — their messages seemed to vanish right after sending. The messages were delivered all along and now show. Members whose name the chat does not know yet appear as "Unknown member", and the app now repairs your own entry in any chat where it was missing.
 - Fix: Scrolling up in a conversation now loads its whole history. It used to stop at the first stretch of three or more days without messages, even though older messages were stored on the device.
+- Fix: Moving from 1.x keeps your identity even when the first start of 2.0 goes wrong. The app used to switch to a brand new identity after a single failed attempt, which locked you out of your private conversations for good; it now tries again on the next start, and only starts a new identity when the old key is confirmed to be gone.
+- Fix: When the app cannot finish starting, it now says so instead of staying on the "Starting up..." screen forever.
+- Fix: An app closed during its very first start, or while it applied an update, could stay unusable on every later start. It now recovers by itself.
 
 ## [1.0.3] - 2026-09-12
 
