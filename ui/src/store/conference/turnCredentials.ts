@@ -102,5 +102,6 @@ async function fetchCredential(client: RelayClient, cellId: CellId): Promise<boo
     iceServer: { urls: cred.uris, username: cred.username, credential: cred.credential },
     expiresAt: Date.now() + cred.ttlSecs * 1000,
   };
+  retryAt = Date.now() + RETRY_AFTER_FAILURE_MS;
   return true;
 }

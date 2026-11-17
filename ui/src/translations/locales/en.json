@@ -169,5 +169,5 @@
   "device_admission_unavailable_description": "The approval service isn't responding. Check your connection, then tap Check again.",
   "device_admission_copy_code": "Copy device code",
   "device_admission_check_again": "Check again",
-  "device_admission_checking": "Checking…"
+  "device_admission_checking": "Checking..."
 }

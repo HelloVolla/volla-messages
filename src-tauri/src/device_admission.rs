@@ -76,5 +76,7 @@ pub fn device_admission(state: State<'_, DeviceAdmission>) -> Admission {
 
 #[tauri::command]
 pub fn recheck_device_admission(state: State<'_, DeviceAdmission>) {
-    state.recheck.notify_one();
+    if state.current().status != AdmissionStatus::Checking {
+        state.recheck.notify_one();
+    }
 }

@@ -33,13 +33,19 @@ export const deviceAdmission = readable<DeviceAdmission>(DISABLED, (set) => {
   if (!isTauri()) return;
 
   let stopped = false;
+  let heard = false;
   let unlisten: (() => void) | undefined;
-  listen<DeviceAdmission>(EVENT_DEVICE_ADMISSION, (event) => set(event.payload)).then((stop) => {
+  listen<DeviceAdmission>(EVENT_DEVICE_ADMISSION, (event) => {
+    heard = true;
+    set(event.payload);
+  }).then((stop) => {
     if (stopped) stop();
     else unlisten = stop;
   });
   fetchDeviceAdmission()
-    .then(set)
+    .then((admission) => {
+      if (!heard) set(admission);
+    })
     .catch((e) => console.warn("[DeviceAdmission] status unavailable:", e));
 
   return () => {

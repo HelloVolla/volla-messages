@@ -19,20 +19,26 @@ pub fn auth_config(auth_server_url: &str) -> HcAuthConfig {
 
 pub async fn run<R: Runtime>(app: AppHandle<R>, auth_server_url: &'static str) {
     let admission = app.state::<DeviceAdmission>();
+    let unavailable = Admission {
+        status: AdmissionStatus::Unavailable,
+        device_key: None,
+        device_code: None,
+    };
     let client = match reqwest::Client::builder().timeout(REQUEST_TIMEOUT).build() {
         Ok(client) => client,
         Err(e) => {
             log::error!("device admission: building HTTP client failed: {e}");
+            admission.publish(&app, unavailable);
             return;
         }
     };
-    let mut registered = false;
 
     loop {
         let runtime = match app.holochain().and_then(|plugin| plugin.try_runtime()) {
             Ok(runtime) => runtime,
             Err(e) => {
                 log::error!("device admission: conductor unavailable: {e:?}");
+                admission.publish(&app, unavailable);
                 return;
             }
         };
@@ -45,19 +51,16 @@ pub async fn run<R: Runtime>(app: AppHandle<R>, auth_server_url: &'static str) {
         let status = match runtime.hc_auth_status() {
             HcAuthStatus::Authorized => AdmissionStatus::Approved,
             HcAuthStatus::Pending => AdmissionStatus::Pending,
-            HcAuthStatus::NotRegistered if !registered => {
+            HcAuthStatus::NotRegistered => {
                 match register(&client, auth_server_url, current.device_code.as_deref()).await {
-                    Ok(()) => {
-                        registered = true;
-                        AdmissionStatus::Pending
-                    }
+                    Ok(()) => AdmissionStatus::Pending,
                     Err(e) => {
                         log::warn!("device admission: registration failed: {e}");
                         AdmissionStatus::Unavailable
                     }
                 }
             }
-            HcAuthStatus::NotRegistered | HcAuthStatus::Blocked => AdmissionStatus::Denied,
+            HcAuthStatus::Blocked => AdmissionStatus::Denied,
             HcAuthStatus::Failed(reason) => {
                 log::warn!("device admission: {reason}");
                 AdmissionStatus::Unavailable
@@ -69,9 +72,13 @@ pub async fn run<R: Runtime>(app: AppHandle<R>, auth_server_url: &'static str) {
             return;
         }
 
-        admission.recheck_requested().await;
-        admission.publish(&app, current.clone());
-        restart(&app, &runtime, &admission, &current).await;
+        loop {
+            admission.recheck_requested().await;
+            admission.publish(&app, current.clone());
+            if restart(&app, &runtime, &admission, &current).await {
+                break;
+            }
+        }
     }
 }
 
@@ -106,7 +113,7 @@ async fn restart<R: Runtime>(
     runtime: &tauri_plugin_holochain::Runtime,
     admission: &DeviceAdmission,
     current: &Admission,
-) {
+) -> bool {
     let result = async {
         let restarted = runtime
             .restart_with_hc_auth(super::network_config(), true, true)
@@ -116,8 +123,9 @@ async fn restart<R: Runtime>(
         anyhow::Ok(())
     }
     .await;
-    if let Err(e) = result {
+    if let Err(e) = &result {
         log::error!("device admission: conductor restart failed: {e:?}");
         admission.publish(app, current.with_status(AdmissionStatus::Unavailable));
     }
+    result.is_ok()
 }
