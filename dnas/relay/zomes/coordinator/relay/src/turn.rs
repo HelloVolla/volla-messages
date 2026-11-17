@@ -1,42 +1,37 @@
 use hdk::prelude::*;
 
-const TURN_PROOF_DOMAIN: &[u8] = b"k2-turn-cred-v1";
+const TURN_PROOF_DOMAIN: &[u8] = b"volla-turn-cred-v2";
 const NONCE_LEN: usize = 32;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TurnChallenge {
+    pub nonce: serde_bytes::ByteBuf,
+    pub device: AgentPubKey,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TurnProof {
     #[serde(with = "serde_bytes")]
-    pub space: Vec<u8>,
-    #[serde(with = "serde_bytes")]
-    pub agent: Vec<u8>,
+    pub device: Vec<u8>,
     #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
 }
 
 #[hdk_extern]
-pub fn sign_turn_challenge(nonce: serde_bytes::ByteBuf) -> ExternResult<TurnProof> {
-    if nonce.len() != NONCE_LEN {
+pub fn sign_turn_challenge(input: TurnChallenge) -> ExternResult<TurnProof> {
+    if input.nonce.len() != NONCE_LEN {
         return Err(wasm_error!(WasmErrorInner::Guest(format!(
             "TURN nonce must be {NONCE_LEN} bytes, got {}",
-            nonce.len()
+            input.nonce.len()
         ))));
     }
 
-    let space = dna_info()?.hash.get_raw_32().to_vec();
-    let me = agent_info()?.agent_initial_pubkey;
-    let agent = me.get_raw_32().to_vec();
-
-    let mut msg = Vec::with_capacity(TURN_PROOF_DOMAIN.len() + NONCE_LEN + space.len() + agent.len());
-    msg.extend_from_slice(TURN_PROOF_DOMAIN);
-    msg.extend_from_slice(&nonce);
-    msg.extend_from_slice(&space);
-    msg.extend_from_slice(&agent);
-
-    let signature = sign_raw(me, msg)?;
+    let device = input.device.get_raw_32().to_vec();
+    let msg = [TURN_PROOF_DOMAIN, &input.nonce, &device].concat();
+    let signature = sign_raw(input.device, msg)?;
 
     Ok(TurnProof {
-        space,
-        agent,
+        device,
         signature: signature.0.to_vec(),
     })
 }

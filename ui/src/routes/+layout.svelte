@@ -60,6 +60,7 @@
   // Use the refactored ConferenceView with extracted components
   import { ConferenceView, ResizablePip } from "$lib/conference";
   import IncomingCallBanner from "$lib/IncomingCallBanner.svelte";
+  import DeviceAdmissionNotice from "$lib/DeviceAdmissionNotice.svelte";
   import { sendConferenceEndedLog } from "$lib/conferenceLogging";
 
   // Svelte action to set video srcObject
@@ -484,6 +485,7 @@
 </script>
 
 <div class="mx-auto flex h-screen w-full max-w-screen-lg flex-col items-center">
+  <DeviceAdmissionNotice />
   {#if isClientConnected && isStoresSetup && myProfileExists}
     <slot />
   {:else if isClientConnected && isStoresSetup && !myProfileExists && !isUserCreatingProfile}
