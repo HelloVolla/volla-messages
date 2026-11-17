@@ -32,6 +32,7 @@ pub async fn run<R: Runtime>(app: AppHandle<R>, auth_server_url: &'static str) {
             return;
         }
     };
+    let mut registered = false;
 
     loop {
         let runtime = match app.holochain().and_then(|plugin| plugin.try_runtime()) {
@@ -53,7 +54,11 @@ pub async fn run<R: Runtime>(app: AppHandle<R>, auth_server_url: &'static str) {
             HcAuthStatus::Pending => AdmissionStatus::Pending,
             HcAuthStatus::NotRegistered => {
                 match register(&client, auth_server_url, current.device_code.as_deref()).await {
-                    Ok(()) => AdmissionStatus::Pending,
+                    Ok(()) if registered => AdmissionStatus::Denied,
+                    Ok(()) => {
+                        registered = true;
+                        AdmissionStatus::Pending
+                    }
                     Err(e) => {
                         log::warn!("device admission: registration failed: {e}");
                         AdmissionStatus::Unavailable
