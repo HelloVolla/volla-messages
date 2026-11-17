@@ -2,6 +2,8 @@ pub mod contact;
 pub use contact::*;
 pub mod message;
 pub use message::*;
+pub mod conference;
+pub use conference::*;
 pub mod config;
 pub use config::*;
 use hdi::prelude::*;
@@ -20,6 +22,8 @@ pub enum EntryTypes {
     Config(Config),
     Message(Message),
     Contact(Contact),
+    Conference(Conference),
+    ConferenceParticipant(ConferenceParticipant),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,6 +35,11 @@ pub enum LinkTypes {
     ContactToContacts,
     ContactUpdates,
     AllContacts,
+    MessageReplies,
+    RoomParticipants,
+    ActiveCalls,
+    RoomIdToConference,
+    ConferenceToParticipants,
 }
 
 #[derive(Serialize, Deserialize, Debug, SerializedBytes, Clone)]
@@ -139,6 +148,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Config(config) => validate_create_config(action, config),
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
+                    EntryTypes::Conference(_) | EntryTypes::ConferenceParticipant(_) => Ok(ValidateCallbackResult::Valid),
                 }
             }
             OpEntry::UpdateEntry { app_entry, action } => {
@@ -150,6 +160,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Config(config) => validate_create_config(action, config),
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
+                    EntryTypes::Conference(_) | EntryTypes::ConferenceParticipant(_) => Ok(ValidateCallbackResult::Valid),
                 }
             }
             _ => Ok(ValidateCallbackResult::Valid),
@@ -189,6 +200,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     }
                     EntryTypes::Message(message) => validate_update_message(action, message),
                     EntryTypes::Config(config) => validate_update_config(action, config),
+                    EntryTypes::Conference(_) | EntryTypes::ConferenceParticipant(_) => Ok(ValidateCallbackResult::Valid),
                 }
             }
             _ => Ok(ValidateCallbackResult::Valid),
@@ -243,6 +255,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 EntryTypes::Config(_original_config) => Ok(ValidateCallbackResult::Invalid(
                     "Cannot delete Config Entry".to_string(),
                 )),
+                    EntryTypes::Conference(_) | EntryTypes::ConferenceParticipant(_) => Ok(ValidateCallbackResult::Valid),
             }
         }
         FlatOp::Link(OpLink::CreateLink { link_type, action }) => {
@@ -271,6 +284,13 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                 LinkTypes::AllContacts => {
                     validate_create_link_all_contacts(action, base_address, target_address, tag)
                 }
+                LinkTypes::MessageReplies => {
+                    validate_create_link_message_replies(action, base_address, target_address, tag)
+                }
+                LinkTypes::RoomParticipants
+                | LinkTypes::ActiveCalls
+                | LinkTypes::RoomIdToConference
+                | LinkTypes::ConferenceToParticipants => Ok(ValidateCallbackResult::Valid),
             }
         }
         FlatOp::Link(OpLink::DeleteLink {
@@ -324,6 +344,17 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     target_address,
                     tag,
                 ),
+                LinkTypes::MessageReplies => validate_delete_link_message_replies(
+                    action,
+                    original_action,
+                    base_address,
+                    target_address,
+                    tag,
+                ),
+                LinkTypes::RoomParticipants
+                | LinkTypes::ActiveCalls
+                | LinkTypes::RoomIdToConference
+                | LinkTypes::ConferenceToParticipants => Ok(ValidateCallbackResult::Valid),
             }
         }
         FlatOp::CreateRecord(store_record) => match store_record {
@@ -336,6 +367,7 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Config(config) => validate_create_config(action, config),
                     EntryTypes::Message(message) => validate_create_message(action, message),
                     EntryTypes::Contact(contact) => validate_create_contact(action, contact),
+                    EntryTypes::Conference(_) | EntryTypes::ConferenceParticipant(_) => Ok(ValidateCallbackResult::Valid),
                 }
             }
             OpRecord::UpdateEntry { app_entry, action } => {
@@ -425,6 +457,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                             Ok(result)
                         }
                     }
+                    EntryTypes::Conference(_) | EntryTypes::ConferenceParticipant(_) => {
+                        Ok(ValidateCallbackResult::Valid)
+                    }
                 }
             }
             OpRecord::DeleteEntry { action } => {
@@ -483,6 +518,9 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     EntryTypes::Contact(original_contact) => {
                         validate_delete_contact(action, original_action, original_contact)
                     }
+                    EntryTypes::Conference(_) | EntryTypes::ConferenceParticipant(_) => {
+                        Ok(ValidateCallbackResult::Valid)
+                    }
                 }
             }
             OpRecord::CreateLink { link_type, action } => {
@@ -520,6 +558,16 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                     LinkTypes::AllContacts => {
                         validate_create_link_all_contacts(action, base_address, target_address, tag)
                     }
+                    LinkTypes::MessageReplies => validate_create_link_message_replies(
+                        action,
+                        base_address,
+                        target_address,
+                        tag,
+                    ),
+                    LinkTypes::RoomParticipants
+                    | LinkTypes::ActiveCalls
+                    | LinkTypes::RoomIdToConference
+                    | LinkTypes::ConferenceToParticipants => Ok(ValidateCallbackResult::Valid),
                 }
             }
             OpRecord::DeleteLink { action } => {
@@ -590,6 +638,17 @@ pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
                         target_address,
                         tag,
                     ),
+                    LinkTypes::MessageReplies => validate_delete_link_message_replies(
+                        action,
+                        create_link,
+                        base_address,
+                        target_address,
+                        tag,
+                    ),
+                    LinkTypes::RoomParticipants
+                    | LinkTypes::ActiveCalls
+                    | LinkTypes::RoomIdToConference
+                    | LinkTypes::ConferenceToParticipants => Ok(ValidateCallbackResult::Valid),
                 }
             }
             OpRecord::CreatePrivateEntry { .. } => Ok(ValidateCallbackResult::Valid),

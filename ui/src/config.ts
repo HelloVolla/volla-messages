@@ -31,6 +31,55 @@ export const POLLING_INTERVAL_FAST = 2 * 1000;
 // Memory management for chat messages
 export const MESSAGES_PER_PAGE = 20;
 
+// Conference WebRTC configuration. TURN credentials come from the issuer at
+// TURN_ISSUER_URL; TURN_SERVERS_STORAGE_KEY remains as a manual override.
+export const TURN_ISSUER_URL: string = import.meta.env.VITE_TURN_ISSUER_URL ?? "";
+export const TURN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
+
+const STUN_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+];
+
+export const TURN_SERVERS_STORAGE_KEY = "volla:turnServers";
+export const CALL_TRANSPORT_STORAGE_KEY = "volla:lastCallTransport";
+
+export function getUserTurnServers(): RTCIceServer[] {
+  try {
+    const raw = localStorage.getItem(TURN_SERVERS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setUserTurnServers(servers: RTCIceServer[]): void {
+  if (servers.length === 0) {
+    localStorage.removeItem(TURN_SERVERS_STORAGE_KEY);
+  } else {
+    localStorage.setItem(TURN_SERVERS_STORAGE_KEY, JSON.stringify(servers));
+  }
+}
+
+export function getIceServers(): RTCIceServer[] {
+  return [...STUN_SERVERS, ...getUserTurnServers()];
+}
+
+export const CONNECTION_TIMEOUT_MS = 30000;
+
+export const HEARTBEAT_INTERVAL_MS = 2000;
+export const INIT_RETRY_MS = 5000;
+export const PONG_STALE_MS = 6000;
+
+export const MEDIA_WAIT_MS = 20000;
+export const MAX_CONFERENCE_PARTICIPANTS = 6;
+export const INVITATION_TIMEOUT_MS = 60000;
+export const MEDIA_STATE_DEBOUNCE_MS = 200;
+export const SDP_BUFFER_EXPIRY_MS = 30000;
+export const ROLE_CACHE_TTL_MS = 30000;
+
 // Network stats polling interval (ms)
 export const NETWORK_STATS_POLL_INTERVAL = 30 * 1000;
 export const NETWORK_STATS_POLL_INTERVAL_FAST = 5 * 1000;

@@ -1,6 +1,7 @@
 mod builder;
 use builder::setup_builder;
 mod config;
+mod device_admission;
 mod migration_export;
 
 #[cfg(all(feature = "holochain_bundled", not(feature = "holochain_service")))]
@@ -13,7 +14,12 @@ mod android_barcode_scanner;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![migration_export::read_migration_export])
+        .manage(device_admission::DeviceAdmission::default())
+        .invoke_handler(tauri::generate_handler![
+            migration_export::read_migration_export,
+            device_admission::device_admission,
+            device_admission::recheck_device_admission
+        ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
