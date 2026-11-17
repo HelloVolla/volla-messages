@@ -1,5 +1,6 @@
 import type {
   ActionHash,
+  ActionHashB64,
   AgentPubKeyB64,
   CellId,
   EntryHash,
@@ -29,6 +30,14 @@ export interface MessageDeleted {
   from: AgentPubKey;
 }
 
+export interface MessageUpdatedSignal {
+  type: "MessageUpdated";
+  action: SignedActionHashed<Update>;
+  original_action: ActionHash;
+  message: Message;
+  from: AgentPubKey;
+}
+
 export interface PeerPingSignal {
   type: "PeerPing";
   from_agent: AgentPubKey;
@@ -42,6 +51,7 @@ export interface PeerPongSignal {
 export type RelaySignal =
   | MessageSignal
   | MessageDeleted
+  | MessageUpdatedSignal
   | PeerPingSignal
   | PeerPongSignal
   | {
@@ -98,6 +108,7 @@ export interface Message {
   bucket: number;
   images: MessageFile[];
   message_type: MessageType;
+  forwarded?: boolean;
 }
 
 export interface MessageExtended {
@@ -105,6 +116,11 @@ export interface MessageExtended {
   authorAgentPubKeyB64: AgentPubKeyB64;
   timestamp: number;
   deliveredTo: AgentPubKeyB64[];
+
+  // Set once the author has edited the message. latestUpdateActionHashB64 is the
+  // head of the update chain, needed as the previous hash for any further edit.
+  edited?: boolean;
+  latestUpdateActionHashB64?: ActionHashB64;
 }
 
 export enum DeliveryStatus {
@@ -135,6 +151,13 @@ export interface DeleteMessageInput {
   agents: AgentPubKey[];
 }
 
+export interface UpdateMessageInput {
+  original_message_hash: ActionHash;
+  previous_message_hash: ActionHash;
+  updated_message: Message;
+  agents: AgentPubKey[];
+}
+
 /**
  * Conversation
  */
@@ -142,6 +165,7 @@ export interface DeleteMessageInput {
 export interface Config {
   title: string;
   image: string;
+  description?: string;
 }
 
 export enum Privacy {
