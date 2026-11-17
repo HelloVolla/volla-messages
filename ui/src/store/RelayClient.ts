@@ -33,6 +33,7 @@ import type {
 } from "$lib/types";
 import { ZOME_NAME, ROLE_NAME } from "$config";
 import { encodeCellIdToBase64 } from "$lib/utils";
+import { profileZomeInput } from "$lib/profileZomeInput";
 
 export class RelayClient {
   constructor(
@@ -40,12 +41,14 @@ export class RelayClient {
     public provisionedRelayCellId: CellId,
   ) {}
 
+  // Profile writes go through `profileZomeInput`: the 0.7 profiles zome takes
+  // `{ input, local }`, and the zome tests use the same function.
   async createProfile(cellId: CellId, payload: Profile): Promise<Record> {
     return this.client.callZome({
       cell_id: cellId,
       zome_name: "profiles",
       fn_name: "create_profile",
-      payload,
+      payload: profileZomeInput(payload),
     });
   }
 
@@ -54,7 +57,7 @@ export class RelayClient {
       cell_id: cellId,
       zome_name: "profiles",
       fn_name: "update_profile",
-      payload,
+      payload: profileZomeInput(payload),
     });
   }
 
@@ -307,7 +310,7 @@ export class RelayClient {
       cell_id,
       zome_name: "profiles",
       fn_name: "create_profile",
-      payload: profile,
+      payload: profileZomeInput(profile),
     });
   }
 

@@ -5,6 +5,8 @@ on:
     branches:
       - develop
       - main
+      # Maintenance lines, e.g. release/1.0 for 1.x releases.
+      - "release/**"
   workflow_dispatch:
 
 # Cancel an in-progress run when new commits are pushed to the same PR.
@@ -47,10 +49,27 @@ jobs:
         with:
           name: darksoil-studio
 
+      # Reuses compiled dependencies between runs: the zome workspace and the
+      # app crate, which embeds a full Holochain conductor.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            src-tauri -> target
+
       # `npm test` builds the zomes (wasm), packs the .happ, then runs the
       # Tryorama/Vitest suite in the `tests` workspace against that .happ.
       - name: Install and run tests
         run: |
           nix develop --no-update-lock-file --accept-flake-config --command bash -c "npm install && npm test"
+        env:
+          CARGO_REGISTRIES_CARGO_HOSTED_TOKEN: ${{ secrets.VOLLA_NEXUS_TOKEN }}
+
+      # Unit tests of the app crate (keystore carry-over, export file
+      # handling). Runs after `npm test` because the crate embeds the .happ
+      # that step builds.
+      - name: Run app unit tests
+        run: |
+          nix develop --no-update-lock-file --accept-flake-config --command bash -c "cd src-tauri && cargo test --features holochain_bundled --lib"
         env:
           CARGO_REGISTRIES_CARGO_HOSTED_TOKEN: ${{ secrets.VOLLA_NEXUS_TOKEN }}
