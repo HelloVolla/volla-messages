@@ -60,7 +60,7 @@ export class RelayClient {
       cell_id: cellId,
       zome_name: "profiles",
       fn_name: "create_profile",
-      payload,
+      payload: { input: payload, local: null },
     });
   }
 
@@ -69,7 +69,7 @@ export class RelayClient {
       cell_id: cellId,
       zome_name: "profiles",
       fn_name: "update_profile",
-      payload,
+      payload: { input: payload, local: null },
     });
   }
 
@@ -245,24 +245,15 @@ export class RelayClient {
   }
 
   public async getAllAgents(cell_id: CellId): Promise<{ [key: AgentPubKeyB64]: Profile }> {
-    const agentsResponse: AgentPubKey[] = await this.client.callZome({
-      cell_id,
-      zome_name: "profiles",
-      fn_name: "get_agents_with_profile",
-      payload: null,
-    });
+    const agentsResponse = await this.getAgentsWithProfile(cell_id);
 
     // Get profile for each AgentPubKey
     // If profile not found, exclude from results.
     const profileEntries = (
       await Promise.allSettled(
         agentsResponse.map(async (agentPubKey) => {
-          const record = await this.client.callZome({
-            cell_id,
-            zome_name: "profiles",
-            fn_name: "get_agent_profile",
-            payload: agentPubKey,
-          });
+          const record = await this.getAgentProfile(cell_id, agentPubKey);
+          if (!record) throw new Error("Failed to get profile");
           const profile = new EntryRecord<Profile>(record).entry;
           if (!profile) throw new Error("Failed to get profile");
 
@@ -329,12 +320,7 @@ export class RelayClient {
         `Failed to decode profile entry for agent ${encodeHashToBase64(this.client.myPubKey)}`,
       );
 
-    return this.client.callZome({
-      cell_id,
-      zome_name: "profiles",
-      fn_name: "create_profile",
-      payload: profile,
-    });
+    return this.createProfile(cell_id, profile);
   }
 
   public async generateMembraneProof(
