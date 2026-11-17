@@ -29,6 +29,7 @@ export interface ProfileStore extends GenericKeyKeyValueStore<ProfileExtended> {
   initialize: () => Promise<void>;
   createProfile: (val: CreateProfileInputUI) => Promise<void>;
   updateProfile: (val: CreateProfileInputUI) => Promise<void>;
+  repairMyConversationProfiles: () => Promise<number>;
   load: (key: CellIdB64, local: boolean) => Promise<void>;
   subscribe: (
     this: void,
@@ -158,6 +159,50 @@ export function createProfileStore(client: RelayClient): ProfileStore {
     });
   }
 
+  /**
+   * Write your profile into active conversations that do not hold it.
+   *
+   * Joining creates the conversation first and writes your profile into it as
+   * a second step. When that step failed — the app closed mid-join, a timeout —
+   * nothing retried it: the conversation stayed in your list while you were
+   * missing from its member list. Run once per launch.
+   *
+   * Only local data is checked: your own profile, if it exists, was written on
+   * this device, so a local miss is a real miss and the write never duplicates
+   * one. Archived conversations are skipped; they are repaired after being
+   * un-archived and the app restarted.
+   *
+   * @returns how many conversations were repaired
+   */
+  async function repairMyConversationProfiles(): Promise<number> {
+    const myPubKey = client.client.myPubKey;
+    const myPubKeyB64 = encodeHashToBase64(myPubKey);
+
+    // No profile yet (first run, before creating one): nothing to copy.
+    const provisioned = await client.getRelayProvisionedCellInfo();
+    if (!(await client.getAgentProfile(provisioned.cell_id, myPubKey, true))) return 0;
+
+    let repaired = 0;
+    for (const cell of await client.getRelayClonedCellInfos()) {
+      if (!cell.enabled) continue;
+      const cellIdB64 = encodeCellIdToBase64(cell.cell_id);
+      try {
+        if (await client.getAgentProfile(cell.cell_id, myPubKey, true)) continue;
+
+        const record = await client.ensureMyProfileForConversation(cell.cell_id);
+        const profile = new EntryRecord<Profile>(record).entry;
+        if (profile) {
+          profiles.setKeyKeyValue(cellIdB64, myPubKeyB64, { profile, publicKeyB64: myPubKeyB64 });
+        }
+        repaired++;
+        console.log(`[profile] wrote missing profile into conversation ${cellIdB64.slice(0, 16)}`);
+      } catch (e) {
+        console.warn(`[profile] could not repair profile in ${cellIdB64.slice(0, 16)}`, e);
+      }
+    }
+    return repaired;
+  }
+
   async function load(key: CellIdB64, local: boolean) {
     // Get all relay cells
     const cellInfos = flatten(
@@ -188,6 +233,7 @@ export function createProfileStore(client: RelayClient): ProfileStore {
     load,
     createProfile,
     updateProfile,
+    repairMyConversationProfiles,
   };
 }
 

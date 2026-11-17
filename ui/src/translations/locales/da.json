@@ -70,5 +70,6 @@
   "welcome_text_1": "Volla Messages deler data kun med de personer, du konverserer med.",
   "welcome_text_2": "Privat, krypteret og sikret med nøgler, som kun du kontrollerer.",
   "what_is_your_name": "Hvad hedder du?",
-  "you": "Du"
+  "you": "Du",
+  "unknown_member": "Ukendt medlem"
 }

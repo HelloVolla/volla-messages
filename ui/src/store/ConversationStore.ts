@@ -70,7 +70,7 @@ export function createConversationStore(client: RelayClient): ConversationStore 
   async function create(input: CreateConversationInput): Promise<CellIdB64> {
     const cellInfo = await client.createConversation(input);
     await client.setConfig(cellInfo.cell_id, input.config);
-    await client.setMyProfileForConversation(cellInfo.cell_id);
+    await client.ensureMyProfileForConversation(cellInfo.cell_id);
 
     // just created the conversation so don't go to the network
     const conversationExtended = await _makeConversationExtended(cellInfo, true);
@@ -85,7 +85,7 @@ export function createConversationStore(client: RelayClient): ConversationStore 
 
   async function join(input: Invitation): Promise<CellIdB64> {
     const cellInfo = await client.joinConversation(input);
-    await client.setMyProfileForConversation(cellInfo.cell_id);
+    await client.ensureMyProfileForConversation(cellInfo.cell_id);
 
     // joining the conversation so go to the network for the config
     const conversationExtended = await _makeConversationExtended(cellInfo, false);

@@ -32,7 +32,7 @@ import {
 } from "./MergedProfileContactInviteStore";
 import type { RelayClient } from "./RelayClient";
 import { derived, get, writable } from "svelte/store";
-import { TARGET_MESSAGES_COUNT, MESSAGES_PER_PAGE } from "$config";
+import { TARGET_MESSAGES_COUNT, MESSAGES_PER_PAGE, HISTORY_SCAN_DAYS_PER_STEP } from "$config";
 import type { FileStore } from "./FileStore";
 import { messageDB } from "./db/MessageDatabase";
 
@@ -99,35 +99,16 @@ export function createConversationMessageStore(
 const messages = createGenericKeyValueStore<Record<ActionHashB64, MessageExtended>>();
 const paginationState = writable<Record<string, PaginationState>>({});
 
-  const { subscribe } = derived(
-    [messages, mergedProfileContactInviteStore],
-    ([$messages, $mergedProfileContactInviteStore]) => {
-      const filteredMessages = Object.fromEntries(
-        $messages.list.map(([cellIdB64, messagesData]) => {
-          const profilesLoaded =
-            $mergedProfileContactInviteStore.data[cellIdB64] !== undefined;
-
-          const filtered = Object.entries(messagesData).filter(([, msg]) => {
-            if (!profilesLoaded) return true;
-            if (msg.message.message_type === MessageType.System) return true;
-
-            return (
-              $mergedProfileContactInviteStore.data[cellIdB64]?.[msg.authorAgentPubKeyB64] !==
-              undefined
-            );
-          });
-
-          return [cellIdB64, Object.fromEntries(filtered)];
-        }),
-      );
-
-      return {
-        data: filteredMessages,
-        list: Object.entries(filteredMessages),
-        count: Object.keys(filteredMessages).length,
-      };
-    },
-  );
+  // Every stored message is shown, whether or not its author has a profile in
+  // the conversation. Hiding unknown authors silenced members whose profile
+  // was never written into a conversation (a join can fail after the cell
+  // exists): their messages were delivered but invisible to everyone,
+  // themselves included. Unknown authors render as "Unknown member".
+  const { subscribe } = derived(messages, ($messages) => ({
+    data: Object.fromEntries($messages.list),
+    list: $messages.list,
+    count: $messages.list.length,
+  }));
 
   async function initialize(): Promise<void> {
     _log("initialize:start");
@@ -296,12 +277,16 @@ const paginationState = writable<Record<string, PaginationState>>({});
 
     console.log("IndexedDB returned 0 older rows. Trying LOCAL previous-bucket pipeline...");
 
+    // Scan this device's own copy (local only) back day by day until a page
+    // of older messages turns up or the conversation's first day is reached.
+    // This used to stop after 3 days: any quiet stretch of 3+ days ended the
+    // history, though older messages were stored. A day without messages is
+    // a cheap local lookup, and the scan stops as soon as a page is found.
     const loadedViaLocalPipeline = await loadMessagesInPreviousBucketTargetCount(
       true,
       cellIdB64,
       TARGET_MESSAGES_COUNT,
-      3,
-      3,
+      HISTORY_SCAN_DAYS_PER_STEP,
     );
 
     console.log("loadedViaLocalPipeline:", loadedViaLocalPipeline);

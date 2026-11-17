@@ -62,3 +62,45 @@ test("profile writes take the shape the app sends, and reject a bare profile", a
     assert.equal((await readProfile()).nickname, "Alice Updated");
   });
 });
+
+// The app repairs a conversation that is missing your profile by checking for
+// it with a local-only lookup and writing it when absent
+// (RelayClient.ensureMyProfileForConversation). create_profile does not refuse
+// a second profile, so that lookup must find a profile you wrote yourself, with
+// no network at all — otherwise every launch would add another one.
+test("own profile is found by a local-only lookup, and a missing one is reported as missing", async () => {
+  await runScenario(async (scenario) => {
+    const [alice] = await scenario.addPlayersWithApps([appSource]);
+    const cell = alice.cells[0];
+    const lookup = (): Promise<Record | null> =>
+      cell.callZome({
+        zome_name: "profiles",
+        fn_name: "get_agent_profile",
+        payload: { input: alice.agentPubKey, local: true },
+      });
+
+    assert.isNull(await lookup(), "no profile written yet");
+    await cell.callZome({
+      zome_name: "profiles",
+      fn_name: "create_profile",
+      payload: profileZomeInput(profile),
+    });
+    assert.ok(await lookup(), "own profile must be visible locally right after writing it");
+  });
+});
+
+test("create_profile accepts a second profile for the same agent", async () => {
+  // Documents why ensureMyProfileForConversation must check before writing.
+  await runScenario(async (scenario) => {
+    const [alice] = await scenario.addPlayersWithApps([appSource]);
+    const cell = alice.cells[0];
+    for (let i = 0; i < 2; i++) {
+      const record: Record = await cell.callZome({
+        zome_name: "profiles",
+        fn_name: "create_profile",
+        payload: profileZomeInput(profile),
+      });
+      assert.ok(record);
+    }
+  });
+});

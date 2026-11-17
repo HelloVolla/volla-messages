@@ -212,7 +212,7 @@ async function restoreProfile(exported: MigrationExport, relayClient: RelayClien
   for (const clone of clones.filter((c) => c.enabled)) {
     try {
       await withTimeout(
-        relayClient.setMyProfileForConversation(clone.cell_id),
+        relayClient.ensureMyProfileForConversation(clone.cell_id),
         STEP_TIMEOUT_MS,
         "setting the profile",
       );
@@ -245,7 +245,7 @@ async function rebuildConversation(
   // without them, so one failing must not undo or block the others.
   try {
     await withTimeout(
-      relayClient.setMyProfileForConversation(cell.cell_id),
+      relayClient.ensureMyProfileForConversation(cell.cell_id),
       STEP_TIMEOUT_MS,
       "setting the profile",
     );
