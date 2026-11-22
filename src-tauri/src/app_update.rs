@@ -49,6 +49,14 @@ const RELEASE_MANIFEST_URL: &str =
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn install_desktop_update(app: tauri::AppHandle, tag: String) -> Result<(), String> {
+    install_and_restart(&app, &tag).await.map_err(|e| {
+        log::error!("[update] updating to {tag} failed: {e}");
+        e
+    })
+}
+
+#[cfg(desktop)]
+async fn install_and_restart(app: &tauri::AppHandle, tag: &str) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
 
     // The tag comes from the UI and becomes part of a URL: a plain version tag
@@ -83,7 +91,102 @@ pub async fn install_desktop_update(app: tauri::AppHandle, tag: String) -> Resul
         .download_and_install(|_, _| {}, || {})
         .await
         .map_err(|e| e.to_string())?;
-    app.restart()
+
+    // Windows never gets here: its installer ends this process and reopens
+    // the app itself.
+    //
+    // `app.restart()` starts the new version only once the exit has finished,
+    // but the Holochain plugin ends the process itself while exiting, so that
+    // never happened and the app just closed. Start the new version now; it
+    // waits until this process is gone before touching the data.
+    match relaunch_after_exit(app) {
+        Ok(()) => log::info!("[update] installed {}; restarting", update.version),
+        Err(e) => log::error!("[update] installed {}, but could not restart: {e}", update.version),
+    }
+    app.exit(0);
+    Ok(())
+}
+
+/// Passed to the version started after an update, with this process's id.
+///
+/// Every later release must honour it (`wait_for_previous_instance`), 2.x
+/// included: a version that ignores it starts while this one is still
+/// shutting down, and both use the same app and WebView data for a moment.
+const WAIT_FOR_PID_ARG: &str = "--volla-wait-for-pid=";
+
+/// How long a new version waits for the old one to exit. The Holochain plugin
+/// gives its shutdown 3 seconds and then ends the process, so this is ample.
+#[cfg(unix)]
+const WAIT_FOR_PREVIOUS_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Start the newly installed version, telling it to wait for this process.
+#[cfg(desktop)]
+fn relaunch_after_exit(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    // The AppImage file rather than the binary inside its temporary mount,
+    // which disappears with this process.
+    let binary = tauri::process::current_binary(&app.env()).map_err(|e| e.to_string())?;
+    std::process::Command::new(&binary)
+        .args(relaunch_args(std::env::args_os().skip(1), std::process::id()))
+        .spawn()
+        .map_err(|e| format!("could not start {}: {e}", binary.display()))?;
+    Ok(())
+}
+
+/// This process's arguments for the new version, plus the one telling it
+/// which process to wait for (replacing any left from an earlier update).
+#[cfg(any(desktop, test))]
+fn relaunch_args(
+    current: impl Iterator<Item = std::ffi::OsString>,
+    pid: u32,
+) -> Vec<std::ffi::OsString> {
+    current
+        .filter(|arg| !arg.to_string_lossy().starts_with(WAIT_FOR_PID_ARG))
+        .chain(std::iter::once(format!("{WAIT_FOR_PID_ARG}{pid}").into()))
+        .collect()
+}
+
+/// If an update started this process, wait until the old version has exited:
+/// two copies opening the same Holochain data at once could damage it. Call
+/// first thing at start-up.
+pub fn wait_for_previous_instance() {
+    let Some(pid) = waited_for_pid(std::env::args_os()) else {
+        return;
+    };
+    #[cfg(unix)]
+    {
+        let deadline = std::time::Instant::now() + WAIT_FOR_PREVIOUS_LIMIT;
+        while process_alive(pid) {
+            if std::time::Instant::now() >= deadline {
+                // Still running: better not to start than to share its data.
+                // Logging is not set up yet; stderr still reaches the journal.
+                eprintln!("[update] previous version (pid {pid}) is still running; not starting");
+                std::process::exit(1);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = pid;
+}
+
+/// `args_os`, because `args` panics on arguments that are not UTF-8, and this
+/// runs on every start. Only a real process id: `kill` treats 0 and negative
+/// values as whole process groups.
+fn waited_for_pid(args: impl Iterator<Item = std::ffi::OsString>) -> Option<u32> {
+    args.filter_map(|arg| arg.to_str()?.strip_prefix(WAIT_FOR_PID_ARG)?.parse().ok())
+        .filter(|pid| (1..=i32::MAX as u32).contains(pid))
+        .last()
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    // Signal 0 only checks whether the process exists. EPERM means it does,
+    // but belongs to someone else.
+    // SAFETY: kill with signal 0 sends nothing.
+    let exists = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    exists || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// Which Windows installer to update with: the one this copy came from.
@@ -117,4 +220,52 @@ fn windows_update_target() -> Option<&'static str> {
 pub async fn install_desktop_update(tag: String) -> Result<(), String> {
     let _ = tag;
     Err("In-app installation is only available on desktop".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn the_new_version_gets_this_process_id_once() {
+        let args = vec![
+            OsString::from("--some-flag"),
+            OsString::from(format!("{WAIT_FOR_PID_ARG}111")),
+        ];
+        assert_eq!(
+            relaunch_args(args.into_iter(), 222),
+            vec![OsString::from("--some-flag"), OsString::from(format!("{WAIT_FOR_PID_ARG}222"))]
+        );
+    }
+
+    #[test]
+    fn only_a_process_started_by_an_update_waits() {
+        let args = |list: &[&str]| list.iter().map(OsString::from).collect::<Vec<_>>().into_iter();
+        assert_eq!(waited_for_pid(args(&["volla_messages"])), None);
+        assert_eq!(waited_for_pid(args(&["volla_messages", "--volla-wait-for-pid=42"])), Some(42));
+        assert_eq!(waited_for_pid(args(&["volla_messages", "--volla-wait-for-pid=abc"])), None);
+        // Not process ids `kill` would treat as a single process.
+        assert_eq!(waited_for_pid(args(&["volla_messages", "--volla-wait-for-pid=0"])), None);
+        assert_eq!(waited_for_pid(args(&["volla_messages", "--volla-wait-for-pid=4294967295"])), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ignores_arguments_that_are_not_utf8() {
+        use std::os::unix::ffi::OsStringExt;
+        let args = vec![OsString::from_vec(vec![0xff, 0xfe]), OsString::from("--volla-wait-for-pid=7")];
+        assert_eq!(waited_for_pid(args.into_iter()), Some(7));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tells_a_running_process_from_one_that_has_exited() {
+        assert!(process_alive(std::process::id()));
+
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(!process_alive(pid));
+    }
 }

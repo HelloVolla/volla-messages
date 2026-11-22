@@ -57,7 +57,8 @@ base64ct = "=1.7.3"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "~2.12"
 
-# Raising the open-file limit at start-up (open_files.rs).
+# Unix system calls: raising the open-file limit at start-up (open_files.rs)
+# and waiting for the previous version after an in-app update (app_update.rs).
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

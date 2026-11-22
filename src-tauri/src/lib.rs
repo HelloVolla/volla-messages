@@ -11,6 +11,10 @@ mod android_barcode_scanner;
 #[allow(unused_mut)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // After an in-app update, the previous version may still be shutting
+    // Holochain down; it must be gone before this one opens the same data.
+    app_update::wait_for_previous_instance();
+
     // Before the conductor opens its databases: with many conversations the
     // default limit runs out, and the window turns white.
     open_files::raise_limit();
