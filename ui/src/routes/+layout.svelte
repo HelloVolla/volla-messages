@@ -199,7 +199,12 @@
 
       // Initialize network stats store
       networkStatsStore = createNetworkStatsStore(client, relayClient);
-      networkStatsStore.start();
+      // Only the developer network panel shows these stats, and it exists in
+      // dev builds only. Release builds would otherwise poll every 30 s for
+      // nothing: a DHT summary plus a full source-chain read per conversation.
+      if (import.meta.env.DEV) {
+        networkStatsStore.start();
+      }
 
       // Initialize store data
       await contactStore.initialize();
