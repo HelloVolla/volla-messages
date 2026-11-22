@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- Fix: After an in-app update on macOS and Linux (AppImage), the app now opens again by itself. It used to install the update and then just close. Note: when updating from 1.0.5 or older, the old version still closes once without reopening — just open the app again.
+
 ## [1.0.5] - 2026-11-03
 
 - Fix: Scrolling up in a conversation now loads its whole history. It used to stop at the first stretch of three or more days without messages, even though older messages were stored on the device.

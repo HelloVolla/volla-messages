@@ -10,6 +10,10 @@ mod android_barcode_scanner;
 #[allow(unused_mut)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // After an in-app update, the previous version may still be shutting
+    // Holochain down; it must be gone before this one opens the same data.
+    app_update::wait_for_previous_instance();
+
     let mut builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             migration_export::write_migration_export,
