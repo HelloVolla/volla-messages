@@ -3,6 +3,7 @@ use builder::setup_builder;
 mod app_update;
 mod config;
 mod migration_export;
+mod open_files;
 
 #[cfg(all(mobile, target_os = "android"))]
 mod android_barcode_scanner;
@@ -10,6 +11,10 @@ mod android_barcode_scanner;
 #[allow(unused_mut)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before the conductor opens its databases: with many conversations the
+    // default limit runs out, and the window turns white.
+    open_files::raise_limit();
+
     let mut builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             migration_export::write_migration_export,
