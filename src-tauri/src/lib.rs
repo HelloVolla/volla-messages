@@ -38,6 +38,11 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_log::Builder::default()
+                // The defaults (one 40 KB file, deleted on rotation) held only
+                // the last few seconds of these detailed logs. Two 5 MB files
+                // keep about half an hour, and never more than 10 MB in total.
+                .max_file_size(5_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(1))
                 .level(log::LevelFilter::Warn)
                 // Our own startup trace. Without this the default Warn filter
                 // silently drops it, which makes a startup stall undiagnosable.
