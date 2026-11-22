@@ -76,6 +76,10 @@
   let configTimeout: ReturnType<typeof setTimeout>;
   let agentTimeout: ReturnType<typeof setTimeout>;
   let messageTimeout: ReturnType<typeof setTimeout>;
+  // The loads below schedule their next run after awaiting. One still running
+  // when the page closes would otherwise reschedule after onDestroy cleared
+  // the timers, and keep polling forever.
+  let destroyed = false;
 
   let conversationMessageInputRef: HTMLInputElement;
   let conversationMessagesRef: ConversationMessages;
@@ -118,6 +122,7 @@
 
   async function loadProfiles() {
     await profiles.load(true);
+    if (destroyed) return;
     isFirstProfilesLoad = false;
     clearTimeout(agentTimeout);
 
@@ -134,6 +139,7 @@
 
   async function loadConfig() {
     await conversation.loadConfig(true);
+    if (destroyed) return;
     isFirstConfigLoad = false;
     clearTimeout(configTimeout);
 
@@ -155,6 +161,7 @@
     await loadMessagesInCurrentBucket(true);
     isFirstLoadMessages = false;
   }
+  if (destroyed) return;
 
   messageTimeout = setTimeout(
     loadMessages,
@@ -231,6 +238,7 @@ async function loadMoreMessages() {
   });
 
   onDestroy(() => {
+    destroyed = true;
     clearTimeout(agentTimeout);
     clearTimeout(configTimeout);
     clearTimeout(messageTimeout);

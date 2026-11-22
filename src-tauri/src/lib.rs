@@ -3,6 +3,7 @@ use builder::setup_builder;
 mod app_update;
 mod config;
 mod migration_export;
+mod open_files;
 
 #[cfg(all(mobile, target_os = "android"))]
 mod android_barcode_scanner;
@@ -13,6 +14,10 @@ pub fn run() {
     // After an in-app update, the previous version may still be shutting
     // Holochain down; it must be gone before this one opens the same data.
     app_update::wait_for_previous_instance();
+
+    // Before the conductor opens its databases: with many conversations the
+    // default limit runs out, and the window turns white.
+    open_files::raise_limit();
 
     let mut builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -37,6 +42,11 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_log::Builder::default()
+                // The defaults (one 40 KB file, deleted on rotation) held only
+                // the last few seconds of these detailed logs. Two 5 MB files
+                // keep about half an hour, and never more than 10 MB in total.
+                .max_file_size(5_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(1))
                 .level(log::LevelFilter::Warn)
                 // Our own startup trace. Without this the default Warn filter
                 // silently drops it, which makes a startup stall undiagnosable.
