@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- Fix: With many conversations, the window on Linux could turn white and stop reacting until the app was restarted. The app now allows itself enough open files for all of its databases.
+- Fix: The app does less work in the background: a conversation stops checking for new data once you leave it, and a network check meant only for developers no longer runs for everyone.
+- Fix: The app's log file now keeps about the last half hour (at most 10 MB) instead of only the last few seconds, so problems can be traced afterwards.
+
 ## [1.0.5] - 2026-11-03
 
 - Fix: Scrolling up in a conversation now loads its whole history. It used to stop at the first stretch of three or more days without messages, even though older messages were stored on the device.

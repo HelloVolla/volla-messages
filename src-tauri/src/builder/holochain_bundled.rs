@@ -37,6 +37,8 @@ where
             HolochainPluginConfig::new(holochain_dir(), network_config())
         ))
         .setup(|app| {
+            crate::open_files::report_outcome();
+
             let handle = app.handle().clone();
             let handle_fail = app.handle().clone();
             app.handle()

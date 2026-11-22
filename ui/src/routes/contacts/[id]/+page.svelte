@@ -55,11 +55,15 @@
     $profiles?.list.find(([key]) => key === $contact.publicKeyB64) !== undefined;
 
   let isFirstProfilesLoad = true;
+  // A load still running when the page closes would otherwise schedule the
+  // next one after onDestroy, and that poll would never stop.
+  let destroyed = false;
 
   async function loadProfiles() {
     if (!profiles) return;
 
     await profiles.load(true); // allways load local because we don't want to trigger a network get that can take a long time.
+    if (destroyed) return;
     isFirstProfilesLoad = false;
 
     if (!hasAgentJoinedDht) {
@@ -90,7 +94,8 @@
   });
 
   onDestroy(() => {
-    clearInterval(pollInterval);
+    destroyed = true;
+    clearTimeout(pollInterval);
   });
 </script>
 
