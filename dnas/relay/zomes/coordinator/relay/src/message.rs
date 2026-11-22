@@ -253,6 +253,8 @@ pub struct UpdateMessageInput {
     pub original_message_hash: ActionHash,
     pub previous_message_hash: ActionHash,
     pub updated_message: Message,
+    // Agents to notify of the edit so they update their copy in real time.
+    pub agents: Vec<AgentPubKey>,
 }
 #[hdk_extern]
 pub fn update_message(input: UpdateMessageInput) -> ExternResult<Record> {
@@ -267,6 +269,24 @@ pub fn update_message(input: UpdateMessageInput) -> ExternResult<Record> {
     let record = get(updated_message_hash.clone(), GetOptions::local())?.ok_or(wasm_error!(
         WasmErrorInner::Guest("Could not find the newly updated Message".to_string())
     ))?;
+
+    // Broadcast the edit, keyed by the original message so peers can replace the
+    // message they already have rather than treat it as a new one.
+    let my_pub_key = agent_info()?.agent_initial_pubkey;
+    let agents: Vec<AgentPubKey> = input
+        .agents
+        .into_iter()
+        .filter(|a| a != &my_pub_key)
+        .collect();
+    let _ = send_remote_signal(
+        crate::RemoteSignalPayload::MessageUpdated(MessageRecord {
+            message: Some(input.updated_message),
+            original_action: input.original_message_hash,
+            signed_action: record.signed_action().clone(),
+        }),
+        agents,
+    );
+
     Ok(record)
 }
 

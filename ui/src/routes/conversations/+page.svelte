@@ -67,6 +67,16 @@
 {/if}
 
 <ConversationList enabled={true}>
+  <li class="hover:bg-tertiary-500 dark:hover:bg-secondary-500 flex items-center rounded-lg py-2">
+    <button
+      on:click={() => goto("/conversations/starred")}
+      class="mx-4 flex w-full items-center justify-start space-x-6"
+    >
+      <SvgIcon icon="starFilled" />
+      <div>{$t("common.starred_messages")}</div>
+    </button>
+  </li>
+
   {#if hasArchivedConversations}
     <li class="hover:bg-tertiary-500 dark:hover:bg-secondary-500 flex items-center rounded-lg py-2">
       <button

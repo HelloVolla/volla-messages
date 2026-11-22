@@ -1,6 +1,6 @@
 import { encodeHashToBase64, type Signal, SignalType, type AgentPubKeyB64 } from "@holochain/client";
 import { RelayClient } from "$store/RelayClient";
-import { type RelaySignal, type MessageSignal } from "$lib/types";
+import { MessageType, type RelaySignal, type MessageSignal } from "$lib/types";
 import { encodeCellIdToBase64 } from "$lib/utils";
 import { type ConversationStore } from "./ConversationStore";
 import type { ConversationMessageStore } from "./ConversationMessageStore";
@@ -36,14 +36,25 @@ export function createSignalHandler(
         cellIdB64,
         signal.value.payload as MessageSignal,
       );
+      // Reactions travel as messages but shouldn't mark the conversation unread.
       const $page = get(page);
-      if ($page.params.id !== cellIdB64 || $page.route.id !== "/conversations/[id]") {
+      if (
+        payload.message.message_type !== MessageType.Reaction &&
+        ($page.params.id !== cellIdB64 || $page.route.id !== "/conversations/[id]")
+      ) {
         await conversationStore.updateUnread(cellIdB64, true);
       }
     } else if (payload.type === "MessageDeleted") {
       const originalActionHash = payload.original_action;
       const originalActionHashB64 = encodeHashToBase64(originalActionHash);
       conversationMessageStore.handleMessageDeletedSignalReceived(cellIdB64, originalActionHashB64);
+    } else if (payload.type === "MessageUpdated") {
+      await conversationMessageStore.handleMessageUpdatedSignalReceived(
+        cellIdB64,
+        encodeHashToBase64(payload.original_action),
+        payload.message,
+        encodeHashToBase64(payload.action.hashed.hash),
+      );
     }
   };
 
