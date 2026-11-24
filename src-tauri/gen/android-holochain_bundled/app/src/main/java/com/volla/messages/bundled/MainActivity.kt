@@ -4,11 +4,28 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
+import android.webkit.WebView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  // The splashscreen's web view, once the main window's exists. On Android
+  // wry shows one web view at a time: the main window's takes over the screen,
+  // but nothing destroys the splashscreen's, so it stayed in memory all
+  // session, and the plugins loaded with it (Tauri's back handling among them)
+  // kept using it instead of the app.
+  private var previousWebView: WebView? = null
+
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    previousWebView?.takeIf { it !== webView }?.let { old ->
+      // Posted, so it runs after wry has put the new web view on screen.
+      webView.post { old.destroy() }
+    }
+    previousWebView = webView
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
