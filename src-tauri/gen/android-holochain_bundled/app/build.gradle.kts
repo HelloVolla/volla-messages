@@ -26,13 +26,13 @@ android {
          storePassword = keystoreProperties["storePassword"] as String
         }
     }
-    compileSdk = 35
+    compileSdk = 36
     namespace = "com.volla.messages.bundled"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "true"
         applicationId = "com.volla.messages.bundled"
         minSdk = 27
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1000005
         versionName = "1.0.5"
         // versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

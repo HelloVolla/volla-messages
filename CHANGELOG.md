@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix: The app does less work in the background: a conversation stops checking for new data once you leave it, and a network check meant only for developers no longer runs for everyone.
 - Fix: The app's log file now keeps about the last half hour (at most 10 MB) instead of only the last few seconds, so problems can be traced afterwards.
 - Fix: After an in-app update on macOS and Linux (AppImage), the app now opens again by itself. It used to install the update and then just close. Note: when updating from 1.0.5 or older, the old version still closes once without reopening — just open the app again.
+- Fix: Android: the app now targets Android 16 (API level 36), which Google Play requires for updates. Since Android 15 apps are drawn under the status bar, the navigation bar and the keyboard; the app now keeps its header, messages and message field clear of them.
 
 ## [1.0.5] - 2026-11-03
 
