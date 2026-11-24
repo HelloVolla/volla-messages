@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext } from "svelte";
+  import { getContext, onMount } from "svelte";
   import { QRCodeImage } from "svelte-qrcode-image";
   import Header from "$lib/Header.svelte";
   import { t } from "$translations";
@@ -11,6 +11,9 @@
   import ButtonIconBare from "$lib/ButtonIconBare.svelte";
   import InputImageAvatar from "$lib/InputImageAvatar.svelte";
   import { type CellProfileStore, type ProfileStore } from "$store/ProfileStore";
+  import Button from "$lib/Button.svelte";
+  import DialogConfirm from "$lib/DialogConfirm.svelte";
+  import { canExportLogs, exportLogs, isLite } from "$lib/logsExport";
 
   const profileStore = getContext<{ getStore: () => ProfileStore }>("profileStore").getStore();
   const provisionedRelayCellProfileStore = getContext<{
@@ -24,6 +27,31 @@
 
   let saving = false;
   let editingName = false;
+
+  let logsExportable = false;
+  let lite = false;
+  let showExportLogsDialog = false;
+  let exportingLogs = false;
+
+  onMount(async () => {
+    logsExportable = await canExportLogs();
+    lite = await isLite();
+  });
+
+  async function handleExportLogs() {
+    // Close the note first: the save dialog opens on top of the app.
+    showExportLogsDialog = false;
+    exportingLogs = true;
+    try {
+      if (await exportLogs($t("common.export_logs"))) {
+        toast.success($t("common.export_logs_success"));
+      }
+    } catch (e) {
+      console.error("[logs] export failed", e);
+      toast.error(`${$t("common.export_logs_error")}: ${e}`);
+    }
+    exportingLogs = false;
+  }
 
   async function save(firstNameVal: string, lastNameVal: string, avatarVal: string) {
     if (firstNameVal.length < MIN_FIRST_NAME_LENGTH) return;
@@ -99,4 +127,30 @@
       shareLabel={$t("common.share_your_contact_code")}
     />
   </div>
+
+  {#if logsExportable}
+    <div class="mb-8">
+      <Button
+        icon="download"
+        loading={exportingLogs}
+        disabled={exportingLogs}
+        on:click={() => (showExportLogsDialog = true)}
+      >
+        {$t("common.export_logs")}
+      </Button>
+    </div>
+  {/if}
 </div>
+
+<DialogConfirm
+  bind:open={showExportLogsDialog}
+  title={$t("common.export_logs")}
+  actionButtonLabel={$t("common.export_logs_confirm")}
+  actionButtonIcon="download"
+  on:confirm={handleExportLogs}
+>
+  <p>{$t("common.export_logs_message")}</p>
+  {#if lite}
+    <p class="mt-2">{$t("common.export_logs_lite_message")}</p>
+  {/if}
+</DialogConfirm>

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix: The app does less work in the background: a conversation stops checking for new data once you leave it, and a network check meant only for developers no longer runs for everyone.
 - Fix: The app's log file now keeps about the last half hour (at most 10 MB) instead of only the last few seconds, so problems can be traced afterwards.
 - Fix: After an in-app update on macOS and Linux (AppImage), the app now opens again by itself. It used to install the update and then just close. Note: when updating from 1.0.5 or older, the old version still closes once without reopening — just open the app again.
+- Feat: You can now export the app's log files from your account page ("Export logs") and send them to the Volla team when reporting a problem — on desktop and Android, no hidden folders or extra tools needed. Not available on Ubuntu Touch yet.
 
 ## [1.0.5] - 2026-11-03
 

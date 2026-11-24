@@ -2,6 +2,7 @@ mod builder;
 use builder::setup_builder;
 mod app_update;
 mod config;
+mod logs_export;
 mod migration_export;
 mod open_files;
 
@@ -31,7 +32,8 @@ pub fn run() {
             migration_export::list_export_images,
             migration_export::write_image_index,
             app_update::install_kind,
-            app_update::install_desktop_update
+            app_update::install_desktop_update,
+            logs_export::read_logs
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
