@@ -35,17 +35,19 @@
           rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
           # Android SDK + NDK, matching the gradle configs in src-tauri/gen/*
-          # (compileSdk 35, targetSdk 34, minSdk 27). The NDK is what `cargo ndk`
+          # (compileSdk 36, targetSdk 36, minSdk 27). The NDK is what `cargo ndk`
           # uses to cross-compile the Rust crates into jniLibs. 28.0.13004108 is
           # the NDK the previous (darksoil) dev shell shipped, so produced .so
           # files stay the same (clang 19, 16 KB page-aligned).
           ndkVersion = "28.0.13004108";
           androidComposition = pkgs.androidenv.composeAndroidPackages {
-            # 34 + 35: targetSdk and compileSdk. Gradle cannot auto-install
-            # platforms or build-tools into the read-only nix store, so every
-            # version the build touches must be listed here.
-            platformVersions = [ "34" "35" ];
-            buildToolsVersions = [ "34.0.0" "35.0.0" ];
+            # 36: our targetSdk and compileSdk (Google Play requires targetSdk
+            # 36). 34: the Android libraries of some Tauri plugins (sharesheet)
+            # compile against it. Gradle cannot auto-install platforms or
+            # build-tools into the read-only nix store, so every version the
+            # build touches must be listed here.
+            platformVersions = [ "34" "36" ];
+            buildToolsVersions = [ "35.0.0" "36.0.0" ];
             includeNDK = true;
             ndkVersions = [ ndkVersion ];
             cmakeVersions = [ "3.22.1" ];
