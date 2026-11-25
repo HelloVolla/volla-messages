@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Feat: You can now export the app's log files from your account page ("Export logs") and send them to the Volla team when reporting a problem — on desktop and Android, no hidden folders or extra tools needed. Not available on Ubuntu Touch yet.
 - Fix: Android: the app now targets Android 16 (API level 36), which Google Play requires for updates. Since Android 15 apps are drawn under the status bar, the navigation bar and the keyboard; the app now keeps its header, messages and message field clear of them.
 - Fix: Android: the back gesture now goes back to the previous page, e.g. from a conversation to the conversation list, instead of closing the app. On the conversation list it still leaves the app. The Standalone app also no longer keeps its start-up screen in memory.
+- Feat: The saved copy for the next major update now also includes group pictures and the names and pictures of the other people in your conversations, so they can still be shown after updating. Archived conversations keep what was saved for them before.
 
 ## [1.0.5] - 2026-11-03
 
