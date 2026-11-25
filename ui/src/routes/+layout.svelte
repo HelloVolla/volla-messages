@@ -280,6 +280,7 @@
       contactStore,
       myPubKeyB64,
       get(provisionedRelayCellProfileStore).data[myPubKeyB64],
+      get(profileStore).data,
     );
   }
 
@@ -345,6 +346,7 @@
       contactStore,
       myPubKeyB64,
       get(provisionedRelayCellProfileStore).data[myPubKeyB64],
+      get(profileStore).data,
     );
     await exportHistory(relayClient, conversationStore, myPubKeyB64);
   }
@@ -364,6 +366,7 @@
     migrationExportUnsubscribers = [
       conversationStore.subscribe(scheduleMigrationExport),
       contactStore.subscribe(scheduleMigrationExport),
+      profileStore.subscribe(scheduleMigrationExport),
     ];
 
     setTimeout(runHistoryExport, HISTORY_EXPORT_FIRST_DELAY_MS);

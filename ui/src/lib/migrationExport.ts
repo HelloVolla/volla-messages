@@ -3,7 +3,12 @@ import { getVersion } from "@tauri-apps/api/app";
 import { get } from "svelte/store";
 import { Base64 } from "js-base64";
 import type { AgentPubKeyB64, CellId } from "@holochain/client";
-import { Privacy, type ConversationExtended, type ProfileExtended } from "$lib/types";
+import {
+  Privacy,
+  type CellIdB64,
+  type ConversationExtended,
+  type ProfileExtended,
+} from "$lib/types";
 import type { RelayClient } from "$store/RelayClient";
 import type { ConversationStore } from "$store/ConversationStore";
 import type { ContactStore } from "$store/ContactStore";
@@ -46,6 +51,24 @@ export interface ExportedConversation {
 
   /** `false` for archived conversations, whose cell is disabled. */
   enabled: boolean;
+
+  /** The group picture (data URL). Absent when the conversation has none. */
+  image?: string;
+
+  /**
+   * Everyone else with a profile in this conversation; their names and
+   * pictures are in `people`. Lets the importing release show who wrote old
+   * messages before those members migrate themselves.
+   */
+  memberKeys?: AgentPubKeyB64[];
+}
+
+/** Another member's profile as this device last saw it. */
+export interface ExportedPerson {
+  nickname: string;
+  firstName: string;
+  lastName: string;
+  avatar: string;
 }
 
 export interface ExportedContact {
@@ -68,6 +91,14 @@ export interface MigrationExport {
   };
   contacts: ExportedContact[];
   conversations: ExportedConversation[];
+
+  /**
+   * Profiles of the other members of all conversations, each person once
+   * however many conversations they share (`memberKeys` points here).
+   * Optional, like `image` and `memberKeys`: added in 1.0.6 without bumping
+   * `version`, so earlier exports stay valid and the 2.0 import keeps reading.
+   */
+  people?: Record<AgentPubKeyB64, ExportedPerson>;
 
   /**
    * Conversations that need a membrane proof but have never had one readable,
@@ -283,6 +314,57 @@ function previousProofs(previous?: MigrationExport): Map<string, string> {
   return proofs;
 }
 
+/** Profiles by conversation (`cellIdB64`), then by agent, as `ProfileStore` holds them. */
+export type ProfilesByConversation = Record<CellIdB64, Record<AgentPubKeyB64, ProfileExtended>>;
+
+function toPerson(p: ProfileExtended): ExportedPerson {
+  return {
+    nickname: p.profile.nickname,
+    firstName: p.profile.fields.firstName,
+    lastName: p.profile.fields.lastName,
+    avatar: p.profile.fields.avatar,
+  };
+}
+
+/**
+ * The group picture and members of one conversation, and the profiles of those
+ * members. An archived conversation's cell is disabled, so its config and
+ * profiles are not loaded; it keeps what an earlier export recorded rather
+ * than enabling the cell to read them.
+ */
+function picturesAndMembers(
+  conversation: ConversationExtended,
+  cellIdB64: CellIdB64,
+  myPubKeyB64: AgentPubKeyB64,
+  profiles: ProfilesByConversation,
+  previous: MigrationExport | undefined,
+  people: Record<AgentPubKeyB64, ExportedPerson>,
+): Pick<ExportedConversation, "image" | "memberKeys"> {
+  const earlier = previous?.conversations?.find((c) => c.cellIdB64 === cellIdB64);
+  const loaded = Object.values(profiles[cellIdB64] ?? {}).filter(
+    (p) => p.publicKeyB64 !== myPubKeyB64,
+  );
+
+  let image = conversation.config?.image || undefined;
+  let memberKeys: AgentPubKeyB64[] | undefined;
+
+  if (loaded.length > 0) {
+    memberKeys = loaded.map((p) => p.publicKeyB64).sort();
+    for (const p of loaded) people[p.publicKeyB64] = toPerson(p);
+  } else if (earlier?.memberKeys) {
+    memberKeys = earlier.memberKeys;
+    for (const key of memberKeys) {
+      const person = previous?.people?.[key];
+      if (person && !people[key]) people[key] = person;
+    }
+  }
+  if (image === undefined && !conversation.cellInfo.enabled) {
+    image = earlier?.image;
+  }
+
+  return { image, memberKeys };
+}
+
 async function collect(
   relayClient: RelayClient,
   conversationStore: ConversationStore,
@@ -290,10 +372,12 @@ async function collect(
   myPubKeyB64: AgentPubKeyB64,
   myProfile?: ProfileExtended,
   previous?: MigrationExport,
+  profiles: ProfilesByConversation = {},
 ): Promise<MigrationExport> {
   const knownProofs = previousProofs(previous);
   const conversations: ExportedConversation[] = [];
   const conversationsMissingProof: string[] = [];
+  const people: Record<AgentPubKeyB64, ExportedPerson> = {};
 
   for (const [cellIdB64, c] of Object.entries(get(conversationStore).data)) {
     const conversation = c as ConversationExtended;
@@ -360,6 +444,7 @@ async function collect(
       title,
       membraneProofB64,
       enabled: conversation.cellInfo.enabled,
+      ...picturesAndMembers(conversation, cellIdB64, myPubKeyB64, profiles, previous, people),
     });
   }
 
@@ -385,6 +470,7 @@ async function collect(
       : undefined,
     contacts,
     conversations,
+    people,
     conversationsMissingProof,
     persistedState: collectPersistedState(),
   };
@@ -427,6 +513,7 @@ export async function exportMigrationData(
   contactStore: ContactStore,
   myPubKeyB64: AgentPubKeyB64,
   myProfile?: ProfileExtended,
+  profiles?: ProfilesByConversation,
 ): Promise<void> {
   try {
     // Once per session, before anything else: undo an enable left behind by a
@@ -454,6 +541,7 @@ export async function exportMigrationData(
       myPubKeyB64,
       myProfile,
       previous,
+      profiles,
     );
 
     if (previous && wouldDiscardEverything(next, previous)) {
